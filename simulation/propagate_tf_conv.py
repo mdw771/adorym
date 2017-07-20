@@ -43,8 +43,8 @@ def ifftshift(tensor):
     return tensor
 
 
-grid_delta = np.load('data/sav/grid/grid_delta.npy')
-grid_beta = np.load('data/sav/grid/grid_beta.npy')
+grid_delta = np.load('data/sav/grid/64/grid_delta.npy')
+grid_beta = np.load('data/sav/grid/64/grid_beta.npy')
 
 sim = Simulator(energy=5000,
                 grid=(grid_delta, grid_beta),

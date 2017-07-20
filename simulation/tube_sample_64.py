@@ -71,8 +71,8 @@ def test_model_prop_pipeline():
         grid_beta = grid_data[..., 1]
         dxchange.write_tiff(grid_delta*1e7, 'tmp', dtype='float32', overwrite=True)
 
-        # np.save('data/sav/grid/grid_delta.npy', grid_delta)
-        # np.save('data/sav/grid/grid_beta.npy', grid_beta)
+        np.save('data/sav/grid/64/grid_delta.npy', grid_delta)
+        np.save('data/sav/grid/64/grid_beta.npy', grid_beta)
 
     sim = Simulator(energy=5000,
                     grid=(grid_delta, grid_beta),
