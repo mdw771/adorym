@@ -85,11 +85,11 @@ def test_model_prop_pipeline():
     # plt.imshow(np.angle(sim.wavefrsont))
     # plt.show()
     t0 = time.time()
-    wavefront = sim.multislice_propagate()
+    wavefront = sim.multislice_propagate(free_prop_dist=1e-4)
     print('Propagation time: {} ms'.format((time.time() - t0) * 1000))
 
     # dxchange.write_tiff(sim.wavefront, 'exiting_sphwave_flattened', dtype='float32', overwrite=True)
-    plt.imshow(np.log10(np.abs(wavefront)))
+    plt.imshow(np.abs(wavefront))
     plt.show()
 
 

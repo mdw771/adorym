@@ -19,22 +19,22 @@ sim = Simulator(energy=25000,
 
 wavefront = np.load('exiting.npy')
 
+# wavefront = dxchange.read_tiff('phantom.tiff')
+
 # wavefront = np.zeros([512, 512])
 # wavefront[236:276, 236:276] = 1
-
+# wavefront = 1 - wavefront
+# wavefront = wavefront - wavefront[0, 0]
 """
 distance for 2 algos to have same sampling rate: 1.0322e-3
 analytical: Dz = dx^2 * N / lambda
 """
-
-wavefront = far_propagate(sim, wavefront, 1.0322e-3, pad=None)
-# wavefront = free_propagate(sim, wavefront, 1.03e-3)
+wavefront = far_propagate(sim, wavefront, 2.0322e-3, pad=512)
+# wavefront = free_propagate(sim, wavefront, 1e-3)
 # sim.multislice_propagate()
 
 
 # wavefront = wavefront[203:309, 203:309]
 r = np.abs(wavefront)
-# r = np.log10(np.abs(wavefront))
-print r.min(), r.max()
 plt.imshow(r)
 plt.show()
