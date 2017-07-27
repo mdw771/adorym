@@ -29,12 +29,12 @@ wavefront = np.load('exiting.npy')
 distance for 2 algos to have same sampling rate: 1.0322e-3
 analytical: Dz = dx^2 * N / lambda
 """
-wavefront = far_propagate(sim, wavefront, 2.0322e-3, pad=512)
-# wavefront = free_propagate(sim, wavefront, 1e-3)
+# wavefront = far_propagate(sim, wavefront, 1e-3, pad=None)
+wavefront = propagate_tf(sim, wavefront, 1e-2)
 # sim.multislice_propagate()
 
 
 # wavefront = wavefront[203:309, 203:309]
-r = np.abs(wavefront)
+r = (np.abs(wavefront))
 plt.imshow(r)
 plt.show()
