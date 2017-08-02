@@ -27,6 +27,8 @@ def test_model_prop_pipeline():
     silicon = XraylibMaterial('Si', 2.33)
     titania = XraylibMaterial('TiO2', 4.23)
     air = CustomMaterial(delta=0, beta=0)
+    print(silicon.delta(energy=5), silicon.beta(energy=5))
+    print(titania.delta(energy=5), titania.beta(energy=5))
 
     try:
         grid_delta = np.load('data/sav/grid/grid_delta.npy')
