@@ -27,7 +27,6 @@ def propTF(u1,step,L,wavel,z) :
     FX,FY = np.meshgrid((fx),(fy))
     FX = fft.fftshift(FX)
     FY = fft.fftshift(FY)
-    print FX
     H = np.exp(-1j*np.pi*wavel*z*(FX**2+FY**2))
     U1 = fft.fftshift(fft.fft2(u1))
     U2 = np.multiply(H,(U1))
@@ -54,7 +53,6 @@ Fraunhofer propogation. Note that we now output two variables since the side len
 def propFF(u1,step,L1,wavel,z):
     M,N = np.shape(u1)
     k = 2*np.pi/wavel
-    print(wavel,z,step)
     L2 = wavel*z/step
     step2 = wavel*z/L1
     n = L2/step2 #number of samples
