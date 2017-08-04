@@ -78,13 +78,13 @@ def test_model_prop_pipeline():
                     grid=(grid_delta, grid_beta),
                     psize=[1e-7, 1e-7, 1e-7])
 
-    # sim.initialize_wavefront('plane')
+    sim.initialize_wavefront('plane')
     # sim.initialize_wavefront('point_projection_lens', focal_length=2e6, lens_sample_dist=4e6)
-    sim.initialize_wavefront('spherical', dist_to_source=1e6)
+    # sim.initialize_wavefront('spherical', dist_to_source=1e6)
     # plt.imshow(np.angle(sim.wavefrsont))
     # plt.show()
     wavefront = sim.multislice_propagate(free_prop_dist=None)
-    np.save('exiting_spherical.npy', wavefront)
+    np.save('exiting.npy', wavefront)
 
     # dxchange.write_tiff(sim.wavefront, 'exiting_sphwave_flattened', dtype='float32', overwrite=True)
     plt.imshow(np.log10(np.abs(wavefront)))

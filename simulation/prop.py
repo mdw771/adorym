@@ -58,7 +58,7 @@ def propFF(u1,step,L1,wavel,z):
     n = L2/step2 #number of samples
     x2 = np.linspace(-L2/2.0,L2/2.0,n)
     X2,Y2 = np.meshgrid(x2,x2)
-    c = 1/(1j*wavel*z)*np.exp(((1j*k)/(2*z))*(X2**2+Y2**2))
+    c = 1/(1j*wavel*z)*np.exp(((1j*k)/(2.*z))*(X2**2+Y2**2))
     u2 = np.multiply(c,fft.ifftshift(fft.fft2(fft.fftshift(u1))))*step*step
     return u2,L2
 

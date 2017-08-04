@@ -30,7 +30,7 @@ def test_model_prop_pipeline():
     air = CustomMaterial(delta=0, beta=0)
 
     try:
-        raise ValueError
+        # raise ValueError
         grid_delta = np.load('data/sav/grid/grid_delta.npy')
         grid_beta = np.load('data/sav/grid/grid_beta.npy')
     except:
