@@ -17,11 +17,7 @@ sim = Simulator(energy=5000,
                 grid=(grid_delta, grid_beta),
                 psize=[1e-7, 1e-7, 1e-7])
 
-wavefront = np.load('exiting.npy')
-
-import matplotlib.pyplot as plt
-plt.figure()
-plt.imshow(abs(wavefront))
+# wavefront = np.load('exiting.npy')
 
 # wavefront = dxchange.read_tiff('phantom.tiff')
 
@@ -35,17 +31,16 @@ analytical: Dz = dx^2 * N / lambda
 """
 # wavefront = far_propagate(sim, wavefront, 1e-3, pad=None)
 
-wavefront = propagate_tf(sim, wavefront, 1e-3)
-plt.figure()
-plt.imshow(abs(wavefront))
+
+# wavefront = np.fft.fftshift(np.fft.fft2(wavefront))
 
 
-wavefront = propagate_tf(sim, wavefront, -1e-3)
+# wavefront = propagate_tf(sim, wavefront, -1e-3)
 # sim.multislice_propagate()
 
 
 # wavefront = wavefront[203:309, 203:309]
-plt.figure()
-r = (np.abs(wavefront))
+# plt.figure()
+r = np.log(np.abs(wavefront))
 plt.imshow(r)
 plt.show()
