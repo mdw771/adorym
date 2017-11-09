@@ -13,7 +13,7 @@ theta_st = 0
 theta_end = PI
 n_theta = 100
 img_dim = 64
-n_epochs = 20
+n_epochs = 2000
 # ============================================
 
 
@@ -29,16 +29,15 @@ except:
         img = np.sum(temp, axis=1)
         dxchange.write_tiff(img, 'test_data/{:05d}'.format(i), dtype='float32', overwrite=True)
         prj = dxchange.read_tiff_stack('test_data/00000.tiff', range(0, n_theta), 5)
-        print(prj.shape)
 
-obj = tf.random_normal([img_dim, img_dim, img_dim])
-prj_pred = tf.zeros([n_theta, img_dim, img_dim])
-loss = tf.Variable(initial_value=0., dtype='float32')
+obj = tf.Variable(initial_value=tf.random_normal([img_dim, img_dim, img_dim, 1]))
+
+loss = tf.reduce_sum(tf.squared_difference(tf.reduce_sum(obj, 1)[:, :, 0], prj[0]))
 
 d_theta = (theta_end - theta_st) / (n_theta - 1)
-for i, theta in enumerate(np.linspace(theta_st, theta_end, n_theta)):
-    obj = tf_rotate(obj, d_theta)
-    loss = tf.add(loss, tf.reduce_sum(tf.squared_difference(tf.reduce_sum(obj, 1), prj[i])))
+for i, theta in enumerate(np.linspace(theta_st + d_theta, theta_end, n_theta - 1)):
+    obj = tf_rotate(obj, d_theta, interpolation='BILINEAR')
+    loss += tf.reduce_sum(tf.squared_difference(tf.reduce_sum(obj, 1)[:, :, 0], prj[i + 1]))
 
 optimizer = tf.train.AdamOptimizer().minimize(loss)
 sess = tf.Session()
