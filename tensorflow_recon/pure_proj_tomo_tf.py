@@ -81,7 +81,7 @@ c = lambda i, loss, obj: tf.less(i, n_theta)
 
 _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
-loss /= n_theta
+loss = loss / n_theta + 1.e-4 * tf.reduce_sum(tf.image.total_variation(obj))
 
 optimizer = tf.train.AdamOptimizer(learning_rate=1).minimize(loss)
 
@@ -92,6 +92,7 @@ for epoch in range(n_epochs):
 
     _, current_loss = sess.run([optimizer, loss])
     loss_ls.append(current_loss)
+    print(sess.run(tf.reduce_sum(tf.image.total_variation(obj))))
     print('Iteration {}; loss = {}'.format(epoch, current_loss))
 
 res = sess.run(obj)
