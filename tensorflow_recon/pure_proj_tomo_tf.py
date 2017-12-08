@@ -72,7 +72,7 @@ obj = tf.Variable(initial_value=tf.random_normal([img_dim, img_dim, img_dim, 1])
 
 loss = tf.constant(0.0)
 
-d_theta = (theta_end - theta_st) / (n_theta - 1)
+# d_theta = (theta_end - theta_st) / (n_theta - 1)
 # theta_ls = np.linspace(theta_st, theta_end, n_theta)
 i = tf.constant(0)
 c = lambda i, loss, obj: tf.less(i, n_theta)
