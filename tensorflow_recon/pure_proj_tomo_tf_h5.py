@@ -50,6 +50,9 @@ print('Data shape: {}'.format(prj.shape))
 prj = tomopy.normalize(prj, flt, drk)
 prj = preprocess(prj)
 
+prj = tomopy.downsample(prj, level=2, axis=2)
+print('Downsampled shape: {}'.format(prj.shape))
+
 dim_y, dim_x = prj.shape[-2:]
 
 n_theta = prj.shape[0]
