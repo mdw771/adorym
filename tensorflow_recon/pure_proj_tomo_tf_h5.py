@@ -50,6 +50,7 @@ print('Data shape: {}'.format(prj.shape))
 prj = tomopy.normalize(prj, flt, drk)
 prj = preprocess(prj)
 
+prj = tomopy.downsample(prj, level=2, axis=0)
 prj = tomopy.downsample(prj, level=2, axis=2)
 print('Downsampled shape: {}'.format(prj.shape))
 
