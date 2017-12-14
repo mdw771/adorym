@@ -43,8 +43,10 @@ def rotate_and_project_2(obj, theta):
 sess = tf.Session()
 
 t0 = time.time()
+print('Reading data...')
 prj, flt, drk, theta = dxchange.read_aps_32id('data.h5', sino=sino_range)
 print('Data reading: {} s'.format(time.time() - t0))
+print('Data shape: {}'.format(prj.shape))
 prj = tomopy.normalize(prj, flt, drk)
 prj = preprocess(prj)
 
@@ -88,6 +90,8 @@ loss_ls = []
 sess.run(tf.global_variables_initializer())
 
 t0 = time.time()
+
+print('Optimizer started.')
 
 for epoch in range(n_epochs):
 
