@@ -21,6 +21,7 @@ theta_end = PI
 n_theta = 500
 img_dim = 64
 n_epochs = 200
+alpha = 1.e-4
 # ============================================
 
 
@@ -34,7 +35,7 @@ def rotate_and_project(i, loss, obj):
 def rotate_and_project_2(obj, theta):
 
     obj_tensor = tf.convert_to_tensor(obj)
-    obj_tensor = tf.reshape(obj_tensor, shape=[img_dim, img_dim, img_dim, 1])
+    obj_tensor = tf.reshape(obj_tensor, shape=[img_dim_y, img_dim_x, img_dim_x, 1])
     prjobj = sess.run(tf.reduce_sum(tf_rotate(obj_tensor, theta, interpolation='BILINEAR'), 1)[:, :, 0])
     return prjobj
 
@@ -55,6 +56,9 @@ except:
     prj = dxchange.read_tiff_stack('test_data/00000.tiff', range(0, n_theta), 5)
     print(prj.shape)
 
+img_dim_y = prj.shape[1]
+img_dim_x = prj.shape[2]
+
 prj = tf.convert_to_tensor(prj)
 
 theta_ls_tensor = tf.constant(np.linspace(theta_st, theta_end, n_theta), dtype='float32')
@@ -65,7 +69,7 @@ theta_ls_tensor = tf.constant(np.linspace(theta_st, theta_end, n_theta), dtype='
 #
 # raise Exception
 
-obj = tf.Variable(initial_value=tf.random_normal([img_dim, img_dim, img_dim, 1]))
+obj = tf.Variable(initial_value=tf.random_normal([img_dim_y, img_dim_x, img_dim_x, 1]))
 # obj = tf.Variable(obj_true, dtype='float32')
 # obj = tf.reshape(obj, shape=[img_dim, img_dim, img_dim, 1])
 
@@ -81,7 +85,7 @@ c = lambda i, loss, obj: tf.less(i, n_theta)
 
 _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
-loss = loss / n_theta + 1.e-4 * tf.reduce_sum(tf.image.total_variation(obj))
+loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
 
 optimizer = tf.train.AdamOptimizer(learning_rate=1).minimize(loss)
 

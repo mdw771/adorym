@@ -7,6 +7,7 @@ from scipy.misc import imrotate
 import matplotlib.pyplot as plt
 import tomopy
 import time
+import os
 from util import *
 
 
@@ -21,95 +22,157 @@ PI = 3.1415927
 theta_st = 0
 theta_end = PI
 n_epochs = 200
-sino_range = (0, 50, 1)
+sino_range = (600, 601, 1)
+alpha_ls = np.arange(1e-5, 1e-4, 1e-5)
+# alpha_ls = [1e-5]
+learning_rate_ls = [0.5]
+# learning_rate_ls = [0.001, 0.01, 0.1]
+center = 958
+# output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
 
-def rotate_and_project(i, loss, obj):
 
-    loss += tf.reduce_mean(tf.squared_difference(tf.reduce_sum(tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR'), 1)[:, :, 0], prj[i]))
-    i = tf.add(i, 1)
-    return (i, loss, obj)
+def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0, output_folder=None, downsample=None,
+               save_intermediate=False):
 
+    def rotate_and_project(i, loss, obj):
 
-def rotate_and_project_2(obj, theta):
+        loss += tf.reduce_mean(tf.squared_difference(
+            tf.reduce_sum(tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR'), 1)[:, :, 0], prj[i]))
+        i = tf.add(i, 1)
+        return (i, loss, obj)
 
-    obj_tensor = tf.convert_to_tensor(obj)
-    obj_tensor = tf.reshape(obj_tensor, shape=[dim_y, dim_x, dim_x, 1])
-    prjobj = sess.run(tf.reduce_sum(tf_rotate(obj_tensor, theta, interpolation='BILINEAR'), 1)[:, :, 0])
-    return prjobj
+    def rotate_and_project_2(obj, theta):
 
+        obj_tensor = tf.convert_to_tensor(obj)
+        obj_tensor = tf.reshape(obj_tensor, shape=[dim_y, dim_x, dim_x, 1])
+        prjobj = sess.run(tf.reduce_sum(tf_rotate(obj_tensor, theta, interpolation='BILINEAR'), 1)[:, :, 0])
+        return prjobj
 
-sess = tf.Session()
+    with tf.device('/gpu:0'):
 
-t0 = time.time()
-print('Reading data...')
-prj, flt, drk, theta = dxchange.read_aps_32id('data.h5', sino=sino_range)
-print('Data reading: {} s'.format(time.time() - t0))
-print('Data shape: {}'.format(prj.shape))
-prj = tomopy.normalize(prj, flt, drk)
-prj = preprocess(prj)
+        sess = tf.Session()
 
-prj = tomopy.downsample(prj, level=2, axis=0)
-prj = tomopy.downsample(prj, level=2, axis=2)
-print('Downsampled shape: {}'.format(prj.shape))
+        if output_folder is None:
+            # output_folder = 'rand_init_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
-dim_y, dim_x = prj.shape[-2:]
-
-n_theta = prj.shape[0]
-
-prj = tf.convert_to_tensor(prj)
-
-# theta_ls_tensor = tf.constant(np.linspace(theta_st, theta_end, n_theta), dtype='float32')
-theta_ls_tensor = tf.constant(theta, dtype='float32')
-
-# rec = tomopy.recon(prj, tomopy.angles(n_theta), algorithm='gridrec')
-# dxchange.write_tiff(np.squeeze(prj[:, 32, :]), 'sinogram', dtype='float32', overwrite=True)
-# dxchange.write_tiff_stack(rec, 'gridrec_results/grid', dtype='float32', overwrite=True)
-#
-# raise Exception
-
-obj = tf.Variable(initial_value=tf.random_normal([dim_y, dim_x, dim_x, 1]))
-# obj = tf.Variable(obj_true, dtype='float32')
-# obj = tf.reshape(obj, shape=[img_dim, img_dim, img_dim, 1])
+            ####################################################
+            # output_folder = 'fbp_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+            # output_folder = 'uni_0.5_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+            output_folder = 'norm_0p2_0p1_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+            ####################################################
 
 
-loss = tf.constant(0.0)
+        t0 = time.time()
+        print('Reading data...')
+        prj, flt, drk, _ = dxchange.read_aps_32id(fname, sino=sino_range)
+        print('Data reading: {} s'.format(time.time() - t0))
+        print('Data shape: {}'.format(prj.shape))
+        prj = tomopy.normalize(prj, flt, drk)
+        prj = preprocess(prj)
+        # scale up to prevent precision issue
+        prj *= 1.e2
 
-# d_theta = (theta_end - theta_st) / (n_theta - 1)
-# theta_ls = np.linspace(theta_st, theta_end, n_theta)
-i = tf.constant(0)
-c = lambda i, loss, obj: tf.less(i, n_theta)
+        # correct for center
+        offset = int(prj.shape[-1] / 2) - center
+        if offset != 0:
+            for i in range(prj.shape[0]):
+                prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
 
-# obj = tf_rotate(obj, -d_theta, interpolation='BILINEAR')
 
-_, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+        if downsample is not None:
+            prj = tomopy.downsample(prj, level=downsample[0], axis=0)
+            prj = tomopy.downsample(prj, level=downsample[1], axis=1)
+            prj = tomopy.downsample(prj, level=downsample[2], axis=2)
+            print('Downsampled shape: {}'.format(prj.shape))
 
-loss = loss / n_theta + 1.e-4 * tf.reduce_sum(tf.image.total_variation(obj))
+        dxchange.write_tiff(prj, 'prj', dtype='float32', overwrite=True)
 
-optimizer = tf.train.AdamOptimizer(learning_rate=1).minimize(loss)
+        dim_y, dim_x = prj.shape[-2:]
+        n_theta = prj.shape[0]
 
-loss_ls = []
+        # reference recon by gridrec
+        rec = tomopy.recon(prj, tomopy.angles(n_theta), algorithm='gridrec', center=int(prj.shape[-1] / 2))
+        dxchange.write_tiff_stack(rec, 'ref_results/recon', dtype='float32', overwrite=True)
 
-sess.run(tf.global_variables_initializer())
+        # convert data
+        prj = tf.convert_to_tensor(prj)
 
-t0 = time.time()
+        theta = -np.linspace(theta_st, theta_end, n_theta)
 
-print('Optimizer started.')
+        theta_ls_tensor = tf.constant(theta, dtype='float32')
 
-for epoch in range(n_epochs):
+        # obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 1]))
+        # obj += 0.5
+        obj = tf.Variable(initial_value=tf.random_normal([dim_y, dim_x, dim_x, 1], mean=0.2, stddev=0.1))
 
-    t00 = time.time()
-    _, current_loss = sess.run([optimizer, loss])
-    loss_ls.append(current_loss)
-    print(sess.run(tf.reduce_sum(tf.image.total_variation(obj))))
-    print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
+        ######################################################
+        # fbp_res = dxchange.read_tiff('ref_results/recon_00000.tiff')
+        # fbp_res = fbp_res[np.newaxis, :, :, np.newaxis]
+        # obj = tf.Variable(initial_value=fbp_res)
+        ######################################################
 
-print('Total time: {}'.format(time.time() - t0))
 
-res = sess.run(obj)
-dxchange.write_tiff_stack(res[:, :, :, 0], fname='recon_h5/recon', dtype='float32', overwrite=True)
 
-plt.plot(range(n_epochs), loss_ls)
-plt.show()
+        loss = tf.constant(0.0)
 
+        # d_theta = (theta_end - theta_st) / (n_theta - 1)
+        # theta_ls = np.linspace(theta_st, theta_end, n_theta)
+        i = tf.constant(0)
+        c = lambda i, loss, obj: tf.less(i, n_theta)
+
+        # obj = tf_rotate(obj, -d_theta, interpolation='BILINEAR')
+
+        _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+
+        loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
+
+        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
+
+        loss_ls = []
+
+        sess.run(tf.global_variables_initializer())
+
+        t0 = time.time()
+
+        print('Optimizer started.')
+
+        for epoch in range(n_epochs):
+
+            t00 = time.time()
+            _, current_loss = sess.run([optimizer, loss])
+            loss_ls.append(current_loss)
+            if save_intermediate:
+                temp_obj = sess.run\
+                    (obj)
+                dxchange.write_tiff(np.squeeze(temp_obj[0, :, :, 0]),
+                                          fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
+                                          dtype='float32',
+                                          overwrite=True)
+            # print(sess.run(tf.reduce_sum(tf.image.total_variation(obj))))
+            print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
+
+        print('Total time: {}'.format(time.time() - t0))
+
+        res = sess.run(obj)
+        dxchange.write_tiff_stack(res[:, :, :, 0], fname=os.path.join(output_folder, 'recon'), dtype='float32', overwrite=True)
+
+        plt.figure()
+        plt.semilogy(range(n_epochs), loss_ls)
+        # plt.show()
+        plt.savefig(os.path.join(output_folder, 'converge.png'), format='png')
+
+
+if __name__ == '__main__':
+
+    for alpha in alpha_ls:
+        for learning_rate in learning_rate_ls:
+            print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
+            reconstrct(fname='data.h5',
+                       sino_range=sino_range,
+                       n_epochs=200,
+                       alpha=alpha,
+                       learning_rate=learning_rate,
+                       downsample=(0, 0, 0),
+                       save_intermediate=True)
