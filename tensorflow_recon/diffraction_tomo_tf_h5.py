@@ -2,6 +2,7 @@ import tensorflow as tf
 from tensorflow.contrib.image import rotate as tf_rotate
 import dxchange
 import numpy as np
+import h5py
 from scipy.ndimage.interpolation import rotate
 from scipy.misc import imrotate
 import matplotlib.pyplot as plt
@@ -27,7 +28,7 @@ sino_range = (600, 601, 1)
 alpha_ls = [1e-5]
 # learning_rate_ls = [1]
 learning_rate_ls = [0.001, 0.01, 0.1]
-center = 958
+center = 32
 # output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
@@ -53,71 +54,49 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
     sess = tf.Session()
 
     if output_folder is None:
-        output_folder = 'rand_init_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-
-        ####################################################
-        # output_folder = 'fbp_init_{}_alpha{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        ####################################################
-
+        output_folder = 'uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
+
+    # read data
     print('Reading data...')
-    prj, flt, drk, _ = dxchange.read_aps_32id(fname, sino=sino_range)
+    f = h5py.File('data_diff.h5', 'r')
+    prj = f['exchange/data'][...]
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
-    prj = tomopy.normalize(prj, flt, drk)
-    prj = preprocess(prj)
-    # scale up to prevent precision issue
-    prj *= 1.e2
 
     # correct for center
-    offset = int(prj.shape[-1] / 2) - center
-    if offset != 0:
-        for i in range(prj.shape[0]):
-            prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
+    # offset = int(prj.shape[-1] / 2) - center
+    # if offset != 0:
+    #     for i in range(prj.shape[0]):
+    #         prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
 
-
+    # downsample
     if downsample is not None:
         prj = tomopy.downsample(prj, level=downsample[0], axis=0)
         prj = tomopy.downsample(prj, level=downsample[1], axis=1)
         prj = tomopy.downsample(prj, level=downsample[2], axis=2)
         print('Downsampled shape: {}'.format(prj.shape))
 
-    dxchange.write_tiff(prj, 'prj', dtype='float32', overwrite=True)
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
 
-    # reference recon by gridrec
-    rec = tomopy.recon(prj, tomopy.angles(n_theta), algorithm='gridrec', center=int(prj.shape[-1] / 2))
-    dxchange.write_tiff_stack(rec, 'ref_results/recon', dtype='float32', overwrite=True)
-
     # convert data
     prj = tf.convert_to_tensor(prj)
-
     theta = -np.linspace(theta_st, theta_end, n_theta)
-
     theta_ls_tensor = tf.constant(theta, dtype='float32')
 
-    # obj = tf.Variable(initial_value=tf.random_normal([dim_y, dim_x, dim_x, 1]))
-
-
-    ######################################################
-    fbp_res = dxchange.read_tiff('ref_results/recon_00000.tiff')
-    fbp_res = fbp_res[np.newaxis, :, :, np.newaxis]
-    obj = tf.Variable(initial_value=fbp_res)
-    ######################################################
-
-
+    # initialize
+    # 2 channels are for real and imaginary parts respectively
+    obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]))
+    obj += 0.5
 
     loss = tf.constant(0.0)
 
-    # d_theta = (theta_end - theta_st) / (n_theta - 1)
-    # theta_ls = np.linspace(theta_st, theta_end, n_theta)
     i = tf.constant(0)
     c = lambda i, loss, obj: tf.less(i, n_theta)
 
-    # obj = tf_rotate(obj, -d_theta, interpolation='BILINEAR')
 
     _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
@@ -168,5 +147,5 @@ if __name__ == '__main__':
                        n_epochs=200,
                        alpha=alpha,
                        learning_rate=learning_rate,
-                       downsample=(3, 0, 0),
+                       downsample=(0, 0, 0),
                        save_intermediate=True)
