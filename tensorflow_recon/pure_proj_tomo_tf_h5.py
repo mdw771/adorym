@@ -55,14 +55,7 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
         sess = tf.Session()
 
         if output_folder is None:
-            # output_folder = 'rand_init_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-
-            ####################################################
-            # output_folder = 'fbp_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-            # output_folder = 'uni_0.5_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-            output_folder = 'norm_0p2_0p1_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-            ####################################################
-
+            output_folder = 'uni_0.5_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
         t0 = time.time()
         print('Reading data...')
@@ -79,7 +72,6 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
         if offset != 0:
             for i in range(prj.shape[0]):
                 prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
-
 
         if downsample is not None:
             prj = tomopy.downsample(prj, level=downsample[0], axis=0)
@@ -103,33 +95,17 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
 
         theta_ls_tensor = tf.constant(theta, dtype='float32')
 
-        # obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 1]))
-        # obj += 0.5
-        obj = tf.Variable(initial_value=tf.random_normal([dim_y, dim_x, dim_x, 1], mean=0.2, stddev=0.1))
-
-        ######################################################
-        # fbp_res = dxchange.read_tiff('ref_results/recon_00000.tiff')
-        # fbp_res = fbp_res[np.newaxis, :, :, np.newaxis]
-        # obj = tf.Variable(initial_value=fbp_res)
-        ######################################################
-
-
+        obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 1]))
+        obj += 0.5
 
         loss = tf.constant(0.0)
 
-        # d_theta = (theta_end - theta_st) / (n_theta - 1)
-        # theta_ls = np.linspace(theta_st, theta_end, n_theta)
         i = tf.constant(0)
         c = lambda i, loss, obj: tf.less(i, n_theta)
 
-        # obj = tf_rotate(obj, -d_theta, interpolation='BILINEAR')
-
         _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
-
         loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
-
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
-
         loss_ls = []
 
         sess.run(tf.global_variables_initializer())
