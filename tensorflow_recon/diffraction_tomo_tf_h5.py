@@ -29,27 +29,24 @@ alpha_ls = [1e-5]
 # learning_rate_ls = [1]
 learning_rate_ls = [0.001, 0.01, 0.1]
 center = 32
+energy_ev = 5000
+psize_cm = 1e-7
 # output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
 
 
-def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0, output_folder=None, downsample=None,
+def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0, output_folder=None, downsample=None,
                save_intermediate=False):
 
     def rotate_and_project(i, loss, obj):
 
-        loss += tf.reduce_mean(tf.squared_difference(
-            tf.reduce_sum(tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR'), 1)[:, :, 0], prj[i]))
+        obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
+        exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
+        exiting = tf.pow(tf.abs(exiting), 2)
+        loss += tf.reduce_mean(tf.squared_difference(exiting, prj[i]))
         i = tf.add(i, 1)
         return (i, loss, obj)
-
-    def rotate_and_project_2(obj, theta):
-
-        obj_tensor = tf.convert_to_tensor(obj)
-        obj_tensor = tf.reshape(obj_tensor, shape=[dim_y, dim_x, dim_x, 1])
-        prjobj = sess.run(tf.reduce_sum(tf_rotate(obj_tensor, theta, interpolation='BILINEAR'), 1)[:, :, 0])
-        return prjobj
 
     sess = tf.Session()
 
@@ -60,10 +57,13 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
 
     # read data
     print('Reading data...')
-    f = h5py.File('data_diff.h5', 'r')
+    f = h5py.File(fname, 'r')
     prj = f['exchange/data'][...]
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
+
+    # convert to intensity and drop phase
+    prj = np.abs(prj) ** 2
 
     # correct for center
     # offset = int(prj.shape[-1] / 2) - center
@@ -83,7 +83,7 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
     n_theta = prj.shape[0]
 
     # convert data
-    prj = tf.convert_to_tensor(prj)
+    prj = tf.convert_to_tensor(prj, dtype=np.complex64)
     theta = -np.linspace(theta_st, theta_end, n_theta)
     theta_ls_tensor = tf.constant(theta, dtype='float32')
 
@@ -142,8 +142,7 @@ if __name__ == '__main__':
     for alpha in alpha_ls:
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
-            reconstrct(fname='data.h5',
-                       sino_range=sino_range,
+            reconstrct(fname='data_diff.h5',
                        n_epochs=200,
                        alpha=alpha,
                        learning_rate=learning_rate,
