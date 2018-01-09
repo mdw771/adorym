@@ -14,7 +14,7 @@ theta_end = PI
 n_epochs = 200
 sino_range = (600, 601, 1)
 center = 958
-downsample = (0, 0, 3)
+downsample = (3, 0, 0)
 # ============================================
 
 
@@ -22,7 +22,7 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
                output_folder=None, downsample=None, center=None):
 
     if output_folder is None:
-        output_folder = 'sift_niter_{}_ds_{}_{}_{}'.format(n_epochs, *downsample)
+        output_folder = 'sirt_niter_{}_ds_{}_{}_{}'.format(n_epochs, *downsample)
 
     t0 = time.time()
     print('Reading data...')
