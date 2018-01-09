@@ -18,8 +18,8 @@ downsample = (3, 0, 0)
 # ============================================
 
 
-def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
-               output_folder=None, downsample=None, center=None):
+def reconstruct_sirt(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
+                     output_folder=None, downsample=None, center=None):
 
     if output_folder is None:
         output_folder = 'sirt_niter_{}_ds_{}_{}_{}'.format(n_epochs, *downsample)
@@ -56,8 +56,8 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
 
 if __name__ == '__main__':
 
-    reconstrct(fname='data.h5',
-               sino_range=sino_range,
-               n_epochs=n_epochs,
-               downsample=downsample,
-               center=center)
+    reconstruct_sirt(fname='data.h5',
+                     sino_range=sino_range,
+                     n_epochs=n_epochs,
+                     downsample=downsample,
+                     center=center)
