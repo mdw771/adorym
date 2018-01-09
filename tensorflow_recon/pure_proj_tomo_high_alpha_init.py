@@ -27,7 +27,7 @@ if __name__ == '__main__':
     for alpha in alpha_ls:
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
-            output_folder = 'uni_0p5_init_{}_alpha{}_rate_{}_ds_0_0_0'.format(n_epochs, alpha, learning_rate)
+            output_folder = 'high_alpha_init_1e-4_alpha{}_rate_{}_ds_0_0_0'.format(n_epochs, alpha, learning_rate)
             # high alpha run as initial guess for fine run
             reconstrct(fname='data.h5',
                        sino_range=sino_range,
@@ -36,6 +36,7 @@ if __name__ == '__main__':
                        learning_rate=learning_rate,
                        downsample=(0, 0, 0),
                        save_intermediate=False,
+                       output_folder=output_folder,
                        output_name='init')
             reconstrct(fname='data.h5',
                        sino_range=sino_range,
@@ -44,4 +45,5 @@ if __name__ == '__main__':
                        learning_rate=learning_rate,
                        downsample=(0, 0, 0),
                        save_intermediate=False,
+                       output_folder=output_folder,
                        initial_guess=os.path.join(output_folder, 'init_00000.tiff'))
