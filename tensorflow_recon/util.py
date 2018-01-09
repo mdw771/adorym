@@ -2,12 +2,15 @@ import tomopy
 import tensorflow as tf
 import numpy as np
 import matplotlib.pyplot as plt
-from xdesign.propagation import get_kernel_tf_real, get_kernel
-from xdesign.constants import *
-from xdesign.acquisition import Simulator
-import sys
-from scipy.ndimage import gaussian_filter
-from scipy.ndimage import fourier_shift
+try:
+    from xdesign.propagation import get_kernel_tf_real, get_kernel
+    from xdesign.constants import *
+    from xdesign.acquisition import Simulator
+    import sys
+    from scipy.ndimage import gaussian_filter
+    from scipy.ndimage import fourier_shift
+except:
+    pass
 
 
 def preprocess(dat, blur=None, normalize_bg=False):
