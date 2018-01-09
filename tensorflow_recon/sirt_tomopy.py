@@ -43,15 +43,17 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
     theta = np.linspace(theta_st, theta_end, n_theta)
 
     print('Starting reconstruction...')
+    t0 = time.time()
     res = tomopy.recon(prj, theta, center=center, algorithm='sirt', num_iter=n_epochs)
-    dxchange.write_tiff_stack(res[:, :, :, 0], fname=os.path.join(output_folder, 'recon'), dtype='float32',
+    dxchange.write_tiff_stack(res, fname=os.path.join(output_folder, 'recon'), dtype='float32',
                               overwrite=True)
+    print('Reconstruction time: {} s'.format(time.time() - t0))
 
 
 if __name__ == '__main__':
 
     reconstrct(fname='data.h5',
                sino_range=sino_range,
-               n_epochs=200,
+               n_epochs=n_epochs,
                downsample=(0, 0, 0),
                center=center)
