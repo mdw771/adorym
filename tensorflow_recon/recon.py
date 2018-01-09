@@ -26,8 +26,8 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
     f = open('loss.txt', 'a')
 
     # with tf.device('/gpu:0'):
-
-    sess = tf.Session()
+    gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
     if output_folder is None:
         output_folder = 'uni_0p5_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
