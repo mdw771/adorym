@@ -29,15 +29,15 @@ if __name__ == '__main__':
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
             output_folder = 'high_alpha_init_1e-4_alpha{}_rate_{}_ds_0_0_0'.format(n_epochs, alpha, learning_rate)
             # high alpha run as initial guess for fine run
-            reconstrct(fname='data.h5',
-                       sino_range=sino_range,
-                       n_epochs=150,
-                       alpha=1e-4,
-                       learning_rate=learning_rate,
-                       downsample=(0, 0, 0),
-                       save_intermediate=False,
-                       output_folder=output_folder,
-                       output_name='init')
+            # reconstrct(fname='data.h5',
+            #            sino_range=sino_range,
+            #            n_epochs=150,
+            #            alpha=1e-4,
+            #            learning_rate=learning_rate,
+            #            downsample=(0, 0, 0),
+            #            save_intermediate=False,
+            #            output_folder=output_folder,
+            #            output_name='init')
             reconstrct(fname='data.h5',
                        sino_range=sino_range,
                        n_epochs=200,
