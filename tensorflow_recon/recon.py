@@ -80,6 +80,10 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
         obj += 0.5
     else:
         init = dxchange.read_tiff(initial_guess)
+        if init.ndim == 3:
+            init = init[:, :, :, np.newaxis]
+        else:
+            init = init[np.newaxis, :, :, np.newaxis]
         obj = tf.Variable(initial_value=init)
 
     loss = tf.constant(0.0)
