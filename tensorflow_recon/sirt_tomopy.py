@@ -14,6 +14,7 @@ theta_end = PI
 n_epochs = 200
 sino_range = (600, 601, 1)
 center = 958
+downsample = (0, 0, 3)
 # ============================================
 
 
@@ -44,7 +45,10 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200,
 
     print('Starting reconstruction...')
     t0 = time.time()
-    res = tomopy.recon(prj, theta, center=center, algorithm='sirt', num_iter=n_epochs)
+    extra_options = {'MinConstraint': 0}
+    options = {'proj_type': 'cuda', 'method': 'SIRT_CUDA', 'num_iter': n_epochs, 'extra_options': extra_options}
+    res = tomopy.recon(prj, theta, center=center, algorithm=tomopy.astra, options=options)
+
     dxchange.write_tiff_stack(res, fname=os.path.join(output_folder, 'recon'), dtype='float32',
                               overwrite=True)
     print('Reconstruction time: {} s'.format(time.time() - t0))
@@ -55,5 +59,5 @@ if __name__ == '__main__':
     reconstrct(fname='data.h5',
                sino_range=sino_range,
                n_epochs=n_epochs,
-               downsample=(0, 0, 0),
+               downsample=downsample,
                center=center)
