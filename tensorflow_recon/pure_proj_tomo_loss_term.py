@@ -22,12 +22,11 @@ theta_st = 0
 theta_end = PI
 n_epochs = 200
 sino_range = (600, 601, 1)
-# alpha_ls = np.concatenate([np.arange(1e-6, 1e-5, 1e-6), np.arange(1e-5, 1e-4, 1e-5), np.arange(1e-4, 1e-3, 1e-4)])
-alpha_ls = [1e-5]
+alpha_ls = np.concatenate([np.arange(1e-6, 1e-5, 1e-6), np.arange(1e-5, 1e-4, 1e-5), np.arange(1e-4, 1e-3, 1e-4)])
+# alpha_ls = [1e-5]
 learning_rate_ls = [0.5]
 # learning_rate_ls = [1]
 center = 958
-downsample = (3, 0, 0)
 # output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
@@ -162,5 +161,5 @@ if __name__ == '__main__':
                        n_epochs=200,
                        alpha=alpha,
                        learning_rate=learning_rate,
-                       downsample=downsample,
+                       downsample=(0, 0, 0),
                        save_intermediate=False)
