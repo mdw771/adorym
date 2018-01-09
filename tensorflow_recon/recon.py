@@ -5,6 +5,8 @@ import os
 from util import *
 
 
+PI = 3.1415927
+
 def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0,
                output_folder=None, output_name='recon', downsample=None,
                save_intermediate=False, initial_guess=None, center=None):
