@@ -35,7 +35,6 @@ psize_cm = 1e-7
 # ============================================
 
 
-
 def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0, output_folder=None, downsample=None,
                save_intermediate=False):
 
@@ -43,8 +42,8 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
         obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-        exiting = tf.pow(tf.abs(exiting), 2)
-        loss += tf.reduce_mean(tf.squared_difference(exiting, prj[i]))
+        exiting = tf.abs(exiting)
+        loss += tf.reduce_mean(tf.squared_difference(exiting, tf.abs(prj[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
@@ -78,7 +77,6 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
         prj = tomopy.downsample(prj, level=downsample[2], axis=2)
         print('Downsampled shape: {}'.format(prj.shape))
 
-
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
 
@@ -89,7 +87,7 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
     # initialize
     # 2 channels are for real and imaginary parts respectively
-    obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]))
+    obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]), dtype=tf.float32)
     obj += 0.5
 
     loss = tf.constant(0.0)
@@ -143,8 +141,8 @@ if __name__ == '__main__':
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
             reconstrct(fname='data_diff.h5',
-                       n_epochs=200,
+                       n_epochs=150,
                        alpha=alpha,
                        learning_rate=learning_rate,
                        downsample=(0, 0, 0),
-                       save_intermediate=True)
+                       save_intermediate=False)
