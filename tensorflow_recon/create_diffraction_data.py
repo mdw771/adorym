@@ -19,7 +19,6 @@ theta_st = 0
 theta_end = PI
 n_theta = 500
 img_dim = 64
-n_epochs = 200
 alpha = 1.e-4
 # ============================================
 

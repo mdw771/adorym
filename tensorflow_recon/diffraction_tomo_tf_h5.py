@@ -22,12 +22,12 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = PI
-n_epochs = 200
+n_epochs = 600
 sino_range = (600, 601, 1)
 # alpha_ls = np.arange(1e-5, 1e-4, 1e-5)
-alpha_ls = [1e-5]
+alpha_ls = [0]
 # learning_rate_ls = [1]
-learning_rate_ls = [0.001, 0.01, 0.1]
+learning_rate_ls = [5e-6]
 center = 32
 energy_ev = 5000
 psize_cm = 1e-7
@@ -42,15 +42,18 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
         obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-        exiting = tf.abs(exiting)
-        loss += tf.reduce_mean(tf.squared_difference(exiting, tf.abs(prj[i])))
+        exiting = tf.pow(tf.abs(exiting), 2)
+        loss += tf.reduce_mean(tf.squared_difference(exiting, tf.pow(tf.abs(prj[i]), 2)))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
+    # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
+    # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
     sess = tf.Session()
 
     if output_folder is None:
-        output_folder = 'uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'fin_sup_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -87,8 +90,18 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
     # initialize
     # 2 channels are for real and imaginary parts respectively
-    obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]), dtype=tf.float32)
-    obj += 0.5
+
+    # ====================================================
+    grid_delta = np.load('phantom/grid_delta.npy')
+    grid_beta = np.load('phantom/grid_beta.npy')
+    obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+    obj_init[:, :, :, 0] = grid_delta.mean()
+    obj_init[:, :, :, 1] = grid_beta.mean()
+    obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+    # ====================================================
+
+    # obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]), dtype=tf.float32)
+    # obj += 0.5
 
     loss = tf.constant(0.0)
 
@@ -106,6 +119,30 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
     sess.run(tf.global_variables_initializer())
 
+    # ===========================================================
+    # exiting = multislice_propagate(obj[:, :, :, 0], obj[:, :, :, 1], energy_ev, psize_cm)
+    # exiting = sess.run(exiting)
+    # dxchange.write_tiff(np.abs(exiting), 'diffraction_dat_tf/mag', dtype='float32', overwrite=True)
+    # dxchange.write_tiff(np.angle(exiting), 'diffraction_dat_tf/phase', dtype='float32', overwrite=True)
+    # ===========================================================
+
+    # =============== finite support mask ==============
+    from scipy.signal import convolve
+    kernel = np.ones([10, 10, 10])
+    mask = (grid_delta > 1e-10).astype('float')
+    mask = convolve(mask, kernel, mode='same')
+    mask[mask < 1e-10] = 0
+    mask[mask > 1e-10] = 1
+    dxchange.write_tiff_stack(mask, 'temp/mask', overwrite=True, dtype='float32')
+    mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
+    mask_add[:, :, :, 0] = mask
+    mask_add[:, :, :, 1] = mask
+    mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
+    # ==================================================
+
+
+
+
     t0 = time.time()
 
     print('Optimizer started.')
@@ -114,13 +151,26 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
         t00 = time.time()
         _, current_loss = sess.run([optimizer, loss])
+        # =============finite support===================
+        obj = obj * mask_add
+        # ==============================================
         loss_ls.append(current_loss)
         if save_intermediate:
             temp_obj = sess.run(obj)
-            dxchange.write_tiff_stack(temp_obj[0, :, :, 0],
+            temp_obj = np.abs(temp_obj)
+            dxchange.write_tiff(temp_obj[32, :, :, 0],
                                       fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
                                       dtype='float32',
                                       overwrite=True)
+            # ===============================================
+            # obj_rot = obj
+            # exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
+            # exiting = sess.run(exiting)
+            # dxchange.write_tiff(np.abs(exiting),
+            #                     os.path.join(output_folder, 'intermediate', 'wave_{:03d}'.format(epoch)),
+            #                     dtype='float32',
+            #                     overwrite=True)
+            # ===============================================
         # print(sess.run(tf.reduce_sum(tf.image.total_variation(obj))))
         print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
 
@@ -140,9 +190,9 @@ if __name__ == '__main__':
     for alpha in alpha_ls:
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
-            reconstrct(fname='data_diff.h5',
-                       n_epochs=150,
+            reconstrct(fname='data_diff_tf.h5',
+                       n_epochs=n_epochs,
                        alpha=alpha,
                        learning_rate=learning_rate,
                        downsample=(0, 0, 0),
-                       save_intermediate=False)
+                       save_intermediate=True)
