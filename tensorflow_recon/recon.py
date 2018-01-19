@@ -1,4 +1,5 @@
 from tensorflow.contrib.image import rotate as tf_rotate
+from tensorflow.python.client import timeline
 import dxchange
 import time
 import os
@@ -104,13 +105,28 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
 
     print('Optimizer started.')
 
+    # create benchmarking metadata
+    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    run_metadata = tf.RunMetadata()
+
     for epoch in range(n_epochs):
 
         t00 = time.time()
         _, current_loss = sess.run([optimizer, loss])
         loss_ls.append(current_loss)
         if save_intermediate:
-            temp_obj = sess.run(obj)
+            temp_obj = sess.run(obj, options=run_options, run_metadata=run_metadata)
+
+            # timeline for benchmarking
+            tl = timeline.Timeline(run_metadata.step_stats)
+            ctf = tl.generate_chrome_trace_format()
+            try:
+                os.makedirs(os.path.join(output_folder, 'json'))
+            except:
+                pass
+            with open(os.path.join(output_folder, 'json', 'time_{}.json'.format(epoch)), 'w') as f:
+                f.write(ctf)
+
             dxchange.write_tiff(np.squeeze(temp_obj[0, :, :, 0]),
                                       fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
                                       dtype='float32',

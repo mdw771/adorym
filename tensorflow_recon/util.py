@@ -230,7 +230,8 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
 
     sim.initialize_wavefront('plane')
     wavefront = sim.wavefront
-    wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
+    # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
+    wavefront = tf.constant(wavefront)
     # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
 
     n_slice = grid_delta.shape[-1]
