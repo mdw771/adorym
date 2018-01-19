@@ -112,10 +112,10 @@ def reconstrct(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=
     for epoch in range(n_epochs):
 
         t00 = time.time()
-        _, current_loss = sess.run([optimizer, loss])
+        _, current_loss = sess.run([optimizer, loss], options=run_options, run_metadata=run_metadata)
         loss_ls.append(current_loss)
         if save_intermediate:
-            temp_obj = sess.run(obj, options=run_options, run_metadata=run_metadata)
+            temp_obj = sess.run(obj)
 
             # timeline for benchmarking
             tl = timeline.Timeline(run_metadata.step_stats)

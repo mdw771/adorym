@@ -18,7 +18,7 @@ alpha_ls = [1e-5]
 learning_rate_ls = [0.5]
 # learning_rate_ls = [1]
 center = 958
-downsample = (3, 0, 0)
+downsample = (0, 0, 0)
 # output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
@@ -30,7 +30,7 @@ if __name__ == '__main__':
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
             reconstrct(fname='data.h5',
                        sino_range=sino_range,
-                       n_epochs=200,
+                       n_epochs=n_epochs,
                        alpha=alpha,
                        learning_rate=learning_rate,
                        downsample=downsample,
