@@ -34,5 +34,5 @@ if __name__ == '__main__':
                        alpha=alpha,
                        learning_rate=learning_rate,
                        downsample=downsample,
-                       save_intermediate=False,
+                       save_intermediate=True,
                        center=center)
