@@ -8,7 +8,6 @@ from scipy.ndimage.interpolation import rotate
 from scipy.misc import imrotate
 import matplotlib.pyplot as plt
 import tomopy
-from six.moves import zip
 import time
 import os
 from util import *
@@ -26,26 +25,31 @@ theta_st = 0
 theta_end = 2 * PI
 n_epochs = 200
 # alpha_ls = np.arange(1e-5, 1e-4, 1e-5)
-alpha_d_ls = [1e-7]
-alpha_b_ls = [1e-8]
+alpha_ls = [1e-7]
 gamma_ls = [0]
 # learning_rate_ls = [1]
 learning_rate_ls = [5e-6]
 center = 32
 energy_ev = 5000
 psize_cm = 1e-7
+batch_size = 50
 # output_folder = 'recon_h5_{}_alpha{}'.format(n_epochs, alpha)
 # ============================================
 
 
-def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alpha_b=1e-8, gamma=1e-2, learning_rate=1.0, output_folder=None, downsample=None,
-                save_intermediate=False):
+def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma=1e-2, learning_rate=1.0, output_folder=None, downsample=None,
+                save_intermediate=False, batch_size=100):
 
-    def rotate_and_project(i, loss, obj):
+    def rotate_and_project(i, loss, obj, sampled_proj):
 
-        obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
+        while True:
+            rand_proj = np.random.randint(0, n_theta)
+            if rand_proj not in sampled_proj:
+                break
+        print(rand_proj)
+        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[i])))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
@@ -57,12 +61,14 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
 
     # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
     # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
-    # force using CPU
-    config = tf.ConfigProto(device_count={'GPU': 0})
-    sess = tf.Session(config=config)
+    sess = tf.Session()
 
     if output_folder is None:
-        output_folder = 'fin_sup_360_sw_pos_l1_uni_diff_{}_alpha_d{}_alpha_b{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
+        # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'fin_sup_360_stoch_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        # output_folder = 'dual_sphere_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -72,22 +78,6 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
     prj = f['exchange/data'][...]
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
-
-    # convert to intensity and drop phase
-    # prj = np.abs(prj) ** 2
-
-    # correct for center
-    # offset = int(prj.shape[-1] / 2) - center
-    # if offset != 0:
-    #     for i in range(prj.shape[0]):
-    #         prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
-
-    # downsample
-    # if downsample is not None:
-    #     prj = tomopy.downsample(prj, level=downsample[0], axis=0)
-    #     prj = tomopy.downsample(prj, level=downsample[1], axis=1)
-    #     prj = tomopy.downsample(prj, level=downsample[2], axis=2)
-    #     print('Downsampled shape: {}'.format(prj.shape))
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
@@ -127,14 +117,14 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
     loss = tf.constant(0.0)
 
     i = tf.constant(0)
-    c = lambda i, loss, obj: tf.less(i, n_theta)
+    c = lambda i, loss, obj: tf.less(i, batch_size)
 
-
-    _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+    sampled_proj = []
+    _, loss, _, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj, sampled_proj])
 
     # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
     # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
-    loss = loss / n_theta + alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+    loss = loss / n_theta + alpha * tf.norm(obj, ord=1)
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
 
@@ -166,15 +156,11 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
             obj = tf.nn.relu(obj)
         # ==============================================
         # ================shrink wrap===================
-        if epoch % 20 == 0 and epoch > 0:
-            mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
-            boolean = np.zeros_like(obj_init)
-            boolean[:, :, :, 0] = mask_temp
-            boolean[:, :, :, 1] = mask_temp
-            boolean = tf.convert_to_tensor(boolean)
-            mask_add = mask_add * tf.cast(boolean, tf.float32)
-            dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                      'fin_sup_mask/epoch_{}/mask'.format(epoch), dtype='float32', overwrite=True)
+        # if epoch % 20 == 0 and epoch > 0:
+        #     boolean = obj > 1e-8
+        #     mask_add = mask_add * tf.cast(boolean, tf.float32)
+        #     dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+        #                               'fin_sup_mask/epoch_{}/mask'.format(epoch), dtype='float32', overwrite=True)
         # ==============================================
         loss_ls.append(current_loss)
         if save_intermediate:
@@ -214,7 +200,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
 
 if __name__ == '__main__':
 
-    for alpha_d, alpha_b in zip([alpha_d_ls, alpha_b_ls]):
+    for alpha in alpha_ls:
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
@@ -223,8 +209,8 @@ if __name__ == '__main__':
                             theta_st=theta_st,
                             theta_end=theta_end,
                             gamma=gamma,
-                            alpha_d=alpha_d,
-                            alpha_b=alpha_b,
+                            alpha=alpha,
                             learning_rate=learning_rate,
                             downsample=(0, 0, 0),
-                            save_intermediate=True)
+                            save_intermediate=True,
+                            batch_size=batch_size)
