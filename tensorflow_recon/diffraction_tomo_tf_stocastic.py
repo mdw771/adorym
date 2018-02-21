@@ -38,15 +38,11 @@ batch_size = 50
 
 
 def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma=1e-2, learning_rate=1.0, output_folder=None, downsample=None,
-                save_intermediate=False, batch_size=100):
+                minibatch_size=100, save_intermediate=False):
 
-    def rotate_and_project(i, loss, obj, sampled_proj):
+    def rotate_and_project(i, loss, obj):
 
-        while True:
-            rand_proj = np.random.randint(0, n_theta)
-            if rand_proj not in sampled_proj:
-                break
-        print(rand_proj)
+        rand_proj = batch_inds[i]
         obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
@@ -61,13 +57,15 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
 
     # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
     # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+
+    global_step = tf.Variable(0, trainable=False, name='global_step')
     sess = tf.Session()
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'fin_sup_360_stoch_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'fin_sup_360_stoch_{}_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(batch_size, n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'dual_sphere_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
@@ -95,7 +93,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
     grid_beta = np.load('phantom/grid_beta.npy')
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
-    obj_init[:, :, :, 1] = grid_beta.mean()
+    obj_init[:, :, :, 1] = grid_delta.mean()
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
     # ====================================================
 
@@ -114,19 +112,26 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
     # obj = tf.Variable(initial_value=tf.zeros([dim_y, dim_x, dim_x, 2]), dtype=tf.float32)
     # obj += 0.5
 
+    batches = []
+    for _ in range(n_epochs):
+        batches.append(np.random.choice(range(n_theta), batch_size, replace=False))
+    batches = np.array(batches)
+
     loss = tf.constant(0.0)
 
     i = tf.constant(0)
     c = lambda i, loss, obj: tf.less(i, batch_size)
 
-    sampled_proj = []
-    _, loss, _, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj, sampled_proj])
+    batch_inds = tf.placeholder(dtype=tf.int64, shape=(batch_size))
+
+    _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
     # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
     # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
     loss = loss / n_theta + alpha * tf.norm(obj, ord=1)
 
-    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss)
+
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
     loss_ls = []
 
@@ -146,7 +151,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
     for epoch in range(n_epochs):
 
         t00 = time.time()
-        _, current_loss = sess.run([optimizer, loss])
+        _, current_loss = sess.run([optimizer, loss], feed_dict={batch_inds: batches[epoch]})
         # =============finite support===================
         if epoch != n_epochs - 1:
             obj = obj * mask_add
@@ -156,11 +161,15 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
             obj = tf.nn.relu(obj)
         # ==============================================
         # ================shrink wrap===================
-        # if epoch % 20 == 0 and epoch > 0:
-        #     boolean = obj > 1e-8
-        #     mask_add = mask_add * tf.cast(boolean, tf.float32)
-        #     dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-        #                               'fin_sup_mask/epoch_{}/mask'.format(epoch), dtype='float32', overwrite=True)
+        if epoch % 20 == 0 and epoch > 0:
+            mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
+            boolean = np.zeros_like(obj_init)
+            boolean[:, :, :, 0] = mask_temp
+            boolean[:, :, :, 1] = mask_temp
+            boolean = tf.convert_to_tensor(boolean)
+            mask_add = mask_add * tf.cast(boolean, tf.float32)
+            dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+                                      'fin_sup_mask/epoch_{}/mask'.format(epoch), dtype='float32', overwrite=True)
         # ==============================================
         loss_ls.append(current_loss)
         if save_intermediate:
@@ -196,6 +205,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma
     except:
         pass
     plt.savefig(os.path.join(output_folder, 'convergence', 'converge.png'), format='png')
+    np.save(os.path.join(output_folder, 'convergence', 'converge'), loss_ls)
 
 
 if __name__ == '__main__':
@@ -212,5 +222,4 @@ if __name__ == '__main__':
                             alpha=alpha,
                             learning_rate=learning_rate,
                             downsample=(0, 0, 0),
-                            save_intermediate=True,
-                            batch_size=batch_size)
+                            save_intermediate=True)
