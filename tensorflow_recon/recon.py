@@ -141,7 +141,7 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
     np.save(os.path.join(output_folder, 'converge'), loss_ls)
 
 
-def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, gamma=1e-2, learning_rate=1.0,
+def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None):
 
@@ -171,7 +171,6 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, 
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         output_folder = 'fin_sup_360_stoch_{}_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs, alpha, learning_rate, *downsample)
-        # output_folder = 'dual_sphere_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -237,7 +236,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, 
 
     # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
     # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
-    loss = loss / n_theta + alpha * tf.norm(obj, ord=1)
+    if alpha_d is None:
+        reg_term = alpha * tf.norm(obj, ord=1)
+    else:
+        reg_term = loss / n_theta + alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+
+    loss = loss + reg_term
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
@@ -255,9 +259,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, 
         t00 = time.time()
 
         if minibatch_size < n_theta:
-            _, current_loss, current_reg = sess.run([optimizer, loss, alpha * tf.norm(obj, ord=1)], feed_dict={batch_inds: batches[epoch]})
+            _, current_loss, current_reg = sess.run([optimizer, loss, reg_term], feed_dict={batch_inds: batches[epoch]})
         else:
-            _, current_loss, current_reg = sess.run([optimizer, loss, alpha * tf.norm(obj, ord=1)], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
+            _, current_loss, current_reg = sess.run([optimizer, loss, reg_term], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
         # =============non negative hard================
         if epoch != n_epochs - 1:
             obj = tf.nn.relu(obj)
