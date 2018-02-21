@@ -37,8 +37,8 @@ def rotate_and_project(i, obj):
 sess = tf.Session()
 
 # read model
-grid_delta = np.load('phantom/grid_delta.npy')
-grid_beta = np.load('phantom/grid_beta.npy')
+grid_delta = np.load('phantom/dual_sphere_delta.npy')
+grid_beta = np.load('phantom/dual_sphere_beta.npy')
 obj_init = np.zeros([img_dim, img_dim, img_dim, 2])
 obj_init[:, :, :, 0] = grid_delta
 obj_init[:, :, :, 1] = grid_beta
@@ -49,7 +49,7 @@ theta_ls = -np.linspace(theta_st, theta_end, n_theta)
 theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
 
 # create data file
-f = h5py.File('data_diff_tf.h5', 'w')
+f = h5py.File('data_diff_dual_sphere.h5', 'w')
 grp = f.create_group('exchange')
 dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
 
