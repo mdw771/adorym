@@ -105,7 +105,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
     grid_beta = np.load('phantom/grid_beta.npy')
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
-    obj_init[:, :, :, 1] = grid_beta.mean()
+    obj_init[:, :, :, 1] = grid_delta.mean() # i deliberately put delta mean
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
     # ====================================================
 
@@ -210,6 +210,7 @@ def reconstruct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha_d=1e-7, alp
     except:
         pass
     plt.savefig(os.path.join(output_folder, 'convergence', 'converge.png'), format='png')
+    np.save(os.path.join(output_folder, 'convergence', 'converge'), loss_ls)
 
 
 if __name__ == '__main__':
