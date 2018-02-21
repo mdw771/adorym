@@ -28,11 +28,11 @@ if __name__ == '__main__':
     for alpha in alpha_ls:
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
-            reconstrct(fname='data.h5',
-                       sino_range=sino_range,
-                       n_epochs=n_epochs,
-                       alpha=alpha,
-                       learning_rate=learning_rate,
-                       downsample=downsample,
-                       save_intermediate=True,
-                       center=center)
+            reconstruct_pureproj(fname='data.h5',
+                               sino_range=sino_range,
+                               n_epochs=n_epochs,
+                               alpha=alpha,
+                               learning_rate=learning_rate,
+                               downsample=downsample,
+                               save_intermediate=True,
+                               center=center)
