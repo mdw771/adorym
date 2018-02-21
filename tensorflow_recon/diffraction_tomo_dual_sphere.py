@@ -22,8 +22,7 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = PI
-n_epochs = 600
-sino_range = (600, 601, 1)
+n_epochs = 200
 # alpha_ls = np.arange(1e-5, 1e-4, 1e-5)
 alpha_ls = [0]
 # learning_rate_ls = [1]
@@ -42,8 +41,7 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
         obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-        exiting = tf.abs(exiting)
-        loss += tf.reduce_mean(tf.squared_difference(exiting, tf.abs(prj[i]), 2))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
@@ -53,8 +51,8 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'fin_sup_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        # output_folder = 'dual_sphere_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        # output_folder = 'fin_sup_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'dual_sphere_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -62,11 +60,12 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
     print('Reading data...')
     f = h5py.File(fname, 'r')
     prj = f['exchange/data'][...]
+
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
 
     # convert to intensity and drop phase
-    prj = np.abs(prj) ** 2
+    # prj = np.abs(prj) ** 2
 
     # correct for center
     # offset = int(prj.shape[-1] / 2) - center
@@ -74,17 +73,17 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
     #     for i in range(prj.shape[0]):
     #         prj[i, :, :] = realign_image(prj[i, :, :], [0, offset])
 
-    # downsample
-    if downsample is not None:
-        prj = tomopy.downsample(prj, level=downsample[0], axis=0)
-        prj = tomopy.downsample(prj, level=downsample[1], axis=1)
-        prj = tomopy.downsample(prj, level=downsample[2], axis=2)
-        print('Downsampled shape: {}'.format(prj.shape))
+
+    # if downsample is not None:
+    #     prj = tomopy.downsample(prj, level=downsample[0], axis=0)
+    #     prj = tomopy.downsample(prj, level=downsample[1], axis=1)
+    #     prj = tomopy.downsample(prj, level=downsample[2], axis=2)
+    #     print('Downsampled shape: {}'.format(prj.shape))
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
 
-    # convert data
+    print(prj, prj.dtype)
     prj = tf.convert_to_tensor(prj, dtype=np.complex64)
     theta = -np.linspace(theta_st, theta_end, n_theta)
     theta_ls_tensor = tf.constant(theta, dtype='float32')
@@ -93,8 +92,8 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
     # 2 channels are for real and imaginary parts respectively
 
     # ====================================================
-    grid_delta = np.load('phantom/grid_delta.npy')
-    grid_beta = np.load('phantom/grid_beta.npy')
+    grid_delta = np.load('phantom/dual_sphere_delta.npy')
+    grid_beta = np.load('phantom/dual_sphere_beta.npy')
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
     obj_init[:, :, :, 1] = grid_beta.mean()
@@ -128,17 +127,17 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
     # ===========================================================
 
     # =============== finite support mask ==============
-    from scipy.signal import convolve
-    kernel = np.ones([10, 10, 10])
-    mask = (grid_delta > 1e-10).astype('float')
-    mask = convolve(mask, kernel, mode='same')
-    mask[mask < 1e-10] = 0
-    mask[mask > 1e-10] = 1
-    dxchange.write_tiff_stack(mask, 'temp/mask', overwrite=True, dtype='float32')
-    mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
-    mask_add[:, :, :, 0] = mask
-    mask_add[:, :, :, 1] = mask
-    mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
+    # from scipy.signal import convolve
+    # kernel = np.ones([10, 10, 10])
+    # mask = (grid_delta > 1e-10).astype('float')
+    # mask = convolve(mask, kernel, mode='same')
+    # mask[mask < 1e-10] = 0
+    # mask[mask > 1e-10] = 1
+    # dxchange.write_tiff_stack(mask, 'temp/mask', overwrite=True, dtype='float32')
+    # mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
+    # mask_add[:, :, :, 0] = mask
+    # mask_add[:, :, :, 1] = mask
+    # mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
     # ==================================================
 
 
@@ -153,7 +152,7 @@ def reconstrct(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learni
         t00 = time.time()
         _, current_loss = sess.run([optimizer, loss])
         # =============finite support===================
-        obj = obj * mask_add
+        # obj = obj * mask_add
         # ==============================================
         loss_ls.append(current_loss)
         if save_intermediate:
@@ -191,7 +190,7 @@ if __name__ == '__main__':
     for alpha in alpha_ls:
         for learning_rate in learning_rate_ls:
             print('Rate: {}; alpha: {}'.format(learning_rate, alpha))
-            reconstrct(fname='data_diff_tf.h5',
+            reconstrct(fname='data_diff_dual_sphere.h5',
                        n_epochs=n_epochs,
                        alpha=alpha,
                        learning_rate=learning_rate,
