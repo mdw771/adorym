@@ -105,7 +105,7 @@ class Simulator(object):
         """
         wave_shape = np.asarray(self.wavefront.shape)
         if type == 'plane':
-            self.wavefront[...] = 1.
+            self.wavefront[...] = 10000.
         elif type == 'spot':
             wid = kwargs['width']
             radius = int(wid / 2)
