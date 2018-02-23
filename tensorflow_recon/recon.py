@@ -1,5 +1,6 @@
 from tensorflow.contrib.image import rotate as tf_rotate
 from tensorflow.python.client import timeline
+import tensorflow as tf
 import dxchange
 import time
 import os
@@ -22,9 +23,9 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
 
     f = open('loss.txt', 'a')
 
-    # with tf.device('/gpu:0'):
+    # with tf.device('/:0'):
     gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
-    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
+    sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options, log_device_placement=True))
 
     if output_folder is None:
         output_folder = 'uni_0p5_init_{}_alpha{}_rate_{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
@@ -143,12 +144,15 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
 
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
-                     energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None):
+                     energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False):
+
+    # TODO: rewrite minibatching to ensure going through the entire dataset
 
     def rotate_and_project(i, loss, obj):
 
         rand_proj = batch_inds[i]
         obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        # with tf.device('cpu:0'):
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
         i = tf.add(i, 1)
@@ -164,13 +168,21 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
 
     global_step = tf.Variable(0, trainable=False, name='global_step')
-    sess = tf.Session()
+
+    if cpu_only:
+        config = tf.ConfigProto(
+            device_count = {'GPU': 0},
+            # log_device_placement=True
+        )
+        sess = tf.Session(config=config)
+    else:
+        sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'fin_sup_360_stoch_{}_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -239,9 +251,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     if alpha_d is None:
         reg_term = alpha * tf.norm(obj, ord=1)
     else:
-        reg_term = loss / n_theta + alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+        reg_term = loss / minibatch_size + alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
     loss = loss + reg_term
+    tf.summary.scalar('loss', loss)
+    tf.summary.scalar('regularizer', reg_term)
+    tf.summary.scalar('error', loss - reg_term)
 
     optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, global_step=global_step)
 
@@ -249,6 +264,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     reg_ls = []
 
     sess.run(tf.global_variables_initializer())
+
+    merged_summary_op = tf.summary.merge_all()
+    summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), graph_def=sess.graph_def)
 
     t0 = time.time()
 
@@ -259,9 +277,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
         t00 = time.time()
 
         if minibatch_size < n_theta:
-            _, current_loss, current_reg = sess.run([optimizer, loss, reg_term], feed_dict={batch_inds: batches[epoch]})
+            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: batches[epoch]})
         else:
-            _, current_loss, current_reg = sess.run([optimizer, loss, reg_term], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
+            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
         # =============non negative hard================
         if epoch != n_epochs - 1:
             obj = tf.nn.relu(obj)
@@ -284,6 +302,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
             # ==============================================
         loss_ls.append(current_loss)
         reg_ls.append(current_reg)
+        summary_writer.add_summary(summary_str, epoch)
         if save_intermediate:
             temp_obj = sess.run(obj)
             temp_obj = np.abs(temp_obj)

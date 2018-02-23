@@ -2,7 +2,6 @@ from recon import *
 from six.moves import zip
 
 
-
 # ============================================
 # DO NOT ROTATE PROGRESSIVELY
 # (DO NOT CONTINUE TO ROTATE AN INTERPOLATED OBJECT)
@@ -30,7 +29,7 @@ n_epochs_mask_release = 100
 
 if __name__ == '__main__':
 
-    for alpha_d, alpha_b in zip([alpha_d_ls, alpha_b_ls]):
+    for (alpha_d, alpha_b) in zip(alpha_d_ls, alpha_b_ls):
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
@@ -39,11 +38,13 @@ if __name__ == '__main__':
                                  theta_st=theta_st,
                                  theta_end=theta_end,
                                  gamma=gamma,
-                                 alpha=alpha,
+                                 alpha_d=alpha_d,
+                                 alpha_b=alpha_b,
                                  learning_rate=learning_rate,
                                  downsample=(0, 0, 0),
                                  save_intermediate=True,
                                  n_epochs_mask_release=n_epochs_mask_release,
                                  minibatch_size=None,
                                  energy_ev=energy_ev,
-                                 psize_cm=psize_cm)
+                                 psize_cm=psize_cm,
+                                 cpu_only=True)
