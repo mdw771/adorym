@@ -105,7 +105,7 @@ class Simulator(object):
         """
         wave_shape = np.asarray(self.wavefront.shape)
         if type == 'plane':
-            self.wavefront[...] = 10000.
+            self.wavefront[...] = 1.
         elif type == 'spot':
             wid = kwargs['width']
             radius = int(wid / 2)
@@ -266,3 +266,14 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
             wavefront = ifftshift(tf.ifft2d(wavefront * h))
 
     return wavefront
+
+
+def create_batches(arr, batch_size):
+
+    arr_len = len(arr)
+    i = 0
+    batches = []
+    while i < arr_len:
+        batches.append(arr[i:min(i+batch_size, arr_len)])
+        i += batch_size
+    return batches

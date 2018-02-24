@@ -19,8 +19,8 @@ learning_rate_ls = [5e-6]
 center = 32
 energy_ev = 5000
 psize_cm = 1e-7
-batch_size = 100
-n_epochs_mask_release = 100
+batch_size = 500
+n_epochs_mask_release = 200
 # ============================================
 
 

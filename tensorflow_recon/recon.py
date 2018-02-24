@@ -231,18 +231,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
     # ==================================================
 
-    if minibatch_size < n_theta:
-        batches = []
-        for _ in range(n_epochs):
-            batches.append(np.random.choice(range(n_theta), minibatch_size, replace=False))
-        batches = np.array(batches)
-
     loss = tf.constant(0.0)
 
+    batch_inds = tf.placeholder(dtype=tf.int64)
     i = tf.constant(0)
     c = lambda i, loss, obj: tf.less(i, minibatch_size)
-
-    batch_inds = tf.placeholder(dtype=tf.int64, shape=(minibatch_size))
 
     _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
@@ -251,9 +244,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     if alpha_d is None:
         reg_term = alpha * tf.norm(obj, ord=1)
     else:
-        reg_term = loss / minibatch_size + alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+        reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
-    loss = loss + reg_term
+    loss = loss / minibatch_size + reg_term
     tf.summary.scalar('loss', loss)
     tf.summary.scalar('regularizer', reg_term)
     tf.summary.scalar('error', loss - reg_term)
@@ -277,7 +270,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
         t00 = time.time()
 
         if minibatch_size < n_theta:
-            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: batches[epoch]})
+            shuffled_inds = range(n_theta)
+            np.random.shuffle(shuffled_inds)
+            batches = create_batches(shuffled_inds, minibatch_size)
+            print(batches)
+            for i_batch in range(len(batches)):
+                this_batch = batches[i_batch]
+                if len(this_batch) < minibatch_size:
+                    this_batch = np.pad(this_batch, [0, minibatch_size-len(this_batch)], 'constant')
+                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: this_batch})
+                print('Minibatch done.')
         else:
             _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
         # =============non negative hard================
