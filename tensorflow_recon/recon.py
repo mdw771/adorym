@@ -151,7 +151,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     def rotate_and_project(i, loss, obj):
 
         rand_proj = batch_inds[i]
-        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
+        # obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='NEAREST')
         # with tf.device('cpu:0'):
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
@@ -182,7 +183,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha, learning_rate, *downsample)
+        output_folder = 'fin_sup_nn_hmrot_360_stoch_{}_mskrl_{}_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -195,6 +196,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
+
+    # read rotation data
+    coord_ls = read_all_origin_coords('arrsize_64_64_64_ntheta_500', n_theta)
+    print(coord_ls.get_shape().as_list())
 
     if minibatch_size is None:
         minibatch_size = n_theta
