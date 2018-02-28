@@ -30,7 +30,7 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_diff_tf_360.h5',
+                reconstruct_diff(fname='data_diff_tf_360_unity.h5',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,

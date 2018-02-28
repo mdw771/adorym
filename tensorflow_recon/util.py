@@ -14,6 +14,7 @@ except:
 import warnings
 import os
 import pickle
+import glob
 
 
 class Simulator(object):
@@ -280,54 +281,113 @@ def create_batches(arr, batch_size):
     return batches
 
 
-def save_rotation_lookup(array_size, n_theta, dest_fname=None):
+def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
     image_center = [np.floor(x / 2) for x in array_size]
 
-    coord0 = tf.range(array_size[0])
-    coord1 = tf.range(array_size[1])
-    coord2 = tf.range(array_size[2])
+    coord0 = np.arange(array_size[0])
+    coord1 = np.arange(array_size[1])
+    coord2 = np.arange(array_size[2])
 
-    coord2_vec = tf.tile(coord2, [array_size[1]])
+    coord2_vec = np.tile(coord2, array_size[1])
 
-    coord1_vec = tf.tile(coord1, [array_size[2]])
-    coord1_vec = tf.reshape(coord1_vec, [array_size[1], array_size[2]])
-    coord1_vec = tf.reshape(tf.transpose(coord1_vec), [-1])
-    # coord1_vec = tf.tile(coord1_vec, [array_size[0]])
+    coord1_vec = np.tile(coord1, array_size[2])
+    coord1_vec = np.reshape(coord1_vec, [array_size[1], array_size[2]])
+    coord1_vec = np.reshape(np.transpose(coord1_vec), [-1])
 
-    coord0_vec = tf.tile(coord0, [array_size[1] * array_size[2]])
-    coord0_vec = tf.reshape(coord0_vec, [array_size[1] * array_size[2], array_size[0]])
-    coord0_vec = tf.reshape(tf.transpose(coord0_vec), [-1])
+    coord0_vec = np.tile(coord0, [array_size[1] * array_size[2]])
+    coord0_vec = np.reshape(coord0_vec, [array_size[1] * array_size[2], array_size[0]])
+    coord0_vec = np.reshape(np.transpose(coord0_vec), [-1])
 
     # move origin to image center
     coord1_vec = coord1_vec - image_center[1]
     coord2_vec = coord2_vec - image_center[2]
 
     # create matrix of coordinates
-    coord_new = tf.cast(tf.stack([coord1_vec, coord2_vec]), tf.float32)
+    coord_new = np.stack([coord1_vec, coord2_vec]).astype(np.float32)
 
     # create rotation matrix
     theta_ls = np.linspace(0, 2 * np.pi, n_theta)
     coord_old_ls = []
     for theta in theta_ls:
-        m_rot = np.array([[np.cos(theta),  np.sin(theta)],
-                           [-np.sin(theta), np.cos(theta)]])
-        m_rot = tf.convert_to_tensor(m_rot, dtype=tf.float32)
-        print(m_rot, coord_new)
-        coord_old = tf.matmul(m_rot, coord_new)
-        coord1_old = tf.cast(tf.round(coord_old[0, :] + image_center[1]), tf.int32)
-        coord2_old = tf.cast(tf.round(coord_old[1, :] + image_center[2]), tf.int32)
+        m_rot = np.array([[np.cos(theta),  -np.sin(theta)],
+                          [np.sin(theta), np.cos(theta)]])
+        coord_old = np.matmul(m_rot, coord_new)
+        coord1_old = np.round(coord_old[0, :] + image_center[1]).astype(np.int)
+        coord2_old = np.round(coord_old[1, :] + image_center[2]).astype(np.int)
         # clip coordinates
-        coord1_old = tf.minimum(tf.maximum(coord1_old, 0), array_size[1]-1)
-        coord2_old = tf.minimum(tf.maximum(coord2_old, 0), array_size[2]-1)
-        coord_old = tf.cast(tf.stack([coord1_old, coord2_old], axis=1), tf.int32)
+        coord1_old = np.clip(coord1_old, 0, array_size[1]-1)
+        coord2_old = np.clip(coord2_old, 0, array_size[2]-1)
+        coord_old = np.stack([coord1_old, coord2_old], axis=1)
         coord_old_ls.append(coord_old)
-    if dest_fname is None:
-        dest_fname = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
-    f = open(dest_fname, 'w')
-    pickle.dump(coord_old_ls, f)
+    if dest_folder is None:
+        dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
+    if not os.path.exists(dest_folder):
+        os.mkdir(dest_folder)
+    for i, arr in enumerate(coord_old_ls):
+        f = open(os.path.join(dest_folder, '{:04}'.format(i)), 'w')
+        pickle.dump(arr, f)
+        f.close()
+
+    coord1_vec = coord1_vec + image_center[1]
+    coord1_vec = np.tile(coord1_vec, array_size[0])
+    coord2_vec = coord2_vec + image_center[2]
+    coord2_vec = np.tile(coord2_vec, array_size[0])
+    for i, coord in enumerate([coord0_vec, coord1_vec, coord2_vec]):
+        f = open(os.path.join(dest_folder, 'coord{}_vec'.format(i)), 'w')
+        pickle.dump(coord, f)
+        f.close()
 
     return coord_old_ls
+
+
+def read_origin_coords(src_folder, index):
+
+    f = open(os.path.join(src_folder, '{:04}'.format(index)), 'r')
+    coords = pickle.load(f)
+    coords = tf.convert_to_tensor(coords)
+    return coords
+
+
+def read_all_origin_coords(src_folder, n_theta):
+
+    coord_ls = []
+    for i in range(n_theta):
+        coord_ls.append(read_origin_coords(src_folder, i))
+    coord_ls = tf.convert_to_tensor(coord_ls)
+    return coord_ls
+
+
+def apply_rotation(obj, coord_old, src_folder):
+
+    coord_vec_ls = []
+    for i in range(3):
+        f = open(os.path.join(src_folder, 'coord{}_vec'.format(i)))
+        coord_vec_ls.append(tf.convert_to_tensor(pickle.load(f), dtype=tf.int32))
+    s = obj.get_shape().as_list()
+    coord0_vec, coord1_vec, coord2_vec = coord_vec_ls
+
+    # sess = tf.Session()
+
+    coord_new = tf.transpose(tf.cast(tf.stack([coord0_vec, coord1_vec, coord2_vec]), tf.int32))
+
+    coord_old = tf.cast(tf.tile(coord_old, [s[0], 1]), tf.int32)
+    coord1_old = coord_old[:, 0]
+    coord2_old = coord_old[:, 1]
+    coord_old = tf.stack([coord0_vec, coord1_old, coord2_old], axis=1)
+    # print(sess.run(coord_old))
+
+
+    obj_channel_ls = tf.split(obj, s[3], 3)
+    obj_rot_channel_ls = []
+    for channel in obj_channel_ls:
+        obj_chan_new_val = tf.gather_nd(tf.squeeze(channel), coord_old)
+        obj_rot_channel_ls.append(tf.sparse_to_dense(coord_new, [s[0], s[1], s[2]],
+                                                     obj_chan_new_val, 0, validate_indices=False))
+    obj_rot = tf.stack(obj_rot_channel_ls, axis=3)
+    # print(sess.run(obj_rot))
+    return obj_rot
+
 
 
 def rotate_image_tensor(image, angle, mode='black'):
