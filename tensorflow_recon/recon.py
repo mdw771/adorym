@@ -183,7 +183,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'fin_sup_nn_hmrot_360_stoch_{}_mskrl_{}_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha, learning_rate, *downsample)
+        # output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        output_folder = 'rot_hm_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -220,7 +221,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
     grid_beta = np.load('phantom/grid_beta.npy')
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
-    obj_init[:, :, :, 1] = grid_delta.mean()
+    obj_init[:, :, :, 1] = grid_delta.mean() * 100
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
     # ====================================================
 
@@ -278,7 +279,6 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-7, 
             shuffled_inds = range(n_theta)
             np.random.shuffle(shuffled_inds)
             batches = create_batches(shuffled_inds, minibatch_size)
-            print(batches)
             for i_batch in range(len(batches)):
                 this_batch = batches[i_batch]
                 if len(this_batch) < minibatch_size:
