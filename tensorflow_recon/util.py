@@ -369,7 +369,7 @@ def apply_rotation(obj, coord_old, src_folder):
 
     # sess = tf.Session()
 
-    coord_new = tf.transpose(tf.cast(tf.stack([coord0_vec, coord1_vec, coord2_vec]), tf.int32))
+    coord_new = tf.cast(tf.stack([coord0_vec, coord1_vec, coord2_vec], axis=1), tf.int32)
 
     coord_old = tf.cast(tf.tile(coord_old, [s[0], 1]), tf.int32)
     coord1_old = coord_old[:, 0]
