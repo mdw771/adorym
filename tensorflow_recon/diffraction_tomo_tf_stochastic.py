@@ -11,7 +11,7 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = 2 * PI
-n_epochs = 20
+n_epochs = 'auto'
 alpha_d_ls = [1e-7]
 alpha_b_ls = [1e-8]
 gamma_ls = [0]

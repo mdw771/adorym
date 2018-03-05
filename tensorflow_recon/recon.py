@@ -142,7 +142,7 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
     np.save(os.path.join(output_folder, 'converge'), loss_ls)
 
 
-def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
+def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False):
 
@@ -151,8 +151,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', max_nepoc
     def rotate_and_project(i, loss, obj):
 
         rand_proj = batch_inds[i]
-        obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        # obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='NEAREST')
+        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
+        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
         # with tf.device('cpu:0'):
         exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
@@ -184,7 +184,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', max_nepoc
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
-        output_folder = 'rot_hm_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
 
     t0 = time.time()
 
@@ -221,7 +221,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', max_nepoc
     grid_beta = np.load('phantom/grid_beta.npy')
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
-    obj_init[:, :, :, 1] = grid_delta.mean() * 100
+    obj_init[:, :, :, 1] = grid_delta.mean()
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
     # ====================================================
 
@@ -289,15 +289,17 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', max_nepoc
         # =============non negative hard================
         obj = tf.nn.relu(obj)
         # ==============================================
-        if epoch == 'auto':
-            if len(current_loss) > 0 and 0 < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0.02:
+        if n_epochs == 'auto':
+            if len(loss_ls) > 0:
+                print((current_loss - loss_ls[-1]) / loss_ls[-1])
+            if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
                 summary_writer.add_summary(summary_str, epoch)
                 break
         if epoch < n_epochs_mask_release:
             # =============finite support===================
-            if n_epochs != 'auto' and epoch != n_epochs - 1:
+            if n_epochs == 'auto' or epoch != n_epochs - 1:
                 obj = obj * mask_add
             # ==============================================
             # ================shrink wrap===================
