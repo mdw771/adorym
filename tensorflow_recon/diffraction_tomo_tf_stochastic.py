@@ -10,7 +10,7 @@ PI = 3.1415927
 
 # ============================================
 theta_st = 0
-theta_end = PI
+theta_end = 2 * PI
 n_epochs = 'auto'
 alpha_d_ls = [1e-7]
 alpha_b_ls = [1e-8]
@@ -30,7 +30,7 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_diff_tf_180_unity.h5',
+                reconstruct_diff(fname='data_diff_tf_360_unity.h5',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
