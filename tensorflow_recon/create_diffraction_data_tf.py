@@ -31,12 +31,13 @@ def rotate_and_project(i, obj):
 
     # coord_old = read_origin_coords('arrsize_64_64_64_ntheta_500', i)
     # obj_rot = apply_rotation(obj, coord_old, 'arrsize_64_64_64_ntheta_500')
-    obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='NEAREST')
+    obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
     exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
     # exiting = tf.abs(exiting)
     return exiting
 
-sess = tf.Session()
+config = tf.ConfigProto(device_count = {'GPU': 0})
+sess = tf.Session(config=config)
 
 # read model
 grid_delta = np.load('phantom/grid_delta.npy')
@@ -51,7 +52,7 @@ theta_ls = -np.linspace(theta_st, theta_end, n_theta)
 theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
 
 # create data file
-f = h5py.File('data_diff_tf_360_birot_nn.h5', 'w')
+f = h5py.File('data_diff_tf_360_unity.h5', 'w')
 grp = f.create_group('exchange')
 dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
 
