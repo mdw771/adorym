@@ -144,7 +144,8 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
 
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
-                     energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False):
+                     energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
+                     phantom_path='phantom'):
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
@@ -183,9 +184,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        # output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
-        output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        output_folder = 'fin_sup_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+
+    if save_path != '.':
+        output_folder = os.path.join(save_path, output_folder)
 
     t0 = time.time()
 
@@ -218,8 +222,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     # 2 channels are for real and imaginary parts respectively
 
     # ====================================================
-    grid_delta = np.load('phantom/grid_delta.npy')
-    grid_beta = np.load('phantom/grid_beta.npy')
+    grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+    grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
     obj_init[:, :, :, 0] = grid_delta.mean()
     obj_init[:, :, :, 1] = grid_delta.mean()
@@ -227,11 +231,14 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     # ====================================================
 
     # =============== finite support mask ==============
-    obj_pr = dxchange.read_tiff_stack('paganin_obj/recon_00000.tiff', range(64), 5)
-    obj_pr = gaussian_filter(np.abs(obj_pr), sigma=1, mode='constant')
-    mask = np.zeros_like(obj_pr)
-    mask[obj_pr > 3e-5] = 1
-    dxchange.write_tiff_stack(mask, 'fin_sup_mask/mask', dtype='float32', overwrite=True)
+    try:
+        mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(64), 5)
+    except:
+        obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(64), 5)
+        obj_pr = gaussian_filter(np.abs(obj_pr), sigma=1, mode='constant')
+        mask = np.zeros_like(obj_pr)
+        mask[obj_pr > 3e-5] = 1
+        dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
     mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
     mask_add[:, :, :, 0] = mask
     mask_add[:, :, :, 1] = mask
@@ -292,7 +299,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # ==============================================
         if n_epochs == 'auto':
             if len(loss_ls) > 0:
-                print((current_loss - loss_ls[-1]) / loss_ls[-1])
+                print('Reduction rate of loss is {}.'.format(current_loss - loss_ls[-1]) / loss_ls[-1])
             if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
