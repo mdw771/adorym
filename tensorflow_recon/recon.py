@@ -204,8 +204,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     n_theta = prj.shape[0]
 
     # read rotation data
-    coord_ls = read_all_origin_coords('arrsize_64_64_64_ntheta_500', n_theta)
-    print(coord_ls.get_shape().as_list())
+    try:
+        coord_ls = read_all_origin_coords('arrsize_64_64_64_ntheta_500', n_theta)
+    except:
+        save_rotation_lookup(dim_x, n_theta)
+        coord_ls = read_all_origin_coords('arrsize_64_64_64_ntheta_500', n_theta)
 
     if minibatch_size is None:
         minibatch_size = n_theta
