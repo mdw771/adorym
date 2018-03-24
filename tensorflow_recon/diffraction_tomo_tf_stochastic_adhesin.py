@@ -11,9 +11,9 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = 2 * PI
-n_epochs = 'auto'
-alpha_d_ls = [1e-7]
-alpha_b_ls = [1e-8]
+n_epochs = 24
+alpha_d_ls = [5e-9]
+alpha_b_ls = [1e-10]
 gamma_ls = [0]
 learning_rate_ls = [5e-6]
 center = 32
