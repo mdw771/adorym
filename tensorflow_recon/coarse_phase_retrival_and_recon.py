@@ -39,3 +39,12 @@ mask = np.zeros_like(rec)
 mask[np.abs(rec) > 4e-4] = 1
 mask = tomopy.circ_mask(mask, 0, ratio=0.9)
 dxchange.write_tiff_stack(mask, os.path.join('adhesin', 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
+
+
+
+mask = np.ones(mask.shape)
+mask[:10] = 0
+mask[-7:] = 0
+mask = tomopy.circ_mask(mask, 0, ratio=0.5)
+dxchange.write_tiff_stack(mask, os.path.join('adhesin', 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
+

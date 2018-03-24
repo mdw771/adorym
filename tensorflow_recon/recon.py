@@ -299,7 +299,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # ==============================================
         if n_epochs == 'auto':
             if len(loss_ls) > 0:
-                print('Reduction rate of loss is {}.'.format(current_loss - loss_ls[-1]) / loss_ls[-1])
+                print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
             if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
