@@ -325,7 +325,7 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     if not os.path.exists(dest_folder):
         os.mkdir(dest_folder)
     for i, arr in enumerate(coord_old_ls):
-        f = open(os.path.join(dest_folder, '{:04}'.format(i)), 'w')
+        f = open(os.path.join(dest_folder, '{:04}'.format(i)), 'wb')
         pickle.dump(arr, f)
         f.close()
 
@@ -334,7 +334,7 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     coord2_vec = coord2_vec + image_center[2]
     coord2_vec = np.tile(coord2_vec, array_size[0])
     for i, coord in enumerate([coord0_vec, coord1_vec, coord2_vec]):
-        f = open(os.path.join(dest_folder, 'coord{}_vec'.format(i)), 'w')
+        f = open(os.path.join(dest_folder, 'coord{}_vec'.format(i)), 'wb')
         pickle.dump(coord, f)
         f.close()
 
