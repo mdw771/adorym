@@ -4,8 +4,7 @@ import numpy as np
 import dxchange
 import matplotlib.pyplot as plt
 try:
-    from xdesign.propagation import get_kernel_tf_real, get_kernel
-    from xdesign.constants import *
+    from constants import *
     import sys
     from scipy.ndimage import gaussian_filter
     from scipy.ndimage import fourier_shift
@@ -140,6 +139,37 @@ class Simulator(object):
             wavefront = np.ones(wave_shape).astype('complex64')
             wavefront = wavefront + 1j * np.tan(phase)
             self.wavefront = wavefront / np.abs(wavefront)
+
+
+def gen_mesh(max, shape):
+    """Generate mesh grid.
+    """
+    yy = np.linspace(-max[0], max[0], shape[0])
+    xx = np.linspace(-max[1], max[1], shape[1])
+    res = np.meshgrid(xx, yy)
+    return res
+
+
+def get_kernel(simulator, dist):
+    """Get Fresnel propagation kernel for TF algorithm.
+
+    Parameters:
+    -----------
+    simulator : :class:`acquisition.Simulator`
+        The Simulator object.
+    dist : float
+        Propagation distance in cm.
+    """
+    dist_nm = dist * 1e7
+    lmbda_nm = simulator.lmbda_nm
+    k = 2 * PI / lmbda_nm
+    u_max = 1. / (2. * simulator.voxel_nm[0])
+    v_max = 1. / (2. * simulator.voxel_nm[1])
+    u, v = gen_mesh([v_max, u_max], simulator.grid_delta.shape[0:2])
+    # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
+    H = np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+
+    return H
 
 
 def preprocess(dat, blur=None, normalize_bg=False):
