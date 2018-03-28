@@ -150,7 +150,7 @@ def gen_mesh(max, shape):
     return res
 
 
-def get_kernel(simulator, dist):
+def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     """Get Fresnel propagation kernel for TF algorithm.
 
     Parameters:
@@ -160,12 +160,10 @@ def get_kernel(simulator, dist):
     dist : float
         Propagation distance in cm.
     """
-    dist_nm = dist * 1e7
-    lmbda_nm = simulator.lmbda_nm
-    k = 2 * PI / lmbda_nm
-    u_max = 1. / (2. * simulator.voxel_nm[0])
-    v_max = 1. / (2. * simulator.voxel_nm[1])
-    u, v = gen_mesh([v_max, u_max], simulator.grid_delta.shape[0:2])
+    # k = 2 * PI / lmbda_nm
+    u_max = 1. / (2. * voxel_nm[0])
+    v_max = 1. / (2. * voxel_nm[1])
+    u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
     # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
     H = np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
 
@@ -256,23 +254,22 @@ def ifftshift(tensor):
 
 def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
 
-    sim = Simulator(energy=energy_ev,
-                    grid=(grid_delta, grid_beta),
-                    psize=[psize_cm] * 3)
-
-    sim.initialize_wavefront('plane')
-    wavefront = sim.wavefront
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    wavefront = np.ones([grid_delta.shape[0], grid_delta.shape[2]])
     # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
-    wavefront = tf.constant(wavefront)
+    wavefront = tf.constant(wavefront, dtype='complex64')
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_delta.get_shape().as_list()) * voxel_nm
     # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
 
     n_slice = grid_delta.shape[-1]
 
-    delta_nm = sim.voxel_nm[-1]
-    kernel = get_kernel(sim, delta_nm * 1.e-7)
+    delta_nm = voxel_nm[-1]
+    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
     h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
     # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
-    k = 2 * PI * delta_nm / sim.lmbda_nm
+    k = 2. * PI * delta_nm / lmbda_nm
 
     for i_slice in range(n_slice):
         print('Slice: {:d}'.format(i_slice))
@@ -286,11 +283,10 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
         wavefront = wavefront * c
 
         dist_nm = delta_nm
-        lmbda_nm = sim.lmbda_nm
-        l = np.prod(sim.size_nm)**(1. / 3)
+        l = np.prod(size_nm)**(1. / 3)
         crit_samp = lmbda_nm * dist_nm / l
 
-        if sim.mean_voxel_nm > crit_samp:
+        if mean_voxel_nm > crit_samp:
             # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
             wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
         else:

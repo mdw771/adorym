@@ -330,6 +330,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         if save_intermediate:
             temp_obj = sess.run(obj)
             temp_obj = np.abs(temp_obj)
+            print('----------------', temp_obj[32, :, :, 0].max())
             dxchange.write_tiff(temp_obj[32, :, :, 0],
                                 fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
                                 dtype='float32',
