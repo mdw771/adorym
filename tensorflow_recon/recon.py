@@ -145,7 +145,7 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
-                     phantom_path='phantom'):
+                     phantom_path='phantom', shrink_cycle=20):
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
@@ -314,7 +314,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 obj = obj * mask_add
             # ==============================================
             # ================shrink wrap===================
-            if epoch % 20 == 0 and epoch > 0:
+            if epoch % shrink_cycle == 0 and epoch > 0:
                 mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
                 boolean = np.zeros_like(obj_init)
                 boolean[:, :, :, 0] = mask_temp
@@ -330,7 +330,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         if save_intermediate:
             temp_obj = sess.run(obj)
             temp_obj = np.abs(temp_obj)
-            dxchange.write_tiff(temp_obj[32, :, :, 0],
+            dxchange.write_tiff(temp_obj[26, :, :, 0],
                                 fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
                                 dtype='float32',
                                 overwrite=True)

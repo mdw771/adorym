@@ -23,7 +23,7 @@ theta_st = 0
 theta_end = 2 * PI
 n_theta = 500
 img_dim = 64
-energy_ev = 800
+energy_ev = 2000
 psize_cm = 0.67e-7
 # ============================================
 
@@ -52,7 +52,7 @@ theta_ls = -np.linspace(theta_st, theta_end, n_theta)
 theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
 
 # create data file
-f = h5py.File('data_adhesin_360_soft.h5', 'w')
+f = h5py.File('data_adhesin_360_2kev.h5', 'w')
 grp = f.create_group('exchange')
 dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
 
