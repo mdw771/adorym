@@ -15,7 +15,7 @@ n_epochs = 'auto'
 alpha_d_ls = [1e-7]
 alpha_b_ls = [1e-8]
 gamma_ls = [0]
-learning_rate_ls = [5e-6]
+learning_rate_ls = [1e-7]
 center = 32
 energy_ev = 5000
 psize_cm = 1e-7
@@ -45,4 +45,4 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=True)
+                                 cpu_only=False)
