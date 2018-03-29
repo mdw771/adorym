@@ -149,16 +149,29 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
-    def rotate_and_project(i, loss, obj):
+    # def rotate_and_project(i, loss, obj):
+    #
+    #     rand_proj = batch_inds[i]
+    #     # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
+    #     obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+    #     # with tf.device('cpu:0'):
+    #     exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
+    #     loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
+    #     i = tf.add(i, 1)
+    #     return (i, loss, obj)
 
-        rand_proj = batch_inds[i]
+    def rotate_and_project_batch(loss, obj):
+
+        prj_batch = tf.gather(prj, batch_inds)
+        obj_rot_batch = []
+        for i in range(minibatch_size):
+            obj_rot_batch.append(tf_rotate(obj, theta_ls_tensor[batch_inds[i]], interpolation='BILINEAR'))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        obj_rot_batch = tf.stack(obj_rot_batch)
         # with tf.device('cpu:0'):
-        exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
-        i = tf.add(i, 1)
-        return (i, loss, obj)
+        exiting_batch = multislice_propagate(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(prj_batch)))
+        return loss
 
     def energy_leak(obj, support_mask):
 
@@ -172,13 +185,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     global_step = tf.Variable(0, trainable=False, name='global_step')
 
     if cpu_only:
-        config = tf.ConfigProto(
-            device_count = {'GPU': 0},
-            # log_device_placement=True
-        )
-        sess = tf.Session(config=config)
+        sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}))
     else:
-        sess = tf.Session(config=tf.ConfigProto(log_device_placement=True))
+        sess = tf.Session(config=tf.ConfigProto(log_device_placement=False))
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
@@ -251,10 +260,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     loss = tf.constant(0.0)
 
     batch_inds = tf.placeholder(dtype=tf.int64)
-    i = tf.constant(0)
-    c = lambda i, loss, obj: tf.less(i, minibatch_size)
-
-    _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+    loss = rotate_and_project_batch(loss, obj)
+    # i = tf.constant(0)
+    # c = lambda i, loss, obj: tf.less(i, minibatch_size)
+    # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
 
     # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
     # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
@@ -263,7 +272,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     else:
         reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
-    loss = loss / minibatch_size + reg_term
+    loss = loss + reg_term
     tf.summary.scalar('loss', loss)
     tf.summary.scalar('regularizer', reg_term)
     tf.summary.scalar('error', loss - reg_term)
