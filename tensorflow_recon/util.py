@@ -296,6 +296,52 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
     return wavefront
 
 
+def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psize_cm):
+
+    minibatch_size = grid_delta_batch.shape[0]
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
+    wavefront = tf.ones([minibatch_size, grid_delta_batch.shape[1], grid_delta_batch.shape[2]], dtype='complex64')
+    lmbda_nm = 1240. / energy_ev
+    # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
+
+    n_slice = grid_delta_batch.shape[-2]
+
+    delta_nm = voxel_nm[-1]
+    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta_batch.shape[1:-1])
+    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
+    h = fftshift(h)
+    # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
+    k = 2. * PI * delta_nm / lmbda_nm
+
+    # def modulate_and_propagate(i, wavefront):
+    #     delta_slice = grid_delta_batch[:, :, :, i]
+    #     delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+    #     beta_slice = grid_beta_batch[:, :, :, i]
+    #     beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+    #     c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+    #     # c = tf.reshape(c, wavefront.shape)
+    #     wavefront = wavefront * c
+    #     wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+    #     return (i, wavefront)
+
+    # i = tf.constant(0)
+    # c = lambda i, wavefront: tf.less(i, n_slice)
+    # _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
+
+    for i in range(n_slice):
+        delta_slice = grid_delta_batch[:, :, :, i]
+        delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+        beta_slice = grid_beta_batch[:, :, :, i]
+        beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+        c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+        # c = tf.reshape(c, wavefront.shape)
+        wavefront = wavefront * c
+        wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+
+    return wavefront
+
+
 def create_batches(arr, batch_size):
 
     arr_len = len(arr)
