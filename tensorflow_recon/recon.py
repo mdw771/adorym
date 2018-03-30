@@ -149,16 +149,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
-    # def rotate_and_project(i, loss, obj):
-    #
-    #     rand_proj = batch_inds[i]
-    #     # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-    #     obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
-    #     # with tf.device('cpu:0'):
-    #     exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
-    #     loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
-    #     i = tf.add(i, 1)
-    #     return (i, loss, obj)
+    def rotate_and_project(i, loss, obj):
+
+        rand_proj = batch_inds[i]
+        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
+        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        # with tf.device('cpu:0'):
+        exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
+        i = tf.add(i, 1)
+        return (i, loss, obj)
 
     def rotate_and_project_batch(loss, obj):
 
@@ -169,15 +169,15 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
         # with tf.device('cpu:0'):
-        exiting_batch = multislice_propagate(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
+        exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(prj_batch)))
         return loss
 
-    def energy_leak(obj, support_mask):
-
-        leak = tf.reduce_sum(tf.pow(obj * (1 - support_mask), 2))
-        non_leak = tf.reduce_sum(tf.pow(obj * support_mask, 2))
-        return leak / non_leak
+    # def energy_leak(obj, support_mask):
+    #
+    #     leak = tf.reduce_sum(tf.pow(obj * (1 - support_mask), 2))
+    #     non_leak = tf.reduce_sum(tf.pow(obj * support_mask, 2))
+    #     return leak / non_leak
 
     # gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=0.5)
     # sess = tf.Session(config=tf.ConfigProto(gpu_options=gpu_options))
@@ -260,10 +260,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     loss = tf.constant(0.0)
 
     batch_inds = tf.placeholder(dtype=tf.int64)
-    loss = rotate_and_project_batch(loss, obj)
-    # i = tf.constant(0)
-    # c = lambda i, loss, obj: tf.less(i, minibatch_size)
-    # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+    if cpu_only:
+        i = tf.constant(0)
+        c = lambda i, loss, obj: tf.less(i, minibatch_size)
+        _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+    else:
+        loss = rotate_and_project_batch(loss, obj)
 
     # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
     # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)

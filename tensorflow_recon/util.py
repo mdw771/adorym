@@ -252,7 +252,51 @@ def ifftshift(tensor):
     return tensor
 
 
-def multislice_propagate(grid_delta_batch, grid_beta_batch, energy_ev, psize_cm):
+def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
+
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    wavefront = np.ones([grid_delta.shape[0], grid_delta.shape[2]])
+    # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
+    wavefront = tf.constant(wavefront, dtype='complex64')
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_delta.get_shape().as_list()) * voxel_nm
+    # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
+
+    n_slice = grid_delta.shape[-1]
+
+    delta_nm = voxel_nm[-1]
+    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
+    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
+    # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
+    k = 2. * PI * delta_nm / lmbda_nm
+
+    for i_slice in range(n_slice):
+        print('Slice: {:d}'.format(i_slice))
+        sys.stdout.flush()
+        delta_slice = grid_delta[:, :, i_slice]
+        delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+        beta_slice = grid_beta[:, :, i_slice]
+        beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+        c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+        # c = tf.reshape(c, wavefront.shape)
+        wavefront = wavefront * c
+
+        dist_nm = delta_nm
+        l = np.prod(size_nm)**(1. / 3)
+        crit_samp = lmbda_nm * dist_nm / l
+
+        if mean_voxel_nm > crit_samp:
+            # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
+            wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+        else:
+            wavefront = tf.fft2d(fftshift(wavefront))
+            wavefront = ifftshift(tf.ifft2d(wavefront * h))
+
+    return wavefront
+
+
+def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psize_cm):
 
     minibatch_size = grid_delta_batch.shape[0]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7

@@ -45,4 +45,4 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=False)
+                                 cpu_only=True)
