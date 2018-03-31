@@ -30,8 +30,8 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_diff_tf_360_unity.h5',
-                                 output_folder='test',
+                reconstruct_diff(fname='data_cone_256.h5',
+                                 output_folder=None,
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
@@ -45,4 +45,4 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=False)
+                                 cpu_only=True)
