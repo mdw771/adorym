@@ -193,7 +193,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     # read data
     print('Reading data...')
-    f = h5py.File(fname, 'r')
+    f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data'][...]
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
@@ -244,12 +244,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     # =============== finite support mask ==============
     try:
-        mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(64), 5)
+        mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(dim_y), 5)
     except:
-        obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(64), 5)
-        obj_pr = gaussian_filter(np.abs(obj_pr), sigma=1, mode='constant')
+        obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(dim_y), 5)
+        obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
         mask = np.zeros_like(obj_pr)
-        mask[obj_pr > 3e-5] = 1
+        mask[obj_pr > 1e-5] = 1
         dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
     mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
     mask_add[:, :, :, 0] = mask
@@ -333,7 +333,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 boolean = tf.convert_to_tensor(boolean)
                 mask_add = mask_add * tf.cast(boolean, tf.float32)
                 dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                          'fin_sup_mask/epoch_{}/mask'.format(epoch), dtype='float32', overwrite=True)
+                                          os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
             # ==============================================
         loss_ls.append(current_loss)
         reg_ls.append(current_reg)
@@ -345,6 +345,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                                 fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
                                 dtype='float32',
                                 overwrite=True)
+            dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
         print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
 
     print('Total time: {}'.format(time.time() - t0))

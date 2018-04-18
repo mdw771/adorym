@@ -12,7 +12,7 @@ PI = 3.1415927
 theta_st = 0
 theta_end = 2 * PI
 n_epochs = 'auto'
-alpha_d_ls = [5.e-9]
+alpha_d_ls = [1.e-9]
 alpha_b_ls = [1.e-10]
 gamma_ls = [0]
 learning_rate_ls = [1e-7]
@@ -30,7 +30,7 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='adhesin/data_adhesin_360_soft.h5',
+                reconstruct_diff(fname='data_adhesin_360_soft.h5',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
@@ -44,7 +44,7 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=True,
+                                 cpu_only=False,
                                  save_path='adhesin',
                                  phantom_path='adhesin/phantom',
                                  shrink_cycle=2)
