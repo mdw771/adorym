@@ -16,7 +16,7 @@ alpha_d_ls = [1e-7]
 alpha_b_ls = [1e-8]
 gamma_ls = [0]
 learning_rate_ls = [1e-7]
-center = 32
+center = 128
 energy_ev = 5000
 psize_cm = 1e-7
 batch_size = 10
@@ -31,7 +31,8 @@ if __name__ == '__main__':
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
                 reconstruct_diff(fname='data_cone_256.h5',
-                                 output_folder=None,
+                                 save_path='cone_256',
+                                 phantom_path='cone_256/phantom',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
