@@ -151,28 +151,26 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     def rotate_and_project(i, loss, obj):
 
-        rand_proj = batch_inds[i]
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
             with tf.device('/gpu:0'):
                 exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         else:
             exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
     def rotate_and_project_batch(loss, obj):
 
-        prj_batch = tf.gather(prj, batch_inds)
         obj_rot_batch = []
         for i in range(minibatch_size):
-            obj_rot_batch.append(tf_rotate(obj, theta_ls_tensor[batch_inds[i]], interpolation='BILINEAR'))
+            obj_rot_batch.append(tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR'))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
         exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(prj_batch)))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss
 
     # def energy_leak(obj, support_mask):
@@ -198,12 +196,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     # read data
     print('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
-    prj = f['exchange/data'][...]
+    prj = f['exchange/data'][...].astype('float32')
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
+    theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+    prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shuffle(buffer_size=100).repeat().batch(minibatch_size)
+    prj_iter = prj_dataset.make_one_shot_iterator()
+    this_theta_batch, this_prj_batch = prj_iter.get_next()
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
@@ -230,11 +232,6 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         n_epochs_mask_release = np.inf
 
     with tf.device('/cpu:0'):
-
-        # convert data
-        prj = tf.convert_to_tensor(prj, dtype=np.complex64)
-        theta = -np.linspace(theta_st, theta_end, n_theta)
-        theta_ls_tensor = tf.constant(theta, dtype='float32')
 
         # initialize
         # 2 channels are for real and imaginary parts respectively
@@ -309,21 +306,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         print('Optimizer started.')
 
         n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
+        n_batch = int(np.ceil(float(n_theta) / minibatch_size))
         for epoch in range(n_loop):
             t00 = time.time()
             if minibatch_size < n_theta:
-                shuffled_inds = range(n_theta)
-                np.random.shuffle(shuffled_inds)
-                batches = create_batches(shuffled_inds, minibatch_size)
-                for i_batch in range(len(batches)):
+                for i_batch in range(n_batch):
                     t0_batch = time.time()
-                    this_batch = batches[i_batch]
-                    if len(this_batch) < minibatch_size:
-                        this_batch = np.pad(this_batch, [0, minibatch_size-len(this_batch)], 'constant')
-                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: this_batch})
+                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
                     print('Minibatch done in {} s.'.format(time.time() - t0_batch))
             else:
-                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
+                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
 
             # =============non negative hard================
             obj = tf.nn.relu(obj)
