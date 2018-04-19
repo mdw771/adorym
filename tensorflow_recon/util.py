@@ -252,7 +252,7 @@ def ifftshift(tensor):
     return tensor
 
 
-def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
+def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
 
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
     wavefront = np.ones([grid_delta.shape[0], grid_delta.shape[2]])
@@ -264,11 +264,12 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm):
     # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
 
     n_slice = grid_delta.shape[-1]
-
     delta_nm = voxel_nm[-1]
-    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
-    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
-    # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
+
+    if h is None:
+        kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
+        h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
+        # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
     k = 2. * PI * delta_nm / lmbda_nm
 
     for i_slice in range(n_slice):
