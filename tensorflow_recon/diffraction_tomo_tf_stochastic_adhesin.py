@@ -44,7 +44,7 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=True,
+                                 cpu_only=False,
                                  save_path='adhesin',
                                  phantom_path='adhesin/phantom',
                                  shrink_cycle=2)
