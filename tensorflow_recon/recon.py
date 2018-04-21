@@ -142,7 +142,7 @@ def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=2
     np.save(os.path.join(output_folder, 'converge'), loss_ls)
 
 
-def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-2, learning_rate=1.0,
+def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20):
@@ -151,28 +151,26 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     def rotate_and_project(i, loss, obj):
 
-        rand_proj = batch_inds[i]
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        obj_rot = tf_rotate(obj, theta_ls_tensor[rand_proj], interpolation='BILINEAR')
+        obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
             with tf.device('/gpu:0'):
                 exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
         else:
             exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(prj[rand_proj])))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
 
     def rotate_and_project_batch(loss, obj):
 
-        prj_batch = tf.gather(prj, batch_inds)
         obj_rot_batch = []
         for i in range(minibatch_size):
-            obj_rot_batch.append(tf_rotate(obj, theta_ls_tensor[batch_inds[i]], interpolation='BILINEAR'))
+            obj_rot_batch.append(tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR'))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
         exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(prj_batch)))
+        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss
 
     # def energy_leak(obj, support_mask):
@@ -198,18 +196,22 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     # read data
     print('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
-    prj = f['exchange/data'][...]
+    prj = f['exchange/data'][...].astype('complex64')
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
+    theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+    prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shuffle(buffer_size=100).repeat().batch(minibatch_size)
+    prj_iter = prj_dataset.make_one_shot_iterator()
+    this_theta_batch, this_prj_batch = prj_iter.get_next()
 
     if output_folder is None:
         # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
         # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_rate{}_energy_{}_size_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, energy_ev, dim_x, cpu_only)
+        output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_gamma_{}_rate{}_energy_{}_size_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, gamma, learning_rate, energy_ev, dim_x, cpu_only)
         # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
 
@@ -229,50 +231,42 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     if n_epochs_mask_release is None:
         n_epochs_mask_release = np.inf
 
-    with tf.device('/cpu:0'):
+    # initialize
+    # 2 channels are for real and imaginary parts respectively
 
-        # convert data
-        prj = tf.convert_to_tensor(prj, dtype=np.complex64)
-        theta = -np.linspace(theta_st, theta_end, n_theta)
-        theta_ls_tensor = tf.constant(theta, dtype='float32')
+    # ====================================================
+    grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+    grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+    obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+    obj_init[:, :, :, 0] = grid_delta.mean()
+    obj_init[:, :, :, 1] = grid_delta.mean()
+    obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+    # ====================================================
 
-        # initialize
-        # 2 channels are for real and imaginary parts respectively
+    # =============== finite support mask ==============
+    try:
+        mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(dim_y), 5)
+    except:
+        obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(dim_y), 5)
+        obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
+        mask = np.zeros_like(obj_pr)
+        mask[obj_pr > 1e-5] = 1
+        dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
+    mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
+    mask_add[:, :, :, 0] = mask
+    mask_add[:, :, :, 1] = mask
+    mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
+    # ==================================================
 
-        # ====================================================
-        grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-        grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-        obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-        obj_init[:, :, :, 0] = grid_delta.mean()
-        obj_init[:, :, :, 1] = grid_delta.mean()
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
-        # ====================================================
+    loss = tf.constant(0.0)
 
-        # =============== finite support mask ==============
-        try:
-            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(dim_y), 5)
-        except:
-            obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(dim_y), 5)
-            obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
-            mask = np.zeros_like(obj_pr)
-            mask[obj_pr > 1e-5] = 1
-            dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
-        mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
-        mask_add[:, :, :, 0] = mask
-        mask_add[:, :, :, 1] = mask
-        mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
-        # ==================================================
+    # generate Fresnel kernel
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    lmbda_nm = 1240. / energy_ev
+    delta_nm = voxel_nm[-1]
+    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
+    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
-        loss = tf.constant(0.0)
-
-        # generate Fresnel kernel
-        voxel_nm = np.array([psize_cm] * 3) * 1.e7
-        lmbda_nm = 1240. / energy_ev
-        delta_nm = voxel_nm[-1]
-        kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
-        h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
-
-    batch_inds = tf.placeholder(dtype=tf.int64)
     if cpu_only:
         i = tf.constant(0)
         c = lambda i, loss, obj: tf.less(i, minibatch_size)
@@ -280,110 +274,103 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     else:
         loss = rotate_and_project_batch(loss, obj)
 
-    with tf.device('/cpu:0'):
+    # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
+    # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
+    if alpha_d is None:
+        reg_term = alpha * tf.norm(obj, ord=1) + gamma * tf.image.total_variation(obj[:, :, :, 0])
+    else:
+        reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.image.total_variation(obj[:, :, :, 0])
 
-        # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
-        # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
-        if alpha_d is None:
-            reg_term = alpha * tf.norm(obj, ord=1)
+    loss = loss + reg_term
+    tf.summary.scalar('loss', loss)
+    tf.summary.scalar('regularizer', reg_term)
+    tf.summary.scalar('error', loss - reg_term)
+
+    optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, global_step=global_step)
+
+    loss_ls = []
+    reg_ls = []
+
+    sess.run(tf.global_variables_initializer())
+
+    merged_summary_op = tf.summary.merge_all()
+    summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), graph_def=sess.graph_def)
+
+    t0 = time.time()
+
+    print('Optimizer started.')
+
+    n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
+    n_batch = int(np.ceil(float(n_theta) / minibatch_size))
+    for epoch in range(n_loop):
+        t00 = time.time()
+        if minibatch_size < n_theta:
+            for i_batch in range(n_batch):
+                t0_batch = time.time()
+                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
+                print('Minibatch done in {} s.'.format(time.time() - t0_batch))
         else:
-            reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
 
-        loss = loss + reg_term
-        tf.summary.scalar('loss', loss)
-        tf.summary.scalar('regularizer', reg_term)
-        tf.summary.scalar('error', loss - reg_term)
-
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate).minimize(loss, global_step=global_step)
-
-        loss_ls = []
-        reg_ls = []
-
-        sess.run(tf.global_variables_initializer())
-
-        merged_summary_op = tf.summary.merge_all()
-        summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), graph_def=sess.graph_def)
-
-        t0 = time.time()
-
-        print('Optimizer started.')
-
-        n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
-        for epoch in range(n_loop):
-            t00 = time.time()
-            if minibatch_size < n_theta:
-                shuffled_inds = range(n_theta)
-                np.random.shuffle(shuffled_inds)
-                batches = create_batches(shuffled_inds, minibatch_size)
-                for i_batch in range(len(batches)):
-                    t0_batch = time.time()
-                    this_batch = batches[i_batch]
-                    if len(this_batch) < minibatch_size:
-                        this_batch = np.pad(this_batch, [0, minibatch_size-len(this_batch)], 'constant')
-                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: this_batch})
-                    print('Minibatch done in {} s.'.format(time.time() - t0_batch))
-            else:
-                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], feed_dict={batch_inds: np.arange(n_theta, dtype=int)})
-
-            # =============non negative hard================
-            obj = tf.nn.relu(obj)
+        # =============non negative hard================
+        obj = tf.nn.relu(obj)
+        # ==============================================
+        if n_epochs == 'auto':
+            if len(loss_ls) > 0:
+                print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
+            if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
+                loss_ls.append(current_loss)
+                reg_ls.append(current_reg)
+                summary_writer.add_summary(summary_str, epoch)
+                break
+        if epoch < n_epochs_mask_release:
+            # =============finite support===================
+            if n_epochs == 'auto' or epoch != n_epochs - 1:
+                obj = obj * mask_add
             # ==============================================
-            if n_epochs == 'auto':
-                if len(loss_ls) > 0:
-                    print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
-                if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
-                    loss_ls.append(current_loss)
-                    reg_ls.append(current_reg)
-                    summary_writer.add_summary(summary_str, epoch)
-                    break
-            if epoch < n_epochs_mask_release:
-                # =============finite support===================
-                if n_epochs == 'auto' or epoch != n_epochs - 1:
-                    obj = obj * mask_add
-                # ==============================================
-                # ================shrink wrap===================
-                if epoch % shrink_cycle == 0 and epoch > 0:
-                    mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
-                    boolean = np.zeros_like(obj_init)
-                    boolean[:, :, :, 0] = mask_temp
-                    boolean[:, :, :, 1] = mask_temp
-                    boolean = tf.convert_to_tensor(boolean)
-                    mask_add = mask_add * tf.cast(boolean, tf.float32)
-                    dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                              os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
-                # ==============================================
-            loss_ls.append(current_loss)
-            reg_ls.append(current_reg)
-            summary_writer.add_summary(summary_str, epoch)
-            if save_intermediate:
-                temp_obj = sess.run(obj)
-                temp_obj = np.abs(temp_obj)
-                dxchange.write_tiff(temp_obj[26, :, :, 0],
-                                    fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
-                                    dtype='float32',
-                                    overwrite=True)
-                dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
-            print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
+            # ================shrink wrap===================
+            if epoch % shrink_cycle == 0 and epoch > 0:
+                mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
+                boolean = np.zeros_like(obj_init)
+                boolean[:, :, :, 0] = mask_temp
+                boolean[:, :, :, 1] = mask_temp
+                boolean = tf.convert_to_tensor(boolean)
+                mask_add = mask_add * tf.cast(boolean, tf.float32)
+                dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+                                          os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
+            # ==============================================
+        loss_ls.append(current_loss)
+        reg_ls.append(current_reg)
+        summary_writer.add_summary(summary_str, epoch)
+        if save_intermediate:
+            temp_obj = sess.run(obj)
+            temp_obj = np.abs(temp_obj)
+            dxchange.write_tiff(temp_obj[26, :, :, 0],
+                                fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
+                                dtype='float32',
+                                overwrite=True)
+            dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+        print('Iteration {}; loss = {}; time = {} s'.format(epoch, current_loss, time.time() - t00))
 
-        print('Total time: {}'.format(time.time() - t0))
+    print('Total time: {}'.format(time.time() - t0))
 
-        res = sess.run(obj)
-        dxchange.write_tiff_stack(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta'), dtype='float32', overwrite=True)
-        dxchange.write_tiff_stack(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta'), dtype='float32', overwrite=True)
+    res = sess.run(obj)
+    dxchange.write_tiff_stack(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta'), dtype='float32', overwrite=True)
+    dxchange.write_tiff_stack(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta'), dtype='float32', overwrite=True)
 
-        error_ls = np.array(loss_ls) - np.array(reg_ls)
+    error_ls = np.array(loss_ls) - np.array(reg_ls)
 
-        n_epochs = len(loss_ls)
-        plt.figure()
-        plt.semilogy(range(n_epochs), loss_ls, label='Total loss')
-        plt.semilogy(range(n_epochs), reg_ls, label='Regularizer')
-        plt.semilogy(range(n_epochs), error_ls, label='Error term')
-        plt.legend()
-        try:
-            os.makedirs(os.path.join(output_folder, 'convergence'))
-        except:
-            pass
-        plt.savefig(os.path.join(output_folder, 'convergence', 'converge.png'), format='png')
-        np.save(os.path.join(output_folder, 'convergence', 'total_loss'), loss_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'reg'), reg_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'error'), error_ls)
+    n_epochs = len(loss_ls)
+    plt.figure()
+    plt.semilogy(range(n_epochs), loss_ls, label='Total loss')
+    plt.semilogy(range(n_epochs), reg_ls, label='Regularizer')
+    plt.semilogy(range(n_epochs), error_ls, label='Error term')
+    plt.legend()
+    try:
+        os.makedirs(os.path.join(output_folder, 'convergence'))
+    except:
+        pass
+    plt.savefig(os.path.join(output_folder, 'convergence', 'converge.png'), format='png')
+    np.save(os.path.join(output_folder, 'convergence', 'total_loss'), loss_ls)
+    np.save(os.path.join(output_folder, 'convergence', 'reg'), reg_ls)
+    np.save(os.path.join(output_folder, 'convergence', 'error'), error_ls)
