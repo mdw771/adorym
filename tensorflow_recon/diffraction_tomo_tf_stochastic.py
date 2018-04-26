@@ -14,7 +14,7 @@ theta_end = 2 * PI
 n_epochs = 'auto'
 alpha_d_ls = [1e-9]
 alpha_b_ls = [1e-10]
-gamma_ls = [1e-6]
+gamma_ls = [0]
 learning_rate_ls = [5e-8]
 center = 128
 energy_ev = 5000
@@ -32,6 +32,7 @@ if __name__ == '__main__':
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
                 reconstruct_diff(fname='data_cone_256.h5',
                                  save_path='cone_256',
+                                 output_folder='test',
                                  phantom_path='cone_256/phantom',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,

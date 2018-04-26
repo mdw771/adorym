@@ -545,3 +545,13 @@ def rotate_image_tensor(image, angle, mode='black'):
     image_rotated = tf.transpose(tf.pack(image_rotated_channel_list), [1, 2, 0])
 
     return image_rotated
+
+
+def total_variation_3d(arr):
+
+    res = tf.pow(tf.manip.roll(arr, 1, 0) - arr, 2)
+    res += tf.pow(tf.manip.roll(arr, 1, 1) - arr, 2)
+    res += tf.pow(tf.manip.roll(arr, 1, 2) - arr, 2)
+    res = tf.sqrt(res)
+    res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
+    return res

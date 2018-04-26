@@ -208,12 +208,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     this_theta_batch, this_prj_batch = prj_iter.get_next()
 
     if output_folder is None:
-        # output_folder = 'uni_diff_tf_proj_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
-        # output_folder = 'fin_sup_leak_uni_diff_{}_gamma{}_rate{}_ds_{}_{}_{}'.format(n_epochs, gamma, learning_rate, *downsample)
-        # output_folder = 'fin_sup_pos_l1_uni_diff_{}_alpha{}_rate{}_ds_{}_{}_{}'.format(n_epochs, alpha, learning_rate, *downsample)
         output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_gamma_{}_rate{}_energy_{}_size_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, gamma, learning_rate, energy_ev, dim_x, cpu_only)
         # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
+        if abs(PI - theta_end) < 1e-3:
+            output_folder += '_180'
 
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
@@ -238,8 +237,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
     grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
     obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-    obj_init[:, :, :, 0] = grid_delta.mean()
-    obj_init[:, :, :, 1] = grid_delta.mean()
+    obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5)
+    obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5)
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
     # ====================================================
 
@@ -279,7 +278,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     if alpha_d is None:
         reg_term = alpha * tf.norm(obj, ord=1) + gamma * tf.image.total_variation(obj[:, :, :, 0])
     else:
-        reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.image.total_variation(obj[:, :, :, 0])
+        if gamma == 0:
+            reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+        else:
+            reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
+        # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
     loss = loss + reg_term
     tf.summary.scalar('loss', loss)
@@ -302,13 +305,13 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
     n_batch = int(np.ceil(float(n_theta) / minibatch_size))
+    t00 = time.time()
     for epoch in range(n_loop):
-        t00 = time.time()
         if minibatch_size < n_theta:
             for i_batch in range(n_batch):
                 t0_batch = time.time()
                 _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
-                print('Minibatch done in {} s.'.format(time.time() - t0_batch))
+                print('Minibatch done in {} s; current loss = {}.'.format(time.time() - t0_batch, current_loss))
         else:
             _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
 
@@ -355,8 +358,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     print('Total time: {}'.format(time.time() - t0))
 
     res = sess.run(obj)
-    dxchange.write_tiff_stack(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta'), dtype='float32', overwrite=True)
-    dxchange.write_tiff_stack(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta'), dtype='float32', overwrite=True)
+    dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta'), dtype='float32', overwrite=True)
+    dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta'), dtype='float32', overwrite=True)
 
     error_ls = np.array(loss_ls) - np.array(reg_ls)
 
