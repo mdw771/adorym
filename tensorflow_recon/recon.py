@@ -54,6 +54,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     prj = f['exchange/data'][...].astype('complex64')
     print('Data reading: {} s'.format(time.time() - t0))
     print('Data shape: {}'.format(prj.shape))
+    sys.stdout.flush()
 
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
@@ -170,6 +171,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     t0 = time.time()
 
     print('Optimizer started.')
+    sys.stdout.flush()
 
     n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
     n_batch = int(np.ceil(float(n_theta) / minibatch_size))
