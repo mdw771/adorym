@@ -273,8 +273,8 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
     k = 2. * PI * delta_nm / lmbda_nm
 
     for i_slice in range(n_slice):
-        print('Slice: {:d}'.format(i_slice))
-        sys.stdout.flush()
+        # print('Slice: {:d}'.format(i_slice))
+        # sys.stdout.flush()
         delta_slice = grid_delta[:, :, i_slice]
         delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
         beta_slice = grid_beta[:, :, i_slice]
