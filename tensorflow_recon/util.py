@@ -272,17 +272,13 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
         # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
     k = 2. * PI * delta_nm / lmbda_nm
 
-    for i_slice in range(n_slice):
-        # print('Slice: {:d}'.format(i_slice))
-        # sys.stdout.flush()
-        delta_slice = grid_delta[:, :, i_slice]
+    def modulate_and_propagate(i, wavefront):
+        delta_slice = grid_delta[:, :, i]
         delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
-        beta_slice = grid_beta[:, :, i_slice]
+        beta_slice = grid_beta[:, :, i]
         beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
-        # c = tf.reshape(c, wavefront.shape)
         wavefront = wavefront * c
-
         dist_nm = delta_nm
         l = np.prod(size_nm)**(1. / 3)
         crit_samp = lmbda_nm * dist_nm / l
@@ -293,6 +289,34 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
         else:
             wavefront = tf.fft2d(fftshift(wavefront))
             wavefront = ifftshift(tf.ifft2d(wavefront * h))
+        return i, wavefront
+
+    i = tf.constant(0)
+    c = lambda i, wavefront: tf.less(i, n_slice)
+    _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
+
+
+    # for i_slice in range(n_slice):
+    #     # print('Slice: {:d}'.format(i_slice))
+    #     # sys.stdout.flush()
+    #     delta_slice = grid_delta[:, :, i_slice]
+    #     delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+    #     beta_slice = grid_beta[:, :, i_slice]
+    #     beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+    #     c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+    #     # c = tf.reshape(c, wavefront.shape)
+    #     wavefront = wavefront * c
+    #
+    #     dist_nm = delta_nm
+    #     l = np.prod(size_nm)**(1. / 3)
+    #     crit_samp = lmbda_nm * dist_nm / l
+    #
+    #     if mean_voxel_nm > crit_samp:
+    #         # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
+    #         wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+    #     else:
+    #         wavefront = tf.fft2d(fftshift(wavefront))
+    #         wavefront = ifftshift(tf.ifft2d(wavefront * h))
 
     return wavefront
 
