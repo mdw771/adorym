@@ -289,6 +289,7 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
         else:
             wavefront = tf.fft2d(fftshift(wavefront))
             wavefront = ifftshift(tf.ifft2d(wavefront * h))
+        i = i + 1
         return i, wavefront
 
     i = tf.constant(0)
@@ -348,6 +349,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psi
     #     # c = tf.reshape(c, wavefront.shape)
     #     wavefront = wavefront * c
     #     wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+    #     i = i + 1
     #     return (i, wavefront)
 
     # i = tf.constant(0)
