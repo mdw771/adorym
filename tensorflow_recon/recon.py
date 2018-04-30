@@ -274,9 +274,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     batch_inds = tf.placeholder(dtype=tf.int64)
     if cpu_only:
+        # i = tf.constant(0)
+        # c = lambda i, loss, obj: tf.less(i, minibatch_size)
+        # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
         i = tf.constant(0)
-        c = lambda i, loss, obj: tf.less(i, minibatch_size)
-        _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
+        for j in range(minibatch_size):
+            i, loss, obj = rotate_and_project(i, loss, obj)
     else:
         loss = rotate_and_project_batch(loss, obj)
 
