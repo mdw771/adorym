@@ -176,15 +176,18 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     sys.stdout.flush()
 
     n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
-    n_batch = int(np.ceil(float(n_theta) / minibatch_size))
+    n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
     t00 = time.time()
     for epoch in range(n_loop):
         if minibatch_size < n_theta:
             for i_batch in range(n_batch):
-                t0_batch = time.time()
-                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
-                print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
-                sys.stdout.flush()
+                try:
+                    t0_batch = time.time()
+                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
+                    print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
+                    sys.stdout.flush()
+                except tf.errors.OutOfRangeError:
+                    break
         else:
             _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
 
