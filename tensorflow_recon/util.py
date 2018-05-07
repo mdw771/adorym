@@ -296,6 +296,27 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None):
     c = lambda i, wavefront: tf.less(i, n_slice)
     _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
 
+    # for i_slice in range(n_slice):
+    #     # print('Slice: {:d}'.format(i_slice))
+    #     # sys.stdout.flush()
+    #     delta_slice = grid_delta[:, :, i_slice]
+    #     delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+    #     beta_slice = grid_beta[:, :, i_slice]
+    #     beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+    #     c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+    #     # c = tf.reshape(c, wavefront.shape)
+    #     wavefront = wavefront * c
+    #
+    #     dist_nm = delta_nm
+    #     l = np.prod(size_nm)**(1. / 3)
+    #     crit_samp = lmbda_nm * dist_nm / l
+    #
+    #     if mean_voxel_nm > crit_samp:
+    #         # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
+    #         wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+    #     else:
+    #         wavefront = tf.fft2d(fftshift(wavefront))
+    #         wavefront = ifftshift(tf.ifft2d(wavefront * h))
 
     return wavefront
 
@@ -327,6 +348,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psi
     #     # c = tf.reshape(c, wavefront.shape)
     #     wavefront = wavefront * c
     #     wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+    #     i = i + 1
     #     return (i, wavefront)
 
     # i = tf.constant(0)
@@ -548,3 +570,13 @@ def rotate_image_tensor(image, angle, mode='black'):
     image_rotated = tf.transpose(tf.pack(image_rotated_channel_list), [1, 2, 0])
 
     return image_rotated
+
+
+def total_variation_3d(arr):
+
+    res = tf.pow(tf.manip.roll(arr, 1, 0) - arr, 2)
+    res += tf.pow(tf.manip.roll(arr, 1, 1) - arr, 2)
+    res += tf.pow(tf.manip.roll(arr, 1, 2) - arr, 2)
+    res = tf.sqrt(res)
+    res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
+    return res
