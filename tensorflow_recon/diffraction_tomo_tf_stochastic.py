@@ -30,9 +30,9 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_cone_256.h5',
+                reconstruct_diff(fname='data_cone_256_n800.h5',
                                  save_path='cone_256',
-                                 output_folder='test',
+                                 output_folder=None,
                                  phantom_path='cone_256/phantom',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
