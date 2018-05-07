@@ -64,7 +64,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     this_theta_batch, this_prj_batch = prj_iter.get_next()
 
     if output_folder is None:
-        output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_gamma_{}_rate{}_energy_{}_size_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, gamma, learning_rate, energy_ev, dim_x, cpu_only)
+        output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_gamma_{}_rate{}_energy_{}_size_{}_ntheta_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, gamma, learning_rate, energy_ev, dim_x, n_theta, cpu_only)
         # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         if abs(PI - theta_end) < 1e-3:

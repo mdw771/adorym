@@ -20,8 +20,8 @@ PI = 3.1415927
 
 # ============================================
 theta_st = 0
-theta_end = PI ###############################
-n_theta = 500
+theta_end = 2 * PI ###############################
+n_theta = 800
 energy_ev = 5000
 psize_cm = 1e-7
 # ============================================
@@ -52,7 +52,7 @@ theta_ls = -np.linspace(theta_st, theta_end, n_theta)
 theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
 
 # create data file
-f = h5py.File('cone_256/data_cone_256_180.h5', 'w')
+f = h5py.File('cone_256/data_cone_256_n800.h5', 'w')
 grp = f.create_group('exchange')
 dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
 
