@@ -5,8 +5,13 @@ import dxchange
 import time
 import os
 import h5py
+import warnings
 from util import *
-import horovod.tensorflow as hvd
+try:
+    import horovod.tensorflow as hvd
+except:
+    from pseudo import hvd
+    warnings.warn('Unable to import Horovod.')
 
 
 PI = 3.1415927
@@ -59,7 +64,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     dim_y, dim_x = prj.shape[-2:]
     n_theta = prj.shape[0]
     theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
-    prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(buffer_size=100).repeat().batch(minibatch_size)
+    prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
+        buffer_size=100).repeat().batch(minibatch_size)
     prj_iter = prj_dataset.make_one_shot_iterator()
     this_theta_batch, this_prj_batch = prj_iter.get_next()
 
