@@ -11,7 +11,7 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = 2 * PI
-n_epochs = 5
+n_epochs = 10
 alpha_d_ls = [1e-9]
 alpha_b_ls = [1e-10]
 gamma_ls = [0]
@@ -21,6 +21,7 @@ energy_ev = 5000
 psize_cm = 1e-7
 batch_size = 10
 n_epochs_mask_release = 2
+free_prop_cm = 1e-4
 # ============================================
 
 
@@ -30,10 +31,10 @@ if __name__ == '__main__':
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_cone_256_n800.h5',
-                                 save_path='cone_256',
+                reconstruct_diff(fname='data_cone_256_1nm_1um.h5',
+                                 save_path='cone_256_filled',
                                  output_folder=None,
-                                 phantom_path='cone_256/phantom',
+                                 phantom_path='cone_256_filled/phantom',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
@@ -47,4 +48,5 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=True)
+                                 cpu_only=True,
+                                 free_prop_cm=free_prop_cm)
