@@ -39,8 +39,8 @@ config = tf.ConfigProto(device_count = {'GPU': 0})
 sess = tf.Session(config=config)
 
 # read model
-grid_delta = np.load('cone_256/phantom/grid_delta.npy')
-grid_beta = np.load('cone_256/phantom/grid_beta.npy')
+grid_delta = np.load('cone_256_filled/phantom/grid_delta.npy')
+grid_beta = np.load('cone_256_filled/phantom/grid_beta.npy')
 img_dim = grid_delta.shape[0]
 obj_init = np.zeros([img_dim, img_dim, img_dim, 2])
 obj_init[:, :, :, 0] = grid_delta

@@ -21,6 +21,7 @@ energy_ev = 800
 psize_cm = 0.67e-7
 batch_size = 20
 n_epochs_mask_release = 200
+free_prop_cm = 1e-4
 # ============================================
 
 
