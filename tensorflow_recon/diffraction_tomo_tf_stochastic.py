@@ -12,16 +12,17 @@ PI = 3.1415927
 theta_st = 0
 theta_end = 2 * PI
 n_epochs = 10
-alpha_d_ls = [1e-9]
-alpha_b_ls = [1e-10]
+alpha_d_ls = [1e-8]
+alpha_b_ls = [1e-9]
 gamma_ls = [0]
 learning_rate_ls = [5e-8]
 center = 128
 energy_ev = 5000
 psize_cm = 1e-7
 batch_size = 10
-n_epochs_mask_release = 2
+n_epochs_mask_release = 10
 free_prop_cm = 1e-4
+shrink_cycle = 1
 # ============================================
 
 
@@ -49,4 +50,5 @@ if __name__ == '__main__':
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
                                  cpu_only=True,
-                                 free_prop_cm=free_prop_cm)
+                                 free_prop_cm=free_prop_cm,
+                                 shrink_cycle=shrink_cycle)
