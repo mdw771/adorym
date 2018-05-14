@@ -1,11 +1,11 @@
 # A pseudo Horovod class in case Horovod cannot be imported.
 
-class hvd():
+class hvd(object):
 
     def __init__(self):
-        size = 1
-        local_rank = 0
-        rank = 0
+        self.size = 1
+        self.local_rank = 0
+        self.rank = 0
 
     def init(self):
         pass

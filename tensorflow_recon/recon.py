@@ -7,11 +7,6 @@ import os
 import h5py
 import warnings
 from util import *
-try:
-    import horovod.tensorflow as hvd
-except:
-    from pseudo import hvd
-    warnings.warn('Unable to import Horovod.')
 
 
 PI = 3.1415927
@@ -20,7 +15,7 @@ PI = 3.1415927
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
-                     phantom_path='phantom', shrink_cycle=20):
+                     phantom_path='phantom', shrink_cycle=20, core_parallelization=True):
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
@@ -47,6 +42,17 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss
+
+    # import Horovod or its fake shell
+    if core_parallelization is False:
+        warnings.warn('Parallelization is disabled in the reconstruction routine. ')
+        from pseudo import hvd
+    else:
+        try:
+            import horovod.tensorflow as hvd
+        except:
+            from pseudo import hvd
+            warnings.warn('Unable to import Horovod.')
 
     hvd.init()
     global_step = tf.Variable(0, trainable=False, name='global_step')

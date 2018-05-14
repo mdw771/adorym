@@ -184,12 +184,13 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     """
     size_nm = np.array(voxel_nm) * np.array(grid_shape)
     k = 2 * PI / lmbda_nm
-    xmin, ymin = np.array(size_nm)[:2] / -2.
-    dx, dy = voxel_nm[0:2]
-    x = np.arange(xmin, xmin + size_nm[0], dx)
-    y = np.arange(ymin, ymin + size_nm[1], dy)
+    ymin, xmin = np.array(size_nm)[:2] / -2.
+    dy, dx = voxel_nm[0:2]
+    x = np.arange(xmin, xmin + size_nm[1], dx)
+    y = np.arange(ymin, ymin + size_nm[0], dy)
     x, y = np.meshgrid(x, y)
     h = np.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * np.exp(1j * k / (2 * dist_nm) * (x**2 + y**2))
+    h = tf.convert_to_tensor(h, dtype='complex64')
     H = tf.fft2d(fftshift(h)) * voxel_nm[0] * voxel_nm[1]
 
     return H
@@ -277,7 +278,11 @@ def ifftshift(tensor):
     return tensor
 
 
-def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, free_prop_cm=None):
+def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, free_prop_cm=None, pad=None):
+
+    if pad is not None:
+        grid_delta = tf.pad(grid_delta, pad, 'CONSTANT')
+        grid_beta = tf.pad(grid_beta, pad, 'CONSTANT')
 
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
     wavefront = np.ones([grid_delta.shape[0], grid_delta.shape[2]])
@@ -327,10 +332,13 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, fre
         crit_samp = lmbda_nm * dist_nm / l
         algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
         if algorithm == 'TF':
-            h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape)
+            print(grid_delta.shape)
+            h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
         else:
-            h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape)
-        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+            print(grid_delta.shape)
+            h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
+        wavefront = fftshift(tf.fft2d(wavefront)) * h
+        wavefront = tf.ifft2d(ifftshift(wavefront))
 
 
     # for i_slice in range(n_slice):
