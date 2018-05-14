@@ -186,6 +186,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     merged_summary_op = tf.summary.merge_all()
 
+    # create benchmarking metadata
+    run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    run_metadata = tf.RunMetadata()
     if cpu_only:
         sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}, allow_soft_placement=True))
     else:
@@ -212,13 +215,23 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             for i_batch in range(n_batch):
                 try:
                     t0_batch = time.time()
-                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
+                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                     print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
                     sys.stdout.flush()
                 except tf.errors.OutOfRangeError:
                     break
         else:
-            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op])
+            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+
+        # timeline for benchmarking
+        tl = timeline.Timeline(run_metadata.step_stats)
+        ctf = tl.generate_chrome_trace_format()
+        try:
+            os.makedirs(os.path.join(output_folder, 'profiling'))
+        except:
+            pass
+        with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
+            f.write(ctf)
 
         # =============non negative hard================
         obj = tf.nn.relu(obj)
