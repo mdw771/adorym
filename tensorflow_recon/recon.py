@@ -15,7 +15,7 @@ PI = 3.1415927
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
-                     phantom_path='phantom', shrink_cycle=20, core_parallelization=True):
+                     phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None):
 
     # TODO: rewrite minibatching to ensure going through the entire dataset
 
@@ -25,9 +25,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
             with tf.device('/gpu:0'):
-                exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm)
+                exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h, free_prop_cm=free_prop_cm)
         else:
-            exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h)
+            exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h, free_prop_cm=free_prop_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
@@ -76,7 +76,24 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     this_theta_batch, this_prj_batch = prj_iter.get_next()
 
     if output_folder is None:
-        output_folder = 'recon_360_minibatch_{}_mskrls_{}_iter_{}_alphad_{}_alphab_{}_gamma_{}_rate{}_energy_{}_size_{}_ntheta_{}_cpu_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, gamma, learning_rate, energy_ev, dim_x, n_theta, cpu_only)
+        output_folder = 'recon_360_minibatch_{}_' \
+                        'mskrls_{}_' \
+                        'shrink_{}_' \
+                        'iter_{}_' \
+                        'alphad_{}_' \
+                        'alphab_{}_' \
+                        'gamma_{}_' \
+                        'rate_{}_' \
+                        'energy_{}_' \
+                        'size_{}_' \
+                        'ntheta_{}_' \
+                        'prop_{}_' \
+                        'cpu_{}'\
+            .format(minibatch_size, n_epochs_mask_release, shrink_cycle,
+                    n_epochs, alpha_d, alpha_b,
+                    gamma, learning_rate, energy_ev,
+                    dim_x, n_theta, free_prop_cm,
+                    cpu_only)
         # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
         if abs(PI - theta_end) < 1e-3:
