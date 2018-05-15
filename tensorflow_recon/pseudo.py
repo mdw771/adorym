@@ -1,6 +1,6 @@
 # A pseudo Horovod class in case Horovod cannot be imported.
 
-class hvd(object):
+class Hvd(object):
 
     def __init__(self):
         self.size = 1
