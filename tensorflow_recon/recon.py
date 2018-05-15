@@ -51,7 +51,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         try:
             import horovod.tensorflow as hvd
         except:
-            from pseudo import hvd
+            from pseudo import Hvd
+            hvd = Hvd()
             warnings.warn('Unable to import Horovod.')
 
     hvd.init()
@@ -258,8 +259,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 boolean[:, :, :, 1] = mask_temp
                 boolean = tf.convert_to_tensor(boolean)
                 mask_add = mask_add * tf.cast(boolean, tf.float32)
-                dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                          os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
+                if hvd.rank() == 0 and hvd.local_rank() == 0:
+                    dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+                                              os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
             # ==============================================
         loss_ls.append(current_loss)
         reg_ls.append(current_reg)
