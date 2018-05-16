@@ -346,8 +346,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         sys.stdout.flush()
 
         res = sess.run(obj)
-        dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta'), dtype='float32', overwrite=True)
-        dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta'), dtype='float32', overwrite=True)
+        dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_{}'.format(ds_level)), dtype='float32', overwrite=True)
+        dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_{}'.format(ds_level)), dtype='float32', overwrite=True)
 
         error_ls = np.array(loss_ls) - np.array(reg_ls)
 
@@ -361,10 +361,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             os.makedirs(os.path.join(output_folder, 'convergence'))
         except:
             pass
-        plt.savefig(os.path.join(output_folder, 'convergence', 'converge.png'), format='png')
-        np.save(os.path.join(output_folder, 'convergence', 'total_loss'), loss_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'reg'), reg_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'error'), error_ls)
+        plt.savefig(os.path.join(output_folder, 'convergence', 'converge_ds_{}.png'.format(ds_level)), format='png')
+        np.save(os.path.join(output_folder, 'convergence', 'total_loss_ds_{}'.format(ds_level)), loss_ls)
+        np.save(os.path.join(output_folder, 'convergence', 'reg_ds_{}'.format(ds_level)), reg_ls)
+        np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
 
         print('Clearing current graph...')
         tf.reset_default_graph()
