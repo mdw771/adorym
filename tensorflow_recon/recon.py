@@ -277,70 +277,74 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
-            if minibatch_size < n_theta:
-                for i_batch in range(n_batch):
-                    try:
-                        t0_batch = time.time()
-                        _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-                        print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
-                        sys.stdout.flush()
-                    except tf.errors.OutOfRangeError:
-                        break
-            else:
-                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-
-            # timeline for benchmarking
-            tl = timeline.Timeline(run_metadata.step_stats)
-            ctf = tl.generate_chrome_trace_format()
             try:
-                os.makedirs(os.path.join(output_folder, 'profiling'))
-            except:
-                pass
-            with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
-                f.write(ctf)
+                if minibatch_size < n_theta:
+                    for i_batch in range(n_batch):
+                        try:
+                            t0_batch = time.time()
+                            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                            print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
+                            sys.stdout.flush()
+                        except tf.errors.OutOfRangeError:
+                            break
+                else:
+                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
 
-            # =============non negative hard================
-            obj = tf.nn.relu(obj)
-            # ==============================================
-            if n_epochs == 'auto':
-                if len(loss_ls) > 0:
-                    print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
-                    sys.stdout.flush()
-                if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
-                    loss_ls.append(current_loss)
-                    reg_ls.append(current_reg)
-                    summary_writer.add_summary(summary_str, epoch)
-                    break
-            if epoch < n_epochs_mask_release:
-                # =============finite support===================
-                if n_epochs == 'auto' or epoch != n_epochs - 1:
-                    obj = obj * mask_add
+                # timeline for benchmarking
+                tl = timeline.Timeline(run_metadata.step_stats)
+                ctf = tl.generate_chrome_trace_format()
+                try:
+                    os.makedirs(os.path.join(output_folder, 'profiling'))
+                except:
+                    pass
+                with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
+                    f.write(ctf)
+
+                # =============non negative hard================
+                obj = tf.nn.relu(obj)
                 # ==============================================
-                # ================shrink wrap===================
-                if epoch % shrink_cycle == 0 and epoch > 0:
-                    mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
-                    boolean = np.zeros_like(obj_init)
-                    boolean[:, :, :, 0] = mask_temp
-                    boolean[:, :, :, 1] = mask_temp
-                    boolean = tf.convert_to_tensor(boolean)
-                    mask_add = mask_add * tf.cast(boolean, tf.float32)
-                    if hvd.rank() == 0 and hvd.local_rank() == 0:
-                        dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                                  os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
-                # ==============================================
-            loss_ls.append(current_loss)
-            reg_ls.append(current_reg)
-            summary_writer.add_summary(summary_str, epoch)
-            if save_intermediate:
-                temp_obj = sess.run(obj)
-                temp_obj = np.abs(temp_obj)
-                dxchange.write_tiff(temp_obj[26, :, :, 0],
-                                    fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
-                                    dtype='float32',
-                                    overwrite=True)
-                dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
-            print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
-            sys.stdout.flush()
+                if n_epochs == 'auto':
+                    if len(loss_ls) > 0:
+                        print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
+                        sys.stdout.flush()
+                    if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
+                        loss_ls.append(current_loss)
+                        reg_ls.append(current_reg)
+                        summary_writer.add_summary(summary_str, epoch)
+                        break
+                if epoch < n_epochs_mask_release:
+                    # =============finite support===================
+                    if n_epochs == 'auto' or epoch != n_epochs - 1:
+                        obj = obj * mask_add
+                    # ==============================================
+                    # ================shrink wrap===================
+                    if epoch % shrink_cycle == 0 and epoch > 0:
+                        mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
+                        boolean = np.zeros_like(obj_init)
+                        boolean[:, :, :, 0] = mask_temp
+                        boolean[:, :, :, 1] = mask_temp
+                        boolean = tf.convert_to_tensor(boolean)
+                        mask_add = mask_add * tf.cast(boolean, tf.float32)
+                        if hvd.rank() == 0 and hvd.local_rank() == 0:
+                            dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+                                                      os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
+                    # ==============================================
+                loss_ls.append(current_loss)
+                reg_ls.append(current_reg)
+                summary_writer.add_summary(summary_str, epoch)
+                if save_intermediate:
+                    temp_obj = sess.run(obj)
+                    temp_obj = np.abs(temp_obj)
+                    dxchange.write_tiff(temp_obj[26, :, :, 0],
+                                        fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
+                                        dtype='float32',
+                                        overwrite=True)
+                    dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+                print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
+                sys.stdout.flush()
+            except:
+                # if one thread breaks out after meeting stopping criterion, intercept Horovod error and break others
+                break
 
         print('Total time: {}'.format(time.time() - t0))
         sys.stdout.flush()
