@@ -23,6 +23,7 @@ batch_size = 10
 n_epochs_mask_release = 10
 free_prop_cm = 1e-4
 shrink_cycle = 1
+multiscale_level = 3
 # ============================================
 
 
@@ -51,4 +52,5 @@ if __name__ == '__main__':
                                  psize_cm=psize_cm,
                                  cpu_only=True,
                                  free_prop_cm=free_prop_cm,
-                                 shrink_cycle=shrink_cycle)
+                                 shrink_cycle=shrink_cycle,
+                                 multiscale_level=multiscale_level)
