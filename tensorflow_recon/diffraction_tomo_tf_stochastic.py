@@ -35,7 +35,7 @@ if __name__ == '__main__':
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
                 reconstruct_diff(fname='data_cone_256_1nm_1um.h5',
                                  save_path='cone_256_filled',
-                                 output_folder='test',
+                                 output_folder=None,
                                  phantom_path='cone_256_filled/phantom',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
