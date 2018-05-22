@@ -20,7 +20,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
-                     multiscale_level=1):
+                     multiscale_level=1, n_epoch_final_pass=None, initial_guess=None):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -59,6 +59,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                              before reconstructing with the original resolution. The downsampling
                              factor for these coarse reconstructions will be [2^(m - 1),
                              2^(m - 2), ..., 2^1].
+    :param n_epoch_final_pass: specify a number of iterations for the final pass if multiscale
+                               is activated. If None, it will be the same as n_epoch.
+    :param initial_guess: supply an initial guess. If None, object will be initialized with noises.
     :return:
     """
 
@@ -198,13 +201,21 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # ====================================================
         # initializer_flag = True
         if initializer_flag == False:
-            grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-            grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-            obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-            obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
-            obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
-            obj_init[obj_init < 0] = 0
+            if initial_guess is None:
+                print('Initializing with Gaussian random.')
+                grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+                grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
+                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
+                obj_init[obj_init < 0] = 0
+            else:
+                print('Using supplied initial guess.')
+                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+                obj_init[:, :, :, 0] = dxchange.read_tiff(initial_guess[0])
+                obj_init[:, :, :, 1] = dxchange.read_tiff(initial_guess[1])
         else:
+            print('Initializing with Gaussian random.')
             grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
             grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
             delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
@@ -292,6 +303,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         sys.stdout.flush()
 
         n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
+        if ds_level == 1 and n_epoch_final_pass is not None:
+            n_loop = n_epoch_final_pass
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
