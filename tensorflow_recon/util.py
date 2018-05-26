@@ -337,7 +337,6 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, fre
             h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
         wavefront = fftshift(tf.fft2d(wavefront)) * h
         wavefront = tf.ifft2d(ifftshift(wavefront))
-        print(wavefront.shape)
 
     # for i_slice in range(n_slice):
     #     # print('Slice: {:d}'.format(i_slice))
