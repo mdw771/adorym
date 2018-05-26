@@ -20,10 +20,11 @@ PI = 3.1415927
 
 # ============================================
 theta_st = 0
-theta_end = 2 * PI ###############################
+theta_end = PI ###############################
 n_theta = 500
 energy_ev = 5000
 psize_cm = 1e-7
+free_prop_cm = 1e-4
 # ============================================
 
 def rotate_and_project(i, obj):
@@ -31,7 +32,7 @@ def rotate_and_project(i, obj):
     # coord_old = read_origin_coords('arrsize_64_64_64_ntheta_500', i)
     # obj_rot = apply_rotation(obj, coord_old, 'arrsize_64_64_64_ntheta_500')
     obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
-    exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, free_prop_cm=1e-4)
+    exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, free_prop_cm=free_prop_cm)
     # exiting = tf.abs(exiting)
     return exiting
 
@@ -52,7 +53,7 @@ theta_ls = -np.linspace(theta_st, theta_end, n_theta)
 theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
 
 # create data file
-f = h5py.File('cone_256/data_cone_256_1nm_1um.h5', 'w')
+f = h5py.File('cone_256_filled/data_cone_256_1nm_1um_180.h5', 'w')
 grp = f.create_group('exchange')
 dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
 

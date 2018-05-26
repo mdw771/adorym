@@ -17,7 +17,7 @@ PI = 3.1415927
 
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                      alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
-                     output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
+                     output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                      multiscale_level=1, n_epoch_final_pass=None, initial_guess=None):
@@ -365,10 +365,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             if save_intermediate:
                 temp_obj = sess.run(obj)
                 temp_obj = np.abs(temp_obj)
-                dxchange.write_tiff(temp_obj[26, :, :, 0],
-                                    fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
-                                    dtype='float32',
-                                    overwrite=True)
+                if full_intermediate:
+                    dxchange.write_tiff(temp_obj[:, :, :, 0],
+                                        fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
+                                        dtype='float32',
+                                        overwrite=True)
+                else:
+                    dxchange.write_tiff(temp_obj[int(temp_obj.shape[0] / 2), :, :, 0],
+                                        fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
+                                        dtype='float32',
+                                        overwrite=True)
                 dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
             print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
             sys.stdout.flush()
@@ -385,11 +391,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
         error_ls = np.array(loss_ls) - np.array(reg_ls)
 
-        n_epochs = len(loss_ls)
+        x = len(loss_ls)
         plt.figure()
-        plt.semilogy(range(n_epochs), loss_ls, label='Total loss')
-        plt.semilogy(range(n_epochs), reg_ls, label='Regularizer')
-        plt.semilogy(range(n_epochs), error_ls, label='Error term')
+        plt.semilogy(range(x), loss_ls, label='Total loss')
+        plt.semilogy(range(x), reg_ls, label='Regularizer')
+        plt.semilogy(range(x), error_ls, label='Error term')
         plt.legend()
         try:
             os.makedirs(os.path.join(output_folder, 'convergence'))

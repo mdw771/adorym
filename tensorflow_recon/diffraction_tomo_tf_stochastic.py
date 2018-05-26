@@ -12,7 +12,7 @@ PI = 3.1415927
 theta_st = 0
 theta_end = 2 * PI
 n_epochs = 'auto'
-n_epoch_final_pass = 5
+n_epoch_final_pass = 4
 alpha_d_ls = [1.5e-6]
 alpha_b_ls = [alpha_d_ls[0] * 0.1]
 gamma_ls = [5e-7]
@@ -50,6 +50,7 @@ if __name__ == '__main__':
                                  learning_rate=learning_rate,
                                  downsample=(0, 0, 0),
                                  save_intermediate=True,
+                                 full_intermediate=True,
                                  n_epochs_mask_release=n_epochs_mask_release,
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
