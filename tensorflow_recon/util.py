@@ -4,7 +4,8 @@ import numpy as np
 import dxchange
 import matplotlib.pyplot as plt
 import matplotlib
-from pyfftw.interfaces.numpy_fft import fftn, fftshift
+from pyfftw.interfaces.numpy_fft import fftn
+from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
 import warnings
 try:
     from constants import *
@@ -675,12 +676,12 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
         os.makedirs(save_path)
 
     radius_max = int(min(obj.shape) / 2)
-    f_obj = fftshift(fftn(obj))
-    f_ref = fftshift(fftn(ref))
+    f_obj = np_fftshift(fftn(obj))
+    f_ref = np_fftshift(fftn(ref))
     f_prod = f_obj * np.conjugate(f_ref)
-    f_obj_2 = f_obj * np.conjugate(f_obj)
-    f_ref_2 = f_ref ** np.conjugate(f_ref)
-    radius_ls = np.arange(1, radius_max+1, step_size)
+    f_obj_2 = np.real(f_obj * np.conjugate(f_obj))
+    f_ref_2 = np.real(f_ref * np.conjugate(f_ref))
+    radius_ls = np.arange(1, radius_max, step_size)
     fsc_ls = []
     np.save(os.path.join(save_path, 'radii.npy'), radius_ls)
 
@@ -693,7 +694,7 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
             if save_mask:
                 dxchange.write_tiff(mask, os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad))),
                                     dtype='float32', overwrite=True)
-        fsc = np.sum(f_prod * mask)
+        fsc = abs(np.sum(f_prod * mask))
         fsc /= np.sqrt(np.sum(f_obj_2 * mask) * np.sum(f_ref_2 * mask))
         fsc_ls.append(fsc)
         np.save(os.path.join(save_path, 'fsc.npy'), fsc_ls)
@@ -701,7 +702,7 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
     matplotlib.rcParams['pdf.fonttype'] = 'truetype'
     fontProperties = {'family': 'serif', 'serif': ['Times New Roman'], 'weight': 'normal', 'size': 12}
     plt.rc('font', **fontProperties)
-    plt.plot(radius_ls / radius_ls[-1], fsc_ls)
+    plt.plot(radius_ls.astype(float) / radius_ls[-1], fsc_ls)
     plt.xlabel('Spatial frequency (1 / Nyquist)')
     plt.ylabel('FSC')
     plt.savefig(os.path.join(save_path, 'fsc.pdf'), format='pdf')
