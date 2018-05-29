@@ -3,6 +3,8 @@ import tensorflow as tf
 import numpy as np
 import dxchange
 import matplotlib.pyplot as plt
+import matplotlib
+from pyfftw.interfaces.numpy_fft import fftn, fftshift
 try:
     from constants import *
     import sys
@@ -639,3 +641,68 @@ def total_variation_3d(arr):
     res = tf.sqrt(res)
     res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
     return res
+
+
+def generate_sphere(shape, radius, anti_aliasing=5):
+
+    shape = np.array(shape)
+    radius = int(radius)
+    x = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    y = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    z = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    xx, yy, zz = np.meshgrid(x, y, z)
+    a = (xx**2 + yy**2 + zz**2 <= radius**2).astype('float')
+    res = np.zeros(shape * anti_aliasing)
+    center_res = (np.array(res.shape) / 2).astype('int')
+    res[center_res[0] - int(a.shape[0] / 2):center_res[0] + int(a.shape[0] / 2),
+        center_res[1] - int(a.shape[0] / 2):center_res[1] + int(a.shape[0] / 2),
+        center_res[2] - int(a.shape[0] / 2):center_res[2] + int(a.shape[0] / 2)] = a
+    res = gaussian_filter(res, 0.5 * anti_aliasing)
+    res = res[::anti_aliasing, ::anti_aliasing, ::anti_aliasing]
+    return res
+
+
+def generate_shell(shape, radius, anti_aliasing=5):
+
+    sphere1 = generate_sphere(shape, radius + 0.5, anti_aliasing=anti_aliasing)
+    sphere2 = generate_sphere(shape, radius - 0.5, anti_aliasing=anti_aliasing)
+    return sphere1 - sphere2
+
+
+def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=True):
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    radius_max = int(min(obj.shape) / 2)
+    f_obj = fftshift(fftn(obj))
+    f_ref = fftshift(fftn(ref))
+    f_prod = f_obj * np.conjugate(f_ref)
+    f_obj_2 = f_obj * np.conjugate(f_obj)
+    f_ref_2 = f_ref ** np.conjugate(f_ref)
+    radius_ls = np.arange(1, radius_max+1, step_size)
+    fsc_ls = []
+    np.save(os.path.join(save_path, 'radii.npy'), radius_ls)
+
+    for rad in radius_ls:
+        print(rad)
+        if os.path.exists(os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad)))):
+            mask = dxchange.read_tiff(os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad))))
+        else:
+            mask = generate_shell(obj.shape, rad, anti_aliasing=2)
+            if save_mask:
+                dxchange.write_tiff(mask, os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad))),
+                                    dtype='float32', overwrite=True)
+        fsc = np.sum(f_prod * mask)
+        fsc /= np.sqrt(np.sum(f_obj_2 * mask) * np.sum(f_ref_2 * mask))
+        fsc_ls.append(fsc)
+        np.save(os.path.join(save_path, 'fsc.npy'), fsc_ls)
+
+    matplotlib.rcParams['pdf.fonttype'] = 'truetype'
+    fontProperties = {'family': 'serif', 'serif': ['Times New Roman'], 'weight': 'normal', 'size': 12}
+    plt.rc('font', **fontProperties)
+    plt.plot(radius_ls / radius_ls[-1], fsc_ls)
+    plt.xlabel('Spatial frequency (1 / Nyquist)')
+    plt.ylabel('FSC')
+    plt.savefig(os.path.join(save_path, 'fsc.pdf'), format='pdf')
+
