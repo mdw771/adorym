@@ -5,14 +5,14 @@ import dxchange
 import matplotlib.pyplot as plt
 import matplotlib
 from pyfftw.interfaces.numpy_fft import fftn, fftshift
+import warnings
 try:
     from constants import *
     import sys
     from scipy.ndimage import gaussian_filter
     from scipy.ndimage import fourier_shift
 except:
-    pass
-import warnings
+    warnings.warn('Some dependencies are screwed up.')
 import os
 import pickle
 import glob
@@ -334,14 +334,11 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, fre
         crit_samp = lmbda_nm * dist_nm / l
         algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
         if algorithm == 'TF':
-            print(grid_delta.shape)
             h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
         else:
-            print(grid_delta.shape)
             h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
         wavefront = fftshift(tf.fft2d(wavefront)) * h
         wavefront = tf.ifft2d(ifftshift(wavefront))
-
 
     # for i_slice in range(n_slice):
     #     # print('Slice: {:d}'.format(i_slice))
@@ -635,11 +632,14 @@ def rotate_image_tensor(image, angle, mode='black'):
 
 def total_variation_3d(arr):
 
-    res = tf.pow(tf.manip.roll(arr, 1, 0) - arr, 2)
-    res += tf.pow(tf.manip.roll(arr, 1, 1) - arr, 2)
-    res += tf.pow(tf.manip.roll(arr, 1, 2) - arr, 2)
-    res = tf.sqrt(res)
-    res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
+    # res = tf.pow(tf.manip.roll(arr, 1, 0) - arr, 2)
+    # res += tf.pow(tf.manip.roll(arr, 1, 1) - arr, 2)
+    # res += tf.pow(tf.manip.roll(arr, 1, 2) - arr, 2)
+    # res = tf.sqrt(res)
+    # res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
+    res = tf.reduce_sum(tf.image.total_variation(arr))
+    res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[2, 0, 1, 3])))
+    res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[1, 2, 0, 3])))
     return res
 
 
@@ -706,3 +706,15 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
     plt.ylabel('FSC')
     plt.savefig(os.path.join(save_path, 'fsc.pdf'), format='pdf')
 
+
+def upsample_2x(arr):
+
+    if arr.ndim == 4:
+        out_arr = np.zeros([arr.shape[0] * 2, arr.shape[1] * 2, arr.shape[2] * 2, arr.shape[3]])
+        for i in range(arr.shape[3]):
+            out_arr[:, :, :, i] = upsample_2x(arr[:, :, :, i])
+    else:
+        out_arr = np.zeros([arr.shape[0] * 2, arr.shape[1] * 2, arr.shape[2] * 2])
+        out_arr[::2, ::2, ::2] = arr[:, :, :]
+        out_arr = gaussian_filter(out_arr, 1)
+    return out_arr
