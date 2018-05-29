@@ -6,8 +6,10 @@ import time
 import os
 import h5py
 import warnings
-from scipy.signal import resample_poly
+from scipy.signal import resample
 from util import *
+import matplotlib.pyplot as plt
+plt.switch_backend('agg')
 
 
 PI = 3.1415927
@@ -15,10 +17,10 @@ PI = 3.1415927
 
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                      alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
-                     output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False,
+                     output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
-                     multiscale_level=1):
+                     multiscale_level=1, n_epoch_final_pass=None, initial_guess=None):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -57,6 +59,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                              before reconstructing with the original resolution. The downsampling
                              factor for these coarse reconstructions will be [2^(m - 1),
                              2^(m - 2), ..., 2^1].
+    :param n_epoch_final_pass: specify a number of iterations for the final pass if multiscale
+                               is activated. If None, it will be the same as n_epoch.
+    :param initial_guess: supply an initial guess. If None, object will be initialized with noises.
     :return:
     """
 
@@ -68,9 +73,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
             with tf.device('/gpu:0'):
-                exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h, free_prop_cm=free_prop_cm)
+                exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm * ds_level, h=h, free_prop_cm=free_prop_cm)
         else:
-            exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm, h=h, free_prop_cm=free_prop_cm)
+            exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], energy_ev, psize_cm * ds_level, h=h, free_prop_cm=free_prop_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i])))
         i = tf.add(i, 1)
         return (i, loss, obj)
@@ -98,8 +103,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             hvd = Hvd()
             warnings.warn('Unable to import Horovod.')
 
-    hvd.init()
-    global_step = tf.Variable(0, trainable=False, name='global_step')
+    # global_step = tf.Variable(0, trainable=False, name='global_step')
 
     t0 = time.time()
 
@@ -113,7 +117,37 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     sys.stdout.flush()
     initializer_flag = False
 
-    for ds_level in range(multiscale_level):
+    if output_folder is None:
+        output_folder = 'recon_360_minibatch_{}_' \
+                        'mskrls_{}_' \
+                        'shrink_{}_' \
+                        'iter_{}_' \
+                        'alphad_{}_' \
+                        'alphab_{}_' \
+                        'gamma_{}_' \
+                        'rate_{}_' \
+                        'energy_{}_' \
+                        'size_{}_' \
+                        'ntheta_{}_' \
+                        'prop_{}_' \
+                        'ms_{}_' \
+                        'cpu_{}' \
+            .format(minibatch_size, n_epochs_mask_release, shrink_cycle,
+                    n_epochs, alpha_d, alpha_b,
+                    gamma, learning_rate, energy_ev,
+                    prj_0.shape[-1], prj_0.shape[0], free_prop_cm,
+                    multiscale_level, cpu_only)
+        if abs(PI - theta_end) < 1e-3:
+            output_folder += '_180'
+
+    if save_path != '.':
+        output_folder = os.path.join(save_path, output_folder)
+
+    for ds_level in range(multiscale_level - 1, -1, -1):
+
+        hvd.init()
+        graph = tf.Graph()
+        graph.as_default()
 
         ds_level = 2 ** ds_level
         print('Multiscale downsampling level: {}'.format(ds_level))
@@ -121,9 +155,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # downsample data
         prj = prj_0
         if ds_level > 1:
-            prj = resample_poly(prj, 1, ds_level, axis=0)
-            prj = resample_poly(prj, 1, ds_level, axis=1)
-            prj = resample_poly(prj, 1, ds_level, axis=2)
+            prj = prj[::ds_level, ::ds_level, ::ds_level]
+            prj = prj.astype('complex64')
 
         dim_y, dim_x = prj.shape[-2:]
         n_theta = prj.shape[0]
@@ -132,33 +165,6 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             buffer_size=100).repeat().batch(minibatch_size)
         prj_iter = prj_dataset.make_one_shot_iterator()
         this_theta_batch, this_prj_batch = prj_iter.get_next()
-
-        if output_folder is None:
-            output_folder = 'recon_360_minibatch_{}_' \
-                            'mskrls_{}_' \
-                            'shrink_{}_' \
-                            'iter_{}_' \
-                            'alphad_{}_' \
-                            'alphab_{}_' \
-                            'gamma_{}_' \
-                            'rate_{}_' \
-                            'energy_{}_' \
-                            'size_{}_' \
-                            'ntheta_{}_' \
-                            'prop_{}_' \
-                            'cpu_{}'\
-                .format(minibatch_size, n_epochs_mask_release, shrink_cycle,
-                        n_epochs, alpha_d, alpha_b,
-                        gamma, learning_rate, energy_ev,
-                        dim_x, n_theta, free_prop_cm,
-                        cpu_only)
-            # output_folder = 'rot_bi_nn_360_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
-            # output_folder = 'rot_bi_bl_180_stoch_{}_mskrl_{}_iter_{}_alphad_{}_alphab_{}_rate{}_ds_{}_{}_{}'.format(minibatch_size, n_epochs_mask_release, n_epochs, alpha_d, alpha_b, learning_rate, *downsample)
-            if abs(PI - theta_end) < 1e-3:
-                output_folder += '_180'
-
-        if save_path != '.':
-            output_folder = os.path.join(save_path, output_folder)
 
         # # read rotation data
         # try:
@@ -173,29 +179,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         if n_epochs_mask_release is None:
             n_epochs_mask_release = np.inf
 
-        # initialize
-        # 2 channels are for real and imaginary parts respectively
-
-        # ====================================================
-        if initializer_flag == False:
-            grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-            grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-            obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-            obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5)
-            obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5)
-        else:
-            obj_init = res
-            obj_init = resample_poly(obj_init, 2, 1, axis=0)
-            obj_init = resample_poly(obj_init, 2, 1, axis=1)
-            obj_init = resample_poly(obj_init, 2, 1, axis=2)
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
-        # ====================================================
-
         # =============== finite support mask ==============
         try:
-            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(dim_y), 5)
+            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(prj_0.shape[1]), 5)
         except:
-            obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(dim_y), 5)
+            obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(prj_0.shape[1]), 5)
             obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
             mask = np.zeros_like(obj_pr)
             mask[obj_pr > 1e-5] = 1
@@ -208,13 +196,49 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
         # ==================================================
 
+        # initialize
+        # 2 channels are for real and imaginary parts respectively
+        # ====================================================
+        # initializer_flag = True
+        if initializer_flag == False:
+            if initial_guess is None:
+                print('Initializing with Gaussian random.')
+                grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+                grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
+                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
+                obj_init[obj_init < 0] = 0
+            else:
+                print('Using supplied initial guess.')
+                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+                obj_init[:, :, :, 0] = dxchange.read_tiff(initial_guess[0])
+                obj_init[:, :, :, 1] = dxchange.read_tiff(initial_guess[1])
+        else:
+            print('Initializing with Gaussian random.')
+            grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+            grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+            delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+            beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+            obj_init = np.zeros([delta_init.shape[0], delta_init.shape[1], delta_init.shape[2], 2])
+            obj_init[:, :, :, 0] = delta_init
+            obj_init[:, :, :, 1] = beta_init
+            # obj_init = res
+            obj_init = upsample_2x(obj_init)
+            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
+            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
+            obj_init[obj_init < 0] = 0
+        # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
+        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+        # ====================================================
+
         loss = tf.constant(0.0)
 
         # generate Fresnel kernel
-        voxel_nm = np.array([psize_cm] * 3) * 1.e7
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
         delta_nm = voxel_nm[-1]
-        kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
+        kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x])
         h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
         if cpu_only:
@@ -234,7 +258,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             if gamma == 0:
                 reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
             else:
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
+                # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0:1])
+                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.norm(obj[:, :, :, 0], ord=2)
             # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
         loss = loss + reg_term
@@ -242,10 +267,15 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         tf.summary.scalar('regularizer', reg_term)
         tf.summary.scalar('error', loss - reg_term)
 
+        # if initializer_flag == False:
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
-        optimizer = hvd.DistributedOptimizer(optimizer)
-        optimizer = optimizer.minimize(loss, global_step=global_step)
-        # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
+        optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
+        optimizer = optimizer.minimize(loss)
+            # tf.add_to_collection('optimizer', optimizer)
+            # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
+        # else:
+            # optimizer = tf.get_collection('optimizer')
+            # pass
 
         loss_ls = []
         reg_ls = []
@@ -274,92 +304,99 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         sys.stdout.flush()
 
         n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
+        if ds_level == 1 and n_epoch_final_pass is not None:
+            n_loop = n_epoch_final_pass
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
-            try:
-                if minibatch_size < n_theta:
-                    for i_batch in range(n_batch):
-                        try:
-                            t0_batch = time.time()
-                            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-                            print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
-                            sys.stdout.flush()
-                        except tf.errors.OutOfRangeError:
-                            break
-                else:
-                    _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-
-                # timeline for benchmarking
-                tl = timeline.Timeline(run_metadata.step_stats)
-                ctf = tl.generate_chrome_trace_format()
-                try:
-                    os.makedirs(os.path.join(output_folder, 'profiling'))
-                except:
-                    pass
-                with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
-                    f.write(ctf)
-
-                # =============non negative hard================
-                obj = tf.nn.relu(obj)
-                # ==============================================
-                if n_epochs == 'auto':
-                    if len(loss_ls) > 0:
-                        print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
+            if minibatch_size < n_theta:
+                for i_batch in range(n_batch):
+                    try:
+                        t0_batch = time.time()
+                        _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                        print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
                         sys.stdout.flush()
-                    if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
-                        loss_ls.append(current_loss)
-                        reg_ls.append(current_reg)
-                        summary_writer.add_summary(summary_str, epoch)
+                    except tf.errors.OutOfRangeError:
                         break
-                if epoch < n_epochs_mask_release:
-                    # =============finite support===================
-                    if n_epochs == 'auto' or epoch != n_epochs - 1:
-                        obj = obj * mask_add
-                    # ==============================================
-                    # ================shrink wrap===================
-                    if epoch % shrink_cycle == 0 and epoch > 0:
-                        mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
-                        boolean = np.zeros_like(obj_init)
-                        boolean[:, :, :, 0] = mask_temp
-                        boolean[:, :, :, 1] = mask_temp
-                        boolean = tf.convert_to_tensor(boolean)
-                        mask_add = mask_add * tf.cast(boolean, tf.float32)
-                        if hvd.rank() == 0 and hvd.local_rank() == 0:
-                            dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                                      os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
-                    # ==============================================
-                loss_ls.append(current_loss)
-                reg_ls.append(current_reg)
-                summary_writer.add_summary(summary_str, epoch)
-                if save_intermediate:
-                    temp_obj = sess.run(obj)
-                    temp_obj = np.abs(temp_obj)
-                    dxchange.write_tiff(temp_obj[26, :, :, 0],
-                                        fname=os.path.join(output_folder, 'intermediate', 'iter_{:03d}'.format(epoch)),
+            else:
+                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+
+            # timeline for benchmarking
+            tl = timeline.Timeline(run_metadata.step_stats)
+            ctf = tl.generate_chrome_trace_format()
+            try:
+                os.makedirs(os.path.join(output_folder, 'profiling'))
+            except:
+                pass
+            with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
+                f.write(ctf)
+
+            # =============non negative hard================
+            obj = tf.nn.relu(obj)
+            # ==============================================
+            if n_epochs == 'auto':
+                if len(loss_ls) > 0:
+                    print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
+                    sys.stdout.flush()
+                if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
+                    loss_ls.append(current_loss)
+                    reg_ls.append(current_reg)
+                    summary_writer.add_summary(summary_str, epoch)
+                    break
+            if epoch < n_epochs_mask_release:
+                # =============finite support===================
+                if n_epochs == 'auto' or epoch != n_epochs - 1:
+                    obj = obj * mask_add
+                # ==============================================
+                # ================shrink wrap===================
+                if epoch % shrink_cycle == 0 and epoch > 0:
+                    mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
+                    boolean = np.zeros_like(obj_init)
+                    boolean[:, :, :, 0] = mask_temp
+                    boolean[:, :, :, 1] = mask_temp
+                    boolean = tf.convert_to_tensor(boolean)
+                    mask_add = mask_add * tf.cast(boolean, tf.float32)
+                    if hvd.rank() == 0 and hvd.local_rank() == 0:
+                        dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
+                                                  os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
+                # ==============================================
+            loss_ls.append(current_loss)
+            reg_ls.append(current_reg)
+            summary_writer.add_summary(summary_str, epoch)
+            if save_intermediate:
+                temp_obj = sess.run(obj)
+                temp_obj = np.abs(temp_obj)
+                if full_intermediate:
+                    dxchange.write_tiff(temp_obj[:, :, :, 0],
+                                        fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
-                    dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
-                print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
-                sys.stdout.flush()
-            except:
-                # if one thread breaks out after meeting stopping criterion, intercept Horovod error and break others
-                break
+                else:
+                    dxchange.write_tiff(temp_obj[int(temp_obj.shape[0] / 2), :, :, 0],
+                                        fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
+                                        dtype='float32',
+                                        overwrite=True)
+                dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+            print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
+            sys.stdout.flush()
+            # except:
+            #     # if one thread breaks out after meeting stopping criterion, intercept Horovod error and break others
+            #     break
 
         print('Total time: {}'.format(time.time() - t0))
         sys.stdout.flush()
 
         res = sess.run(obj)
-        dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_{}'.format(ds_level)), dtype='float32', overwrite=True)
-        dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_{}'.format(ds_level)), dtype='float32', overwrite=True)
+        dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+        dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
 
         error_ls = np.array(loss_ls) - np.array(reg_ls)
 
-        n_epochs = len(loss_ls)
+        x = len(loss_ls)
         plt.figure()
-        plt.semilogy(range(n_epochs), loss_ls, label='Total loss')
-        plt.semilogy(range(n_epochs), reg_ls, label='Regularizer')
-        plt.semilogy(range(n_epochs), error_ls, label='Error term')
+        plt.semilogy(range(x), loss_ls, label='Total loss')
+        plt.semilogy(range(x), reg_ls, label='Regularizer')
+        plt.semilogy(range(x), error_ls, label='Error term')
         plt.legend()
         try:
             os.makedirs(os.path.join(output_folder, 'convergence'))
@@ -371,6 +408,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
 
         print('Clearing current graph...')
+        sess.run(tf.global_variables_initializer())
+        sess.close()
         tf.reset_default_graph()
         initializer_flag = True
         print('Current iteration finished.')
