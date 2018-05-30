@@ -270,12 +270,14 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         tf.summary.scalar('error', loss - reg_term)
 
         # if initializer_flag == False:
-        gradient = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
+        accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
         optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
         this_grad = optimizer.compute_gradients(loss, obj)
-        accum_grad = gradient.assign_add(this_grad[0])
-        update_obj = optimizer.apply_gradients((accum_grad, this_grad[1]))
+        this_grad = this_grad[0]
+        initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
+        accum_op = accum_grad.assign_add(this_grad[0])
+        update_obj = optimizer.apply_gradients([(accum_grad, this_grad[1])])
         if minibatch_size >= n_theta:
             optimizer = optimizer.minimize(loss)
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
@@ -317,12 +319,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 for i_batch in range(n_batch):
                     try:
                         t0_batch = time.time()
-                        _, current_loss, current_reg, summary_str = sess.run([accum_grad, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                        print(sess.run(accum_grad).mean())
+                        _, current_loss, current_reg, summary_str = sess.run([accum_op, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                         print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
                         sys.stdout.flush()
                         batch_counter += 1
                         if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
                             sess.run(update_obj)
+                            sess.run(initialize_grad)
+                            batch_counter = 0
+                            print('Gradient applied.')
                     except tf.errors.OutOfRangeError:
                         break
             else:
