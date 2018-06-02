@@ -11,17 +11,18 @@ PI = 3.1415927
 # ============================================
 theta_st = 0
 theta_end = 2 * PI
-n_epochs = 'auto'
+n_epochs = 20
 alpha_d_ls = [1.e-9]
 alpha_b_ls = [1.e-10]
 gamma_ls = [0]
-learning_rate_ls = [1e-7]
+learning_rate_ls = [1e-8]
 center = 32
 energy_ev = 800
 psize_cm = 0.67e-7
 batch_size = 10
 n_epochs_mask_release = 200
 free_prop_cm = 1e-4
+n_batch_per_update = 5
 # ============================================
 
 
@@ -48,7 +49,8 @@ if __name__ == '__main__':
                                  cpu_only=True,
                                  save_path='adhesin',
                                  phantom_path='adhesin/phantom',
-                                 output_folder='test',
+                                 output_folder='test2',
                                  shrink_cycle=10,
                                  multiscale_level=1,
-                                 n_batch_per_update=5)
+                                 n_batch_per_update=n_batch_per_update,
+                                 dynamic_rate=True)
