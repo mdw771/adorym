@@ -20,7 +20,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                      output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
-                     multiscale_level=1, n_epoch_final_pass=None, initial_guess=None):
+                     multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
+                     dynamic_rate=True):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -62,6 +63,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     :param n_epoch_final_pass: specify a number of iterations for the final pass if multiscale
                                is activated. If None, it will be the same as n_epoch.
     :param initial_guess: supply an initial guess. If None, object will be initialized with noises.
+    :param n_batch_per_update: number of minibatches during which gradients are accumulated, after
+                               which obj is updated.
+    :param dynamic_rate: when n_batch_per_update > 1, adjust learning rate dynamically to allow it
+                         to decrease with epoch number
     :return:
     """
 
@@ -268,14 +273,23 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         tf.summary.scalar('error', loss - reg_term)
 
         # if initializer_flag == False:
-        optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
+        i_epoch = tf.Variable(0, trainable=False, dtype='float32')
+        accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
+        if dynamic_rate:
+            # modifier =  1. / n_batch_per_update
+            modifier = tf.exp(-i_epoch) * (n_batch_per_update - 1) + 1
+            optimizer = tf.train.AdamOptimizer(learning_rate=float(learning_rate) * hvd.size() * modifier)
+        else:
+            optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
-        optimizer = optimizer.minimize(loss)
-            # tf.add_to_collection('optimizer', optimizer)
-            # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
-        # else:
-            # optimizer = tf.get_collection('optimizer')
-            # pass
+        this_grad = optimizer.compute_gradients(loss, obj)
+        this_grad = this_grad[0]
+        initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
+        accum_op = accum_grad.assign_add(this_grad[0])
+        update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
+        if minibatch_size >= n_theta:
+            optimizer = optimizer.minimize(loss)
+        # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
 
         loss_ls = []
         reg_ls = []
@@ -309,13 +323,22 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
+            i_epoch = i_epoch + 1
+            print(sess.run(float(learning_rate) * hvd.size() * modifier))
             if minibatch_size < n_theta:
+                batch_counter = 0
                 for i_batch in range(n_batch):
                     try:
                         t0_batch = time.time()
-                        _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                        _, current_loss, current_reg, summary_str = sess.run([accum_op, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                         print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
                         sys.stdout.flush()
+                        batch_counter += 1
+                        if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
+                            sess.run(update_obj)
+                            sess.run(initialize_grad)
+                            batch_counter = 0
+                            print('Gradient applied.')
                     except tf.errors.OutOfRangeError:
                         break
             else:
