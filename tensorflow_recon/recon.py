@@ -6,7 +6,6 @@ import time
 import os
 import h5py
 import warnings
-from scipy.signal import resample
 from util import *
 import matplotlib.pyplot as plt
 plt.switch_backend('agg')
