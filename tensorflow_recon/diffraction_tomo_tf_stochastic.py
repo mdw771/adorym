@@ -15,7 +15,7 @@ n_epochs = 'auto'
 n_epoch_final_pass = 4
 alpha_d_ls = [1.5e-6]
 alpha_b_ls = [alpha_d_ls[0] * 0.1]
-gamma_ls = [1e-2]
+gamma_ls = [5e-7]
 learning_rate_ls = [1e-7]
 center = 128
 energy_ev = 5000
@@ -48,7 +48,6 @@ if __name__ == '__main__':
                                  alpha_d=alpha_d,
                                  alpha_b=alpha_b,
                                  learning_rate=learning_rate,
-                                 downsample=(0, 0, 0),
                                  save_intermediate=True,
                                  full_intermediate=True,
                                  n_epochs_mask_release=n_epochs_mask_release,
