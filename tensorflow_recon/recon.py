@@ -102,6 +102,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     else:
         try:
             import horovod.tensorflow as hvd
+            hvd.init()
         except:
             from pseudo import Hvd
             hvd = Hvd()
@@ -124,13 +125,16 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     t0 = time.time()
 
     # read data
-    print('Reading data...')
+    print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
     original_shape = prj_0.shape
-    print('Data reading: {} s'.format(time.time() - t0))
-    print('Data shape: {}'.format(original_shape))
-    sys.stdout.flush()
+    print_flush('Data reading: {} s'.format(time.time() - t0))
+    print_flush('Data shape: {}'.format(original_shape))
+    comm.Barrier()
+
+    # print(1111111111111111111111111111)
+
     initializer_flag = False
 
     if output_folder is None:
@@ -161,26 +165,29 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
     for ds_level in range(multiscale_level - 1, -1, -1):
 
-        hvd.init()
         graph = tf.Graph()
         graph.as_default()
 
         ds_level = 2 ** ds_level
-        print('Multiscale downsampling level: {}'.format(ds_level))
+        print_flush('Multiscale downsampling level: {}'.format(ds_level))
+        comm.Barrier()
 
         # downsample data
         prj = prj_0
         if ds_level > 1:
             prj = prj[::ds_level, ::ds_level, ::ds_level]
             prj = prj.astype('complex64')
+        comm.Barrier()
 
         dim_y, dim_x = prj.shape[-2:]
         n_theta = prj.shape[0]
         theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+        comm.Barrier()
         prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
             buffer_size=100).repeat().batch(minibatch_size)
         prj_iter = prj_dataset.make_one_shot_iterator()
         this_theta_batch, this_prj_batch = prj_iter.get_next()
+        comm.Barrier()
 
         # # read rotation data
         # try:
@@ -214,11 +221,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # unify random seed for all threads
         seed = comm.bcast(int(time.time()), root=0)
         np.random.seed(seed)
+        comm.Barrier()
 
         # initializer_flag = True
         if initializer_flag == False:
             if initial_guess is None:
-                print('Initializing with Gaussian random.')
+                print_flush('Initializing with Gaussian random.')
                 grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
                 grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
                 obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
@@ -226,12 +234,13 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
                 obj_init[obj_init < 0] = 0
             else:
-                print('Using supplied initial guess.')
+                print_flush('Using supplied initial guess.')
+                sys.stdout.flush()
                 obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
                 obj_init[:, :, :, 0] = dxchange.read_tiff(initial_guess[0])
                 obj_init[:, :, :, 1] = dxchange.read_tiff(initial_guess[1])
         else:
-            print('Initializing with Gaussian random.')
+            print_flush('Initializing with Gaussian random.')
             grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
             grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
             delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
@@ -286,18 +295,21 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # if initializer_flag == False:
         i_epoch = tf.Variable(0, trainable=False, dtype='float32')
         accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
-        if dynamic_rate:
+        if dynamic_rate and n_batch_per_update > 1:
             # modifier =  1. / n_batch_per_update
             modifier = tf.exp(-i_epoch) * (n_batch_per_update - 1) + 1
             optimizer = tf.train.AdamOptimizer(learning_rate=float(learning_rate) * hvd.size() * modifier)
         else:
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
-        this_grad = optimizer.compute_gradients(loss, obj)
-        this_grad = this_grad[0]
-        initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
-        accum_op = accum_grad.assign_add(this_grad[0])
-        update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
+        if n_batch_per_update > 1:
+            this_grad = optimizer.compute_gradients(loss, obj)
+            this_grad = this_grad[0]
+            initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
+            accum_op = accum_grad.assign_add(this_grad[0])
+            update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
+        else:
+            optimizer = optimizer.minimize(loss)
         if minibatch_size >= n_theta:
             optimizer = optimizer.minimize(loss)
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
@@ -325,8 +337,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
         t0 = time.time()
 
-        print('Optimizer started.')
-        sys.stdout.flush()
+        print_flush('Optimizer started.')
 
         n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
         if ds_level == 1 and n_epoch_final_pass is not None:
@@ -336,21 +347,24 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         for epoch in range(n_loop):
             stop_iteration = False
             i_epoch = i_epoch + 1
-            print(sess.run(float(learning_rate) * hvd.size() * modifier))
             if minibatch_size < n_theta:
                 batch_counter = 0
                 for i_batch in range(n_batch):
                     try:
-                        t0_batch = time.time()
-                        _, current_loss, current_reg, summary_str = sess.run([accum_op, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-                        print('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
-                        sys.stdout.flush()
-                        batch_counter += 1
-                        if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
-                            sess.run(update_obj)
-                            sess.run(initialize_grad)
-                            batch_counter = 0
-                            print('Gradient applied.')
+                        if n_batch_per_update > 1:
+                            t0_batch = time.time()
+                            _, current_loss, current_reg, summary_str = sess.run([accum_op, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                            print_flush('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
+                            batch_counter += 1
+                            if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
+                                sess.run(update_obj)
+                                sess.run(initialize_grad)
+                                batch_counter = 0
+                                print_flush('Gradient applied.')
+                        else:
+                            t0_batch = time.time()
+                            _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                            print_flush('Minibatch done in {} s (rank {}); current loss = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss))
                     except tf.errors.OutOfRangeError:
                         break
             else:
@@ -371,7 +385,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             # ==============================================
             if n_epochs == 'auto':
                 if len(loss_ls) > 0:
-                    print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
+                    print_flush('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
                     sys.stdout.flush()
                 if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0 and hvd.rank() == 0:
                     loss_ls.append(current_loss)
@@ -416,13 +430,13 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                                         dtype='float32',
                                         overwrite=True)
                 dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
-            print('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
+                print_flush('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
             sys.stdout.flush()
             # except:
             #     # if one thread breaks out after meeting stopping criterion, intercept Horovod error and break others
             #     break
 
-        print('Total time: {}'.format(time.time() - t0))
+            print_flush('Total time: {}'.format(time.time() - t0))
         sys.stdout.flush()
 
         if hvd.rank() == 0:
@@ -448,12 +462,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             np.save(os.path.join(output_folder, 'convergence', 'reg_ds_{}'.format(ds_level)), reg_ls)
             np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
 
-        print('Clearing current graph...')
+            print_flush('Clearing current graph...')
         sess.run(tf.global_variables_initializer())
         sess.close()
         tf.reset_default_graph()
         initializer_flag = True
-        print('Current iteration finished.')
+        print_flush('Current iteration finished.')
 
 
 def reconstruct_pureproj(fname, sino_range, theta_st=0, theta_end=PI, n_epochs=200, alpha=1e-4, learning_rate=1.0,

@@ -719,3 +719,8 @@ def upsample_2x(arr):
         out_arr[::2, ::2, ::2] = arr[:, :, :]
         out_arr = gaussian_filter(out_arr, 1)
     return out_arr
+
+
+def print_flush(a):
+    print(a)
+    sys.stdout.flush()
