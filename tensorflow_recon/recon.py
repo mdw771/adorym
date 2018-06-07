@@ -219,6 +219,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
 
         # unify random seed for all threads
+        comm.Barrier()
         seed = comm.bcast(int(time.time()), root=0)
         np.random.seed(seed)
         comm.Barrier()
