@@ -28,6 +28,7 @@ multiscale_level = 3
 # initial_guess = ['cone_256_filled/recon_360_minibatch_10_mskrls_10_shrink_1_iter_auto_alphad_1.5e-06_alphab_1.5000000000000002e-07_gamma_1e-07_rate_1e-07_energy_5000_size_256_ntheta_500_prop_0.0001_ms_3_cpu_True/delta_ds_1.tiff',
 #                  'cone_256_filled/recon_360_minibatch_10_mskrls_10_shrink_1_iter_auto_alphad_1.5e-06_alphab_1.5000000000000002e-07_gamma_1e-07_rate_1e-07_energy_5000_size_256_ntheta_500_prop_0.0001_ms_3_cpu_True/beta_ds_1.tiff']
 initial_guess = None
+n_batch_per_update = 1
 # ============================================
 
 
@@ -59,4 +60,5 @@ if __name__ == '__main__':
                                  shrink_cycle=shrink_cycle,
                                  multiscale_level=multiscale_level,
                                  n_epoch_final_pass=n_epoch_final_pass,
-                                 initial_guess=initial_guess)
+                                 initial_guess=initial_guess,
+                                 n_batch_per_update=n_batch_per_update)
