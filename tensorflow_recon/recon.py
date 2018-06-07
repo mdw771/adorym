@@ -133,8 +133,6 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
     print_flush('Data shape: {}'.format(original_shape))
     comm.Barrier()
 
-    # print(1111111111111111111111111111)
-
     initializer_flag = False
 
     if output_folder is None:
@@ -220,7 +218,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
         # unify random seed for all threads
         comm.Barrier()
-        seed = comm.bcast(int(time.time()), root=0)
+        seed = int(time.time() / 60)
         np.random.seed(seed)
         comm.Barrier()
 
