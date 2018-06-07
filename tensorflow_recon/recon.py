@@ -425,26 +425,28 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         print('Total time: {}'.format(time.time() - t0))
         sys.stdout.flush()
 
-        res = sess.run(obj)
-        dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
-        dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+        if hvd.rank() == 0:
 
-        error_ls = np.array(loss_ls) - np.array(reg_ls)
+            res = sess.run(obj)
+            dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+            dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
 
-        x = len(loss_ls)
-        plt.figure()
-        plt.semilogy(range(x), loss_ls, label='Total loss')
-        plt.semilogy(range(x), reg_ls, label='Regularizer')
-        plt.semilogy(range(x), error_ls, label='Error term')
-        plt.legend()
-        try:
-            os.makedirs(os.path.join(output_folder, 'convergence'))
-        except:
-            pass
-        plt.savefig(os.path.join(output_folder, 'convergence', 'converge_ds_{}.png'.format(ds_level)), format='png')
-        np.save(os.path.join(output_folder, 'convergence', 'total_loss_ds_{}'.format(ds_level)), loss_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'reg_ds_{}'.format(ds_level)), reg_ls)
-        np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
+            error_ls = np.array(loss_ls) - np.array(reg_ls)
+
+            x = len(loss_ls)
+            plt.figure()
+            plt.semilogy(range(x), loss_ls, label='Total loss')
+            plt.semilogy(range(x), reg_ls, label='Regularizer')
+            plt.semilogy(range(x), error_ls, label='Error term')
+            plt.legend()
+            try:
+                os.makedirs(os.path.join(output_folder, 'convergence'))
+            except:
+                pass
+            plt.savefig(os.path.join(output_folder, 'convergence', 'converge_ds_{}.png'.format(ds_level)), format='png')
+            np.save(os.path.join(output_folder, 'convergence', 'total_loss_ds_{}'.format(ds_level)), loss_ls)
+            np.save(os.path.join(output_folder, 'convergence', 'reg_ds_{}'.format(ds_level)), reg_ls)
+            np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
 
         print('Clearing current graph...')
         sess.run(tf.global_variables_initializer())
