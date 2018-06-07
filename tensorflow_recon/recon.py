@@ -16,7 +16,7 @@ PI = 3.1415927
 
 def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                      alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
-                     output_folder=None, downsample=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
+                     output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                      multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
@@ -106,6 +106,18 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             from pseudo import Hvd
             hvd = Hvd()
             warnings.warn('Unable to import Horovod.')
+        try:
+            assert hvd.mpi_threads_supported()
+        except:
+            warnings.warn('MPI multithreading is not supported.')
+        try:
+            import mpi4py.rc
+            mpi4py.rc.initialize = False
+            from mpi4py import MPI
+            comm = MPI.COMM_WORLD
+        except:
+            warnings.warn('Unable to import mpi4py. Using multiple threads with n_epoch set to "auto" may lead to undefined behaviors.')
+        assert hvd.size() == comm.Get_size()
 
     # global_step = tf.Variable(0, trainable=False, name='global_step')
 
@@ -198,11 +210,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         mask_add[:, :, :, 0] = mask
         mask_add[:, :, :, 1] = mask
         mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
-        # ==================================================
 
-        # initialize
-        # 2 channels are for real and imaginary parts respectively
-        # ====================================================
+        # unify random seed for all threads
+        seed = comm.bcast(int(time.time()), root=0)
+        np.random.seed(seed)
+
         # initializer_flag = True
         if initializer_flag == False:
             if initial_guess is None:
@@ -322,6 +334,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
+            stop_iteration = False
             i_epoch = i_epoch + 1
             print(sess.run(float(learning_rate) * hvd.size() * modifier))
             if minibatch_size < n_theta:
@@ -360,10 +373,14 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 if len(loss_ls) > 0:
                     print('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))
                     sys.stdout.flush()
-                if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0:
+                if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0 and hvd.rank() == 0:
                     loss_ls.append(current_loss)
                     reg_ls.append(current_reg)
                     summary_writer.add_summary(summary_str, epoch)
+                    stop_iteration = True
+                comm.Barrier()
+                stop_iteration = comm.bcast(stop_iteration, root=0)
+                if stop_iteration:
                     break
             if epoch < n_epochs_mask_release:
                 # =============finite support===================
@@ -385,7 +402,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             loss_ls.append(current_loss)
             reg_ls.append(current_reg)
             summary_writer.add_summary(summary_str, epoch)
-            if save_intermediate:
+            if save_intermediate and hvd.rank() == 0:
                 temp_obj = sess.run(obj)
                 temp_obj = np.abs(temp_obj)
                 if full_intermediate:
