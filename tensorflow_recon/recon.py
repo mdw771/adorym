@@ -412,9 +412,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                         dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
                                                   os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
                 # ==============================================
-            loss_ls.append(current_loss)
-            reg_ls.append(current_reg)
-            summary_writer.add_summary(summary_str, epoch)
+            if hvd.rank() == 0:
+                loss_ls.append(current_loss)
+                reg_ls.append(current_reg)
+                summary_writer.add_summary(summary_str, epoch)
             if save_intermediate and hvd.rank() == 0:
                 temp_obj = sess.run(obj)
                 temp_obj = np.abs(temp_obj)
