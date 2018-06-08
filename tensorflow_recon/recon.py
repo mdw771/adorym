@@ -257,7 +257,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+        obj = tf.Variable(initial_value=obj_init, dtype=tf.complex64)
         # ====================================================
 
         loss = tf.constant(0.0)
@@ -423,8 +423,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                     boolean = np.zeros_like(obj_init)
                     boolean[:, :, :, 0] = mask_temp
                     boolean[:, :, :, 1] = mask_temp
-                    boolean = tf.convert_to_tensor(boolean)
-                    mask_add = mask_add * tf.cast(boolean, tf.float32)
+                    boolean = tf.convert_to_tensor(boolean, dtype=tf.float32)
+                    mask_add = mask_add * boolean
                     if hvd.rank() == 0 and hvd.local_rank() == 0:
                         dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
                                                   os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
