@@ -257,7 +257,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.complex64)
+        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
         # ====================================================
 
         loss = tf.constant(0.0)

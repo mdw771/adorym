@@ -299,6 +299,9 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, fre
     n_slice = grid_delta.shape[-1]
     delta_nm = voxel_nm[-1]
 
+    grid_delta = tf.cast(grid_delta, tf.complex64)
+    grid_beta = tf.cast(grid_beta, tf.complex64)
+
     if h is None:
         kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta.shape)
         h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
