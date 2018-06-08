@@ -116,8 +116,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             mpi4py.rc.initialize = False
             from mpi4py import MPI
             comm = MPI.COMM_WORLD
+            mpi4py_is_ok = True
         except:
             warnings.warn('Unable to import mpi4py. Using multiple threads with n_epoch set to "auto" may lead to undefined behaviors.')
+            from pseudo import Mpi
+            comm = Mpi()
+            mpi4py_is_ok = False
         assert hvd.size() == comm.Get_size()
 
     # global_step = tf.Variable(0, trainable=False, name='global_step')
@@ -344,7 +348,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
         for epoch in range(n_loop):
-            stop_iteration = False
+            if mpi4py_is_ok:
+                stop_iteration = False
+            else:
+                stop_iteration = open('.stop_itertion', 'w')
+                stop_iteration.write('False')
             i_epoch = i_epoch + 1
             if minibatch_size < n_theta:
                 batch_counter = 0
@@ -390,9 +398,18 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                     loss_ls.append(current_loss)
                     reg_ls.append(current_reg)
                     summary_writer.add_summary(summary_str, epoch)
-                    stop_iteration = True
+                    if mpi4py_is_ok:
+                        stop_iteration = True
+                    else:
+                        stop_iteration = open('.stop_iteration', 'w')
+                        stop_iteration.write('True')
                 comm.Barrier()
-                stop_iteration = comm.bcast(stop_iteration, root=0)
+                if mpi4py_is_ok:
+                    stop_iteration = comm.bcast(stop_iteration, root=0)
+                else:
+                    stop_iteration = open('.stop_iteration', 'r')
+                    stop_iteration = stop_iteration.read()
+                    stop_iteration = True if stop_iteration else False
                 if stop_iteration:
                     break
             if epoch < n_epochs_mask_release:
