@@ -307,9 +307,9 @@ def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, fre
 
     def modulate_and_propagate(i, wavefront):
         delta_slice = grid_delta[:, :, i]
-        delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+        # delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
         beta_slice = grid_beta[:, :, i]
-        beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+        # beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
         wavefront = wavefront * c
         dist_nm = delta_nm
