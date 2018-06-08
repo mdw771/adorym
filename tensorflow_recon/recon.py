@@ -117,12 +117,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             from mpi4py import MPI
             comm = MPI.COMM_WORLD
             mpi4py_is_ok = True
+            assert hvd.size() == comm.Get_size()
         except:
             warnings.warn('Unable to import mpi4py. Using multiple threads with n_epoch set to "auto" may lead to undefined behaviors.')
             from pseudo import Mpi
             comm = Mpi()
             mpi4py_is_ok = False
-        assert hvd.size() == comm.Get_size()
 
     # global_step = tf.Variable(0, trainable=False, name='global_step')
 
