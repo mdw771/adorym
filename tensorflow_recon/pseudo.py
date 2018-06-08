@@ -24,3 +24,12 @@ class Hvd(object):
 
     def DistributedOptimizer(self, op):
         return op
+
+
+class Mpi(object):
+
+    def __init__(self):
+        pass
+
+    def Barrier(self):
+        pass
