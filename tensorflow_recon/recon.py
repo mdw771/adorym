@@ -20,7 +20,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                      multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
-                     dynamic_rate=True):
+                     dynamic_rate=True, initial_wavefront='plane'):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
