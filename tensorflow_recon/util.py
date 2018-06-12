@@ -281,16 +281,17 @@ def ifftshift(tensor):
     return tensor
 
 
-def multislice_propagate(grid_delta, grid_beta, energy_ev, psize_cm, h=None, free_prop_cm=None, pad=None):
+def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, pad=None):
 
     if pad is not None:
         grid_delta = tf.pad(grid_delta, pad, 'CONSTANT')
         grid_beta = tf.pad(grid_beta, pad, 'CONSTANT')
 
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
-    wavefront = np.ones([grid_delta.shape[0], grid_delta.shape[2]])
+    wavefront = np.zeros([grid_delta.shape[0], grid_delta.shape[2]])
     # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
     wavefront = tf.constant(wavefront, dtype='complex64')
+    wavefront = wavefront + tf.cast(probe_real, tf.complex64) + 1j * tf.cast(probe_imag, tf.complex64)
     lmbda_nm = 1240. / energy_ev
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
     size_nm = np.array(grid_delta.get_shape().as_list()) * voxel_nm
@@ -727,3 +728,15 @@ def upsample_2x(arr):
 def print_flush(a):
     print(a)
     sys.stdout.flush()
+
+
+def real_imag_to_mag_phase(realpart, imagpart):
+
+    a = realpart + 1j * imagpart
+    return np.abs(a), np.angle(a)
+
+
+def mag_phase_to_real_imag(mag, phase):
+
+    a = mag * np.exp(1j * phase)
+    return a.real, a.imag
