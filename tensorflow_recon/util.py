@@ -2,6 +2,7 @@ import tomopy
 import tensorflow as tf
 import numpy as np
 import dxchange
+import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 from pyfftw.interfaces.numpy_fft import fftn
@@ -740,3 +741,16 @@ def mag_phase_to_real_imag(mag, phase):
 
     a = mag * np.exp(1j * phase)
     return a.real, a.imag
+
+
+def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
+
+    f = h5py.File(data_fname, 'r')
+    dat = f['exchange/data'][...]
+    # NOTE: this is for toy model
+    wavefront = np.mean(np.abs(dat), axis=0)
+    lmbda_nm = 1.24 / energy_ev
+    h = get_kernel(-dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
+    wavefront = np.fft.fftshift(np.fft.fft2(wavefront)) * h
+    wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
+    return wavefront
