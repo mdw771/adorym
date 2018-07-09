@@ -20,7 +20,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                      energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
                      phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                      multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
-                     dynamic_rate=True, wavefront_type='plane', wavefront_initial=None):
+                     dynamic_rate=True, wavefront_type='plane', wavefront_initial=None, probe_learning_rate=1e-3,
+                     pupil_function=None):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -269,10 +270,18 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         elif wavefront_type == 'optimizable':
             if wavefront_initial is not None:
                 probe_mag, probe_phase = wavefront_initial
+                probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
-                probe_mag = np.ones([dim_y, dim_x])
-                probe_phase = np.zeros([dim_y, dim_x])
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+                # probe_mag = np.ones([dim_y, dim_x])
+                # probe_phase = np.zeros([dim_y, dim_x])
+                back_prop_cm = (free_prop_cm + (psize_cm * obj_init.shape[2])) if free_prop_cm is not None else (psize_cm * obj_init.shape[2])
+                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev, psize_cm * 1.e7)
+                probe_real = probe_init.real
+                probe_imag = probe_init.imag
+            if pupil_function is not None:
+                probe_real = probe_real * pupil_function
+                probe_imag = probe_imag * pupil_function
+                pupil_function = tf.convert_to_tensor(pupil_function, dtype=tf.float32)
             probe_real = tf.Variable(probe_real, dtype=tf.float32, trainable=True)
             probe_imag = tf.Variable(probe_imag, dtype=tf.float32, trainable=True)
         elif wavefront_type == 'fixed':
@@ -315,7 +324,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
         loss = loss + reg_term
         if wavefront_type == 'optimizable':
-            probe_reg = 1.e-6 * (tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])) +
+            probe_reg = 1.e-10 * (tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])) +
                                    tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])))
             loss = loss + probe_reg
         tf.summary.scalar('loss', loss)
@@ -345,7 +354,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
 
         if wavefront_type == 'optimizable':
-            optimizer_probe = tf.train.AdamOptimizer(learning_rate=1.e-3 * hvd.size())
+            optimizer_probe = tf.train.AdamOptimizer(learning_rate=probe_learning_rate * hvd.size())
             optimizer_probe = hvd.DistributedOptimizer(optimizer_probe, name='distopt_probe_{}'.format(ds_level))
             if n_batch_per_update > 1:
                 accum_grad_probe = [tf.Variable(tf.zeros_like(probe_real.initialized_value()), trainable=False),
@@ -425,9 +434,21 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                             t0_batch = time.time()
                             if wavefront_type == 'optimizable':
                                 _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run([optimizer, optimizer_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                                print_flush(
+                                    'Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(
+                                        time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
+
                             else:
                                 _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
-                            print_flush('Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
+                                print_flush(
+                                    'Minibatch done in {} s (rank {}); current loss = {}.'.format(
+                                        time.time() - t0_batch, hvd.rank(), current_loss))
+
+                        # enforce pupil function
+                        if wavefront_type == 'optimizable' and pupil_function is not None:
+                            probe_real = probe_real * pupil_function
+                            probe_imag = probe_imag * pupil_function
+
                     except tf.errors.OutOfRangeError:
                         break
             else:
@@ -446,9 +467,10 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
                 f.write(ctf)
 
-            # =============non negative hard================
+            # non negative hard
             obj = tf.nn.relu(obj)
-            # ==============================================
+
+            # check stopping criterion
             if n_epochs == 'auto':
                 if len(loss_ls) > 0:
                     print_flush('Reduction rate of loss is {}.'.format((current_loss - loss_ls[-1]) / loss_ls[-1]))

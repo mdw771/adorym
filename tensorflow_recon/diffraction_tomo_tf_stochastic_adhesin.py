@@ -1,5 +1,7 @@
 from recon import *
 import dxchange
+import numpy as np
+import tomopy
 
 # ============================================
 # DO NOT ROTATE PROGRESSIVELY
@@ -28,17 +30,25 @@ n_batch_per_update = 1
 
 if __name__ == '__main__':
 
-    probe_mag = dxchange.read_tiff('adhesin_phase_ramp/probe_mag.tiff')
-    probe_phase = dxchange.read_tiff('adhesin_phase_ramp/probe_phase.tiff')
+    # probe_mag = dxchange.read_tiff('adhesin_aperture_update/probe_mag.tiff')
+    # probe_phase = dxchange.read_tiff('adhesin_aperture_update/probe_phase.tiff')
 
-    initial_delta = np.load('adhesin_phase_ramp/phantom/grid_delta.npy')
-    initial_beta = np.load('adhesin_phase_ramp/phantom/grid_beta.npy')
+    # offset aperture position
+    # probe_mag = np.roll(probe_mag, shift=[2, 2], axis=[0, 1])
+    # dxchange.write_tiff(probe_mag, 'adhesin_aperture/probe_mag_shift', dtype='float32', overwrite=True)
+
+    # pupil
+    # img_dim = probe_mag.shape[0]
+    # aperture = tomopy.misc.corr._get_mask(img_dim, img_dim, 0.4)
+
+    # initial_delta = np.load('adhesin_aperture_update/phantom/grid_delta.npy')
+    # initial_beta = np.load('adhesin_aperture_update/phantom/grid_beta.npy')
 
     for alpha_d, alpha_b in zip(alpha_d_ls, alpha_b_ls):
         for gamma in gamma_ls:
             for learning_rate in learning_rate_ls:
                 print('Rate: {}; gamma: {}'.format(learning_rate, gamma))
-                reconstruct_diff(fname='data_adhesin_ramp_256_1nm_1um.h5',
+                reconstruct_diff(fname='data_adhesin_360_soft.h5',
                                  n_epochs=n_epochs,
                                  theta_st=theta_st,
                                  theta_end=theta_end,
@@ -51,14 +61,18 @@ if __name__ == '__main__':
                                  minibatch_size=batch_size,
                                  energy_ev=energy_ev,
                                  psize_cm=psize_cm,
-                                 cpu_only=True,
-                                 save_path='adhesin_phase_ramp',
-                                 phantom_path='adhesin_phase_ramp/phantom',
-                                 output_folder='probe_test',
+                                 cpu_only=False,
+                                 save_path='adhesin',
+                                 phantom_path='adhesin/phantom',
+                                 output_folder='test',
                                  initial_guess=None,
+                                 # initial_guess=[initial_delta, initial_beta],
                                  shrink_cycle=10,
                                  multiscale_level=1,
                                  n_batch_per_update=n_batch_per_update,
-                                 wavefront_type='optimizable',
+                                 wavefront_type='plane',
                                  wavefront_initial=None,
-                                 dynamic_rate=True)
+                                 # wavefront_initial=[probe_mag, probe_phase],
+                                 dynamic_rate=True,
+                                 probe_learning_rate=1e-3,
+                                 pupil_function=None)
