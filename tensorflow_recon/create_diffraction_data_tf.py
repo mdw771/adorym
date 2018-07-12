@@ -14,10 +14,10 @@ theta_end = 2 * PI
 n_theta = 500
 energy_ev = 5000
 psize_cm = 1.e-7
-free_prop_cm = None
+free_prop_cm = 1.e-4
 phantom_path = 'cone_256_filled/phantom'
 save_folder = 'cone_256_filled'
-fname = 'data_cone_256_1nm_1um'
+fname = 'test.h5'
 probe_type = 'plane'
 # ============================================
 
