@@ -289,7 +289,7 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
         grid_beta = tf.pad(grid_beta, pad, 'CONSTANT')
 
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
-    wavefront = np.zeros([grid_delta.shape[0], grid_delta.shape[2]])
+    wavefront = np.zeros([grid_delta.shape[0], grid_delta.shape[1]])
     # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
     wavefront = tf.constant(wavefront, dtype='complex64')
     wavefront = wavefront + tf.cast(probe_real, tf.complex64) + 1j * tf.cast(probe_imag, tf.complex64)
