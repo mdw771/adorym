@@ -14,14 +14,14 @@ plt.switch_backend('agg')
 PI = 3.1415927
 
 
-def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
-                     alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
-                     output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
-                     energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
-                     phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
-                     multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
-                     dynamic_rate=True, wavefront_type='plane', wavefront_initial=None, probe_learning_rate=1e-3,
-                     pupil_function=None):
+def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
+                          alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
+                          output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
+                          energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
+                          phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
+                          multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
+                          dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
+                          pupil_function=None):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -67,9 +67,9 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                                which obj is updated.
     :param dynamic_rate: when n_batch_per_update > 1, adjust learning rate dynamically to allow it
                          to decrease with epoch number
-    :param wavefront_type: type of wavefront. Can be 'plane', 'fixed', or 'optimizable'. If 'optimizable',
+    :param probe_type: type of wavefront. Can be 'plane', 'fixed', or 'optimizable'. If 'optimizable',
                            the probe function will be optimized along with the object.
-    :param wavefront_initial: can be provided for 'optimizable' wavefront_type, and must be provided for
+    :param probe_initial: can be provided for 'optimizable' probe_type, and must be provided for
                               'fixed'.
     """
 
@@ -85,7 +85,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         else:
             exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=free_prop_cm)
         loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i])))
-        i = tf.add(i, 1)
+        # i = tf.add(i, 1)
         return (i, loss, obj)
 
     def rotate_and_project_batch(loss, obj):
@@ -264,12 +264,12 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
         obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
         # ====================================================
 
-        if wavefront_type == 'plane':
+        if probe_type == 'plane':
             probe_real = tf.constant(np.ones([dim_y, dim_x]), dtype=tf.float32)
             probe_imag = tf.constant(np.zeros([dim_y, dim_x]), dtype=tf.float32)
-        elif wavefront_type == 'optimizable':
-            if wavefront_initial is not None:
-                probe_mag, probe_phase = wavefront_initial
+        elif probe_type == 'optimizable':
+            if probe_initial is not None:
+                probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
                 # probe_mag = np.ones([dim_y, dim_x])
@@ -284,8 +284,8 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                 pupil_function = tf.convert_to_tensor(pupil_function, dtype=tf.float32)
             probe_real = tf.Variable(probe_real, dtype=tf.float32, trainable=True)
             probe_imag = tf.Variable(probe_imag, dtype=tf.float32, trainable=True)
-        elif wavefront_type == 'fixed':
-            probe_mag, probe_phase = wavefront_initial
+        elif probe_type == 'fixed':
+            probe_mag, probe_phase = probe_initial
             probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             probe_real = tf.constant(probe_real, dtype=tf.float32)
             probe_imag = tf.constant(probe_imag, dtype=tf.float32)
@@ -303,11 +303,11 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
 
         if cpu_only:
             # TODO: check if i should be removed
-            i = tf.constant(0)
+            # i = tf.constant(0)
             # c = lambda i, loss, obj: tf.less(i, minibatch_size)
             # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
             for j in range(minibatch_size):
-                i, loss, obj = rotate_and_project(i, loss, obj)
+                j, loss, obj = rotate_and_project(j, loss, obj)
         else:
             loss = rotate_and_project_batch(loss, obj)
 
@@ -324,7 +324,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
         loss = loss + reg_term
-        if wavefront_type == 'optimizable':
+        if probe_type == 'optimizable':
             probe_reg = 1.e-10 * (tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])) +
                                    tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])))
             loss = loss + probe_reg
@@ -354,7 +354,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
             optimizer = optimizer.minimize(loss, var_list=[obj])
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
 
-        if wavefront_type == 'optimizable':
+        if probe_type == 'optimizable':
             optimizer_probe = tf.train.AdamOptimizer(learning_rate=probe_learning_rate * hvd.size())
             optimizer_probe = hvd.DistributedOptimizer(optimizer_probe, name='distopt_probe_{}'.format(ds_level))
             if n_batch_per_update > 1:
@@ -413,7 +413,7 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                     try:
                         if n_batch_per_update > 1:
                             t0_batch = time.time()
-                            if wavefront_type == 'optimizable':
+                            if probe_type == 'optimizable':
                                 _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run(
                                     [accum_op, accum_op_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options,
                                     run_metadata=run_metadata)
@@ -426,14 +426,14 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                             if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
                                 sess.run(update_obj)
                                 sess.run(initialize_grad)
-                                if wavefront_type == 'optimizable':
+                                if probe_type == 'optimizable':
                                     sess.run(update_probe)
                                     sess.run(initialize_grad_probe)
                                 batch_counter = 0
                                 print_flush('Gradient applied.')
                         else:
                             t0_batch = time.time()
-                            if wavefront_type == 'optimizable':
+                            if probe_type == 'optimizable':
                                 _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run([optimizer, optimizer_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options, run_metadata=run_metadata)
                                 print_flush(
                                     'Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(
@@ -446,14 +446,14 @@ def reconstruct_diff(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv
                                         time.time() - t0_batch, hvd.rank(), current_loss))
 
                         # enforce pupil function
-                        if wavefront_type == 'optimizable' and pupil_function is not None:
+                        if probe_type == 'optimizable' and pupil_function is not None:
                             probe_real = probe_real * pupil_function
                             probe_imag = probe_imag * pupil_function
 
                     except tf.errors.OutOfRangeError:
                         break
             else:
-                if wavefront_type == 'optimizable':
+                if probe_type == 'optimizable':
                     _, _, current_loss, current_reg, summary_str = sess.run([optimizer, optimizer_probe, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                 else:
                     _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)

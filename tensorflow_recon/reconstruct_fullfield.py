@@ -2,7 +2,7 @@ from fullfield import reconstruct_fullfield
 import numpy as np
 
 
-params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
+params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
                   'n_epochs': 'auto',
@@ -18,23 +18,19 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'shrink_cycle': 10,
                   'free_prop_cm': None,
                   'n_batch_per_update': 1,
-                  'output_folder': None,
+                  'output_folder': 'test',
                   'cpu_only': True,
-                  'save_folder': 'adhesin_ptycho',
-                  'phantom_path': 'adhesin_ptycho/phantom',
+                  'save_folder': 'adhesin',
+                  'phantom_path': 'adhesin/phantom',
                   'multiscale_level': 1,
                   'n_epoch_final_pass': None,
-                  'probe_type': 'gaussian',
-                  'probe_options': {'probe_mag_sigma': 10,
-                                    'probe_phase_sigma': 10,
-                                    'probe_phase_max': 0.5}}
+                  'save_intermediate': True,
+                  'full_intermediate': True,
+                  'probe_type': 'plane'}
 
 params = params_adhesin
-probe_pos = [(y, x) for y in np.linspace(9, 55, 23) for x in np.linspace(9, 55, 23)]
 
 reconstruct_fullfield(fname=params['fname'],
-                         probe_pos=probe_pos,
-                         probe_size=params['probe_size'],
                          theta_st=0,
                          theta_end=params['theta_end'],
                          n_epochs=params['n_epochs'],
@@ -48,8 +44,8 @@ reconstruct_fullfield(fname=params['fname'],
                          learning_rate=params['learning_rate'],
                          output_folder=params['output_folder'],
                          minibatch_size=params['batch_size'],
-                         save_intermediate=False,
-                         full_intermediate=False,
+                         save_intermediate=params['save_intermediate'],
+                         full_intermediate=params['full_intermediate'],
                          energy_ev=params['energy_ev'],
                          psize_cm=params['psize_cm'],
                          cpu_only=params['cpu_only'],
@@ -63,6 +59,4 @@ reconstruct_fullfield(fname=params['fname'],
                          probe_type=params['probe_type'],
                          probe_initial=None,
                          probe_learning_rate=1e-3,
-                         pupil_function=None,
-                         probe_circ_mask=None,
-                         **params['probe_options'])
+                         pupil_function=None)
