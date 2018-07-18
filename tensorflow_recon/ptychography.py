@@ -41,7 +41,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             exiting = fftshift(tf.fft2d(exiting))
             print(this_prj_batch[i][j])
             loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][j])))
-            i = tf.add(i, 1)
+            # i = tf.add(i, 1)
         return (i, loss, obj)
 
     # import Horovod or its fake shell
@@ -370,13 +370,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                         time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
 
                             else:
-                                print(1)
                                 _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                                 print_flush(
                                     'Minibatch done in {} s (rank {}); current loss = {}.'.format(
                                         time.time() - t0_batch, hvd.rank(), current_loss))
-                                print(2)
-
                         # enforce pupil function
                         if probe_type == 'optimizable' and pupil_function is not None:
                             probe_real = probe_real * pupil_function
