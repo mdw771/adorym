@@ -260,7 +260,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         tf.summary.scalar('error', loss - reg_term)
 
         # if initializer_flag == False:
-        print('pre optimizer')
         i_epoch = tf.Variable(0, trainable=False, dtype='float32')
         accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
         if dynamic_rate and n_batch_per_update > 1:
