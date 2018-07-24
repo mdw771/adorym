@@ -29,8 +29,15 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         for j, pos in enumerate(probe_pos):
             print('Pos: {}'.format(j))
-            subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
-                              [probe_size[0], probe_size[1], obj_size[2], 2])
+            # subobj = obj_rot[int(pos[0]) - probe_size_half[0]:int(pos[0]) - probe_size_half[0] + probe_size[0],
+            #                  int(pos[1]) - probe_size_half[1]:int(pos[1]) - probe_size_half[1] + probe_size[1],
+            #                  :, :]
+            ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
+                              for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
+                             [probe_size[0], probe_size[1], 2])
+            subobj = tf.gather_nd(obj_rot, ind)
+            # subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
+            #                   [probe_size[0], probe_size[1], obj_size[2], 2])
             if not cpu_only:
                 with tf.device('/gpu:0'):
                     exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
@@ -39,9 +46,30 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if probe_circ_mask is not None:
                 exiting = exiting * probe_mask
             exiting = fftshift(tf.fft2d(exiting))
-            print(this_prj_batch[i][j])
             loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][j])))
-            # i = tf.add(i, 1)
+        # def process_probe_pos(j):
+        #     pos = probe_pos[j]
+        #     # subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
+        #     #                   [probe_size[0], probe_size[1], obj_size[2], 2])
+        #     subobj = obj_rot[int(pos[0]) - probe_size_half[0]:int(pos[0]) - probe_size_half[0] + probe_size[0],
+        #                      int(pos[1]) - probe_size_half[1]:int(pos[1]) - probe_size_half[1] + probe_size[1],
+        #                      :, :]
+        #     if not cpu_only:
+        #         with tf.device('/gpu:0'):
+        #             exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
+        #     else:
+        #         exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
+        #     if probe_circ_mask is not None:
+        #         exiting = exiting * probe_mask
+        #     exiting = fftshift(tf.fft2d(exiting))
+        #     print(this_prj_batch[i][j])
+        #     loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][j])))
+        #     j = tf.add(j, 1)
+        #     return j
+        # j = tf.constant(0)
+        # d = lambda j, wavefront: tf.less(j, n_pos)
+        # _, wavefront = tf.while_loop(d, process_probe_pos, [j])
+        i = tf.add(i, 1)
         return (i, loss, obj)
 
     # import Horovod or its fake shell
@@ -118,6 +146,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         # downsample data
+        print_flush('Downsampling...')
         prj = prj_0
         if ds_level > 1:
             prj = prj[:, :, :ds_level, ::ds_level]
@@ -127,12 +156,24 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         dim_y, dim_x = prj.shape[-2:]
         n_theta = prj.shape[0]
         theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+        n_pos = len(probe_pos)
+        # probe_pos = tf.convert_to_tensor(probe_pos)
         probe_size_half = (np.array(probe_size) / 2).astype('int')
         comm.Barrier()
-        prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
+
+        print_flush('Creating dataset...')
+        t00 = time.time()
+        # prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
+        #     buffer_size=100).repeat().batch(minibatch_size)
+        # prj_iter = prj_dataset.make_one_shot_iterator()
+        # this_theta_batch, this_prj_batch = prj_iter.get_next()
+        theta_placeholder = tf.placeholder(theta.dtype, minibatch_size)
+        prj_placeholder = tf.placeholder(prj.dtype, [minibatch_size, *prj.shape[1:]])
+        prj_dataset = tf.data.Dataset.from_tensor_slices((theta_placeholder, prj_placeholder)).shard(hvd.size(), hvd.rank()).shuffle(
             buffer_size=100).repeat().batch(minibatch_size)
-        prj_iter = prj_dataset.make_one_shot_iterator()
+        prj_iter = prj_dataset.make_initializable_iterator()
         this_theta_batch, this_prj_batch = prj_iter.get_next()
+        print_flush('Dataset created in {} s.'.format(time.time() - t00))
         comm.Barrier()
 
         # # read rotation data
@@ -185,6 +226,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
         # ====================================================
 
+        print_flush('Initialzing probe...')
         if probe_type == 'gaussian':
             py = np.arange(probe_size[0]) - (probe_size[0] - 1.) / 2
             px = np.arange(probe_size[1]) - (probe_size[1] - 1.) / 2
@@ -229,6 +271,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, probe_size)
         h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
+        print_flush('Building physical model...')
+        t00 = time.time()
         if cpu_only:
             # i = tf.constant(0)
             # c = lambda i, loss, obj: tf.less(i, minibatch_size)
@@ -237,6 +281,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 _, loss, obj = rotate_and_project(j, loss, obj)
         else:
             loss = rotate_and_project_batch(loss, obj)
+        print_flush('Physical model built in {} s.'.format(time.time() - t00))
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
         # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
@@ -250,7 +295,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.norm(obj[:, :, :, 0], ord=2)
             # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
 
-        loss = loss / n_theta / float(len(probe_pos)) + reg_term
+
+        loss = loss / n_theta / float(n_pos) + reg_term
         if probe_type == 'optimizable':
             probe_reg = 1.e-10 * (tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])) +
                                    tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])))
@@ -259,6 +305,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         tf.summary.scalar('regularizer', reg_term)
         tf.summary.scalar('error', loss - reg_term)
 
+        print_flush('Creating optimizer...')
+        t00 = time.time()
         # if initializer_flag == False:
         i_epoch = tf.Variable(0, trainable=False, dtype='float32')
         accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
@@ -280,8 +328,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         if minibatch_size >= n_theta:
             optimizer = optimizer.minimize(loss, var_list=[obj])
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
-
-        print('optimizer defined')
+        print_flush('Optimizer created in {} s.'.format(time.time() - t00))
 
         if probe_type == 'optimizable':
             optimizer_probe = tf.train.AdamOptimizer(learning_rate=probe_learning_rate * hvd.size())
@@ -328,7 +375,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             n_loop = n_epoch_final_pass
         n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
         t00 = time.time()
+
         for epoch in range(n_loop):
+
+            ind_list_rand = np.random.choice(range(n_batch), n_batch, replace=False)
+            ind_list_rand = np.split(ind_list_rand, n_batch)
+            sess.run(prj_iter.initializer, feed_dict={theta_placeholder: theta[ind_list_rand[i_batch]],
+                                                      prj_placeholder: prj[ind_list_rand[i_batch]]})
+
             if mpi4py_is_ok:
                 stop_iteration = False
             else:
@@ -339,6 +393,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if minibatch_size < n_theta:
                 batch_counter = 0
                 for i_batch in range(n_batch):
+                    print_flush('Batch started...')
                     try:
                         if n_batch_per_update > 1:
                             t0_batch = time.time()
