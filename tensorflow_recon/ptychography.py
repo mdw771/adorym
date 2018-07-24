@@ -380,8 +380,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             ind_list_rand = np.random.choice(range(n_batch), n_batch, replace=False)
             ind_list_rand = np.split(ind_list_rand, n_batch)
-            sess.run(prj_iter.initializer, feed_dict={theta_placeholder: theta[ind_list_rand[i_batch]],
-                                                      prj_placeholder: prj[ind_list_rand[i_batch]]})
 
             if mpi4py_is_ok:
                 stop_iteration = False
@@ -394,6 +392,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 batch_counter = 0
                 for i_batch in range(n_batch):
                     print_flush('Batch started...')
+                    sess.run(prj_iter.initializer, feed_dict={theta_placeholder: theta[ind_list_rand[i_batch]],
+                                                              prj_placeholder: prj[ind_list_rand[i_batch]]})
                     try:
                         if n_batch_per_update > 1:
                             t0_batch = time.time()
