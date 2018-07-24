@@ -384,14 +384,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if mpi4py_is_ok:
                 stop_iteration = False
             else:
-                stop_iteration = open('.stop_itertion', 'w')
-                stop_iteration.write('False')
+                stop_iteration_file = open('.stop_itertion', 'w')
+                stop_iteration_file.write('False')
                 stop_iteration_file.close()
             i_epoch = i_epoch + 1
             if minibatch_size < n_theta:
                 batch_counter = 0
                 for i_batch in range(n_batch):
-                    print_flush('Batch started...')
                     sess.run(prj_iter.initializer, feed_dict={theta_placeholder: theta[ind_list_rand[i_batch]],
                                                               prj_placeholder: prj[ind_list_rand[i_batch]]})
                     try:
@@ -476,7 +475,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     stop_iteration_file = open('.stop_iteration', 'r')
                     stop_iteration = stop_iteration_file.read()
                     stop_iteration_file.close()
-                    stop_iteration = True if stop_iteration else False
+                    stop_iteration = True if stop_iteration == 'True' else False
                 if stop_iteration:
                     break
 
@@ -546,6 +545,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             np.save(os.path.join(output_folder, 'convergence', 'total_loss_ds_{}'.format(ds_level)), loss_ls)
             np.save(os.path.join(output_folder, 'convergence', 'reg_ds_{}'.format(ds_level)), reg_ls)
             np.save(os.path.join(output_folder, 'convergence', 'error_ds_{}'.format(ds_level)), error_ls)
+            summary_writer.close()
 
             print_flush('Clearing current graph...')
         sess.run(tf.global_variables_initializer())

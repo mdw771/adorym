@@ -403,8 +403,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             if mpi4py_is_ok:
                 stop_iteration = False
             else:
-                stop_iteration = open('.stop_itertion', 'w')
-                stop_iteration.write('False')
+                stop_iteration_file = open('.stop_itertion', 'w')
+                stop_iteration_file.write('False')
                 stop_iteration_file.close()
             i_epoch = i_epoch + 1
             if minibatch_size < n_theta:
@@ -493,7 +493,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     stop_iteration_file = open('.stop_iteration', 'r')
                     stop_iteration = stop_iteration_file.read()
                     stop_iteration_file.close()
-                    stop_iteration = True if stop_iteration else False
+                    stop_iteration = True if stop_iteration == 'True' else False
                 if stop_iteration:
                     break
             if epoch < n_epochs_mask_release:
