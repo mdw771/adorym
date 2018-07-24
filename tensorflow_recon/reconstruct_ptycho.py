@@ -60,7 +60,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                                  'probe_phase_max': 0.5},
                'probe_pos': [(y, x) for y in np.linspace(36, 220, 23) for x in np.linspace(36, 220, 23)]}
 
-params = params_adhesin
+params = params_cone
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
