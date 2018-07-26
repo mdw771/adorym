@@ -134,7 +134,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             output_folder += '_180'
 
     if save_path != '.':
-        output_folder = os.path.join(save_path, output_folder)
+        output_folder = os.path.join(rotate_and_project_batchsave_path, output_folder)
 
     for ds_level in range(multiscale_level - 1, -1, -1):
 
@@ -167,8 +167,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         #     buffer_size=100).repeat().batch(minibatch_size)
         # prj_iter = prj_dataset.make_one_shot_iterator()
         # this_theta_batch, this_prj_batch = prj_iter.get_next()
-        theta_placeholder = tf.placeholder(theta.dtype, minibatch_size)
-        prj_placeholder = tf.placeholder(prj.dtype, [minibatch_size, *prj.shape[1:]])
+        theta_placeholder = tf.placeholder(theta.dtype, minibatch_size * hvd.size())
+        prj_placeholder = tf.placeholder(prj.dtype, [minibatch_size * hvd.size(), *prj.shape[1:]])
         prj_dataset = tf.data.Dataset.from_tensor_slices((theta_placeholder, prj_placeholder)).shard(hvd.size(), hvd.rank()).shuffle(
             buffer_size=100).repeat().batch(minibatch_size)
         prj_iter = prj_dataset.make_initializable_iterator()
@@ -378,13 +378,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         for epoch in range(n_loop):
 
-            ind_list_rand = np.random.choice(range(n_batch), n_batch, replace=False)
+            ind_list_rand = np.random.choice(range(n_theta), n_theta, replace=False)
             ind_list_rand = np.split(ind_list_rand, n_batch)
 
             if mpi4py_is_ok:
                 stop_iteration = False
             else:
-                stop_iteration_file = open('.stop_itertion', 'w')
+                stop_iteration_file = open('.stop_iteration', 'w')
                 stop_iteration_file.write('False')
                 stop_iteration_file.close()
             i_epoch = i_epoch + 1
