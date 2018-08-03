@@ -17,7 +17,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'batch_size': 1,
                   'n_batch_per_update': 1,
-                  'output_folder': None,
+                  'output_folder': 'test',
                   'cpu_only': True,
                   'save_folder': 'adhesin_ptycho',
                   'phantom_path': 'adhesin_ptycho/phantom',
@@ -26,8 +26,8 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'save_intermediate': True,
                   'full_intermediate': True,
                   'probe_type': 'gaussian',
-                  'probe_options': {'probe_mag_sigma': 2,
-                                    'probe_phase_sigma': 2,
+                  'probe_options': {'probe_mag_sigma': 10,
+                                    'probe_phase_sigma': 10,
                                     'probe_phase_max': 0.5},
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23) for x in np.linspace(9, 55, 23)]}
 
@@ -60,7 +60,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                                  'probe_phase_max': 0.5},
                'probe_pos': [(y, x) for y in np.linspace(36, 220, 23) for x in np.linspace(36, 220, 23)]}
 
-params = params_cone
+params = params_adhesin
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
