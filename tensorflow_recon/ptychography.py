@@ -426,6 +426,17 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                             print_flush(
                                 'Minibatch done in {} s (rank {}); current loss = {}.'.format(
                                     time.time() - t0_batch, hvd.rank(), current_loss))
+
+                            ##############################
+                            temp_obj = sess.run(obj)
+                            temp_obj = np.abs(temp_obj)
+                            dxchange.write_tiff(temp_obj[:, :, :, 0],
+                                                fname=os.path.join(output_folder, 'intermediate',
+                                                                   'theta_{}'.format(i_batch)),
+                                                dtype='float32',
+                                                overwrite=True)
+                            ##############################
+
                     # enforce pupil function
                     if probe_type == 'optimizable' and pupil_function is not None:
                         probe_real = probe_real * pupil_function

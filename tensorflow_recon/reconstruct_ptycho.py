@@ -55,8 +55,8 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'save_intermediate': True,
                'full_intermediate': True,
                'probe_type': 'gaussian',
-               'probe_options': {'probe_mag_sigma': 10,
-                                 'probe_phase_sigma': 10,
+               'probe_options': {'probe_mag_sigma': 40,
+                                 'probe_phase_sigma': 40,
                                  'probe_phase_max': 0.5},
                'probe_pos': [(y, x) for y in np.linspace(36, 220, 23) for x in np.linspace(36, 220, 23)]}
 
