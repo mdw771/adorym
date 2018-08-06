@@ -39,7 +39,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'alpha_d': 0,
                'alpha_b': 0,
                'gamma': 0,
-               'probe_size': (72, 72),
+               'probe_size': (18, 18),
                'learning_rate': 1e-7,
                'center': 128,
                'energy_ev': 5000,
@@ -55,10 +55,12 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'save_intermediate': True,
                'full_intermediate': True,
                'probe_type': 'gaussian',
-               'probe_options': {'probe_mag_sigma': 40,
-                                 'probe_phase_sigma': 40,
+               'probe_options': {'probe_mag_sigma': 10,
+                                 'probe_phase_sigma': 10,
                                  'probe_phase_max': 0.5},
-               'probe_pos': [(y, x) for y in np.linspace(36, 220, 23) for x in np.linspace(36, 220, 23)]}
+               'probe_pos': [(y, x) for y in np.linspace(18, 120, 52) for x in np.linspace(54, 198, 72)] +
+                            [(y, x) for y in np.linspace(120, 222, 52) for x in np.linspace(22, 230, 104)]
+               }
 
 params = params_adhesin
 
