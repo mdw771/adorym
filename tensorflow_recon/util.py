@@ -321,12 +321,12 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
         l = np.prod(size_nm)**(1. / 3)
         crit_samp = lmbda_nm * dist_nm / l
 
-        if mean_voxel_nm > crit_samp:
+        # if mean_voxel_nm > crit_samp:
             # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
-            wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
-        else:
-            wavefront = tf.fft2d(fftshift(wavefront))
-            wavefront = ifftshift(tf.ifft2d(wavefront * h))
+        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+        # else:
+        #     wavefront = tf.fft2d(fftshift(wavefront))
+        #     wavefront = ifftshift(tf.ifft2d(wavefront * h))
         i = i + 1
         return i, wavefront
 
@@ -371,26 +371,29 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
     return wavefront
 
 
-def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psize_cm, free_prop_cm=None):
+def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, obj_batch_shape=None):
 
-    minibatch_size = grid_delta_batch.shape[0]
-    grid_shape = grid_delta_batch.get_shape().as_list()[1:]
+    minibatch_size = obj_batch_shape[0]
+    grid_shape = obj_batch_shape[1:]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
     # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
-    wavefront = tf.ones([minibatch_size, grid_delta_batch.shape[1], grid_delta_batch.shape[2]], dtype='complex64')
+    wavefront = np.zeros([obj_batch_shape[0], obj_batch_shape[1], obj_batch_shape[2]])
+    wavefront = tf.constant(wavefront, dtype='complex64')
+    wavefront = wavefront + (tf.cast(probe_real, tf.complex64) + 1j * tf.cast(probe_imag, tf.complex64))
     lmbda_nm = 1240. / energy_ev
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
     size_nm = np.array(grid_shape) * voxel_nm
     # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
 
-    n_slice = grid_delta_batch.shape[-2]
-
+    n_slice = obj_batch_shape[-1]
     delta_nm = voxel_nm[-1]
-    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_delta_batch.shape[1:-1])
-    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
-    h = fftshift(h)
+
+    if h is None:
+        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
+        h = tf.convert_to_tensor(h, dtype=tf.complex64, name='kernel')
     # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
     k = 2. * PI * delta_nm / lmbda_nm
+
 
     def modulate_and_propagate(i, wavefront):
         delta_slice = grid_delta_batch[:, :, :, i]
@@ -400,7 +403,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psi
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
         # c = tf.reshape(c, wavefront.shape)
         wavefront = wavefront * c
-        wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+        # wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
         i = i + 1
         return (i, wavefront)
 
@@ -428,6 +432,47 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, energy_ev, psi
         else:
             h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
         wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+
+    return wavefront
+
+
+def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, free_prop_cm=None, obj_batch_shape=None):
+
+    minibatch_size = obj_batch_shape[0]
+    grid_shape = obj_batch_shape[1:]
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    wavefront = np.zeros([minibatch_size, obj_batch_shape[1], obj_batch_shape[2]], dtype='complex64')
+    wavefront += (probe_real + 1j * probe_imag)
+
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_shape) * voxel_nm
+
+    n_slice = obj_batch_shape[-1]
+    delta_nm = voxel_nm[-1]
+
+    h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
+    # h = np_fftshift(h)
+    # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
+    k = 2. * PI * delta_nm / lmbda_nm
+
+    for i in range(n_slice):
+        delta_slice = grid_delta_batch[:, :, :, i]
+        beta_slice = grid_beta_batch[:, :, :, i]
+        c = np.exp(1j * k * delta_slice) * np.exp(-k * beta_slice)
+        wavefront = wavefront * c
+        wavefront = ifft2(fft2(wavefront) * h)
+
+    if free_prop_cm is not None:
+        dist_nm = free_prop_cm * 1e7
+        l = np.prod(size_nm)**(1. / 3)
+        crit_samp = lmbda_nm * dist_nm / l
+        algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+        if algorithm == 'TF':
+            h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+        else:
+            h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront)) * h))
 
     return wavefront
 

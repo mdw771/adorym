@@ -1,5 +1,6 @@
 from ptychography import reconstruct_ptychography
 import numpy as np
+import dxchange
 
 
 params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
@@ -7,11 +8,11 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_end': 2 * np.pi,
                   'n_epochs': 'auto',
                   'obj_size': (64, 64, 64),
-                  'alpha_d': 1.e-9,
-                  'alpha_b': 1.e-10,
+                  'alpha_d': 0,
+                  'alpha_b': 0,
                   'gamma': 0,
                   'probe_size': (18, 18),
-                  'learning_rate': 1e-7,
+                  'learning_rate': 1e-5,
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
@@ -63,6 +64,9 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                }
 
 params = params_adhesin
+
+init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
+init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
