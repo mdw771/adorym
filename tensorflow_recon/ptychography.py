@@ -52,13 +52,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         subobj_ls = []
         for j, pos in enumerate(probe_pos):
-            ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
-                              for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
-                             [probe_size[0], probe_size[1], 2])
-            subobj = tf.gather_nd(obj_rot, ind)
+            # ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
+            #                   for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
+            #                  [probe_size[0], probe_size[1], 2])
+            # subobj = tf.gather_nd(obj_rot, ind)
+            pos = [int(x) for x in pos]
             subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
-                     pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
-                     :, :]
+                             pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
+                             :, :]
             subobj_ls.append(subobj)
 
         subobj_ls = tf.stack(subobj_ls)
