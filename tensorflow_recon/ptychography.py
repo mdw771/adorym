@@ -27,33 +27,17 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
-        for j, pos in enumerate(probe_pos):
-            print('Pos: {}'.format(j))
-            # subobj = obj_rot[int(pos[0]) - probe_size_half[0]:int(pos[0]) - probe_size_half[0] + probe_size[0],
-            #                  int(pos[1]) - probe_size_half[1]:int(pos[1]) - probe_size_half[1] + probe_size[1],
-            #                  :, :]
-            ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
-                              for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
-                             [probe_size[0], probe_size[1], 2])
-            subobj = tf.gather_nd(obj_rot, ind)
-            # subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
-            #                   [probe_size[0], probe_size[1], obj_size[2], 2])
-            if not cpu_only:
-                with tf.device('/gpu:0'):
-                    exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
-            else:
-                exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
-            if probe_circ_mask is not None:
-                exiting = exiting * probe_mask
-            exiting = fftshift(tf.fft2d(exiting))
-            loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][j])))
-        # def process_probe_pos(j):
-        #     pos = probe_pos[j]
+        # for j, pos in enumerate(probe_pos):
+        #     print('Pos: {}'.format(j))
+        #     # subobj = obj_rot[int(pos[0]) - probe_size_half[0]:int(pos[0]) - probe_size_half[0] + probe_size[0],
+        #     #                  int(pos[1]) - probe_size_half[1]:int(pos[1]) - probe_size_half[1] + probe_size[1],
+        #     #                  :, :]
+        #     ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
+        #                       for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
+        #                      [probe_size[0], probe_size[1], 2])
+        #     subobj = tf.gather_nd(obj_rot, ind)
         #     # subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
         #     #                   [probe_size[0], probe_size[1], obj_size[2], 2])
-        #     subobj = obj_rot[int(pos[0]) - probe_size_half[0]:int(pos[0]) - probe_size_half[0] + probe_size[0],
-        #                      int(pos[1]) - probe_size_half[1]:int(pos[1]) - probe_size_half[1] + probe_size[1],
-        #                      :, :]
         #     if not cpu_only:
         #         with tf.device('/gpu:0'):
         #             exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=None)
@@ -62,13 +46,21 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         #     if probe_circ_mask is not None:
         #         exiting = exiting * probe_mask
         #     exiting = fftshift(tf.fft2d(exiting))
-        #     print(this_prj_batch[i][j])
         #     loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][j])))
-        #     j = tf.add(j, 1)
-        #     return j
-        # j = tf.constant(0)
-        # d = lambda j, wavefront: tf.less(j, n_pos)
-        # _, wavefront = tf.while_loop(d, process_probe_pos, [j])
+
+
+
+        sub_obj_ls = []
+        for j, pos in enumerate(probe_pos):
+            ind = np.reshape([[x, y] for x in range(int(pos[0]) - probe_size_half[0], int(pos[0]) - probe_size_half[0] + probe_size[0])
+                              for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
+                             [probe_size[0], probe_size[1], 2])
+            subobj = tf.gather_nd(obj_rot, ind)
+
+
+
+
+
         i = tf.add(i, 1)
         return (i, loss, obj)
 
