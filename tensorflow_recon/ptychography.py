@@ -30,7 +30,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         probe_pos_batch_ls = np.array_split(probe_pos, np.ceil(n_pos / hvd.size() / 100, dtype=int))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
-        print(len(probe_pos_batch_ls[0]))
         exiting_ls = []
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             subobj_ls = []
