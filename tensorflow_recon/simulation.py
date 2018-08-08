@@ -174,11 +174,10 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
             grid_delta_ls = np.array(grid_delta_ls)
             grid_beta_ls = np.array(grid_beta_ls)
             exiting = multislice_propagate_batch_numpy(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
-                                                       psize_cm, free_prop_cm=None,
+                                                       psize_cm, free_prop_cm='inf',
                                                        obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]])
             if probe_circ_mask is not None:
                 exiting = exiting * probe_mask
-            exiting = np_fftshift(fft2(exiting))
             if k == 0:
                 exiting_ls = np.copy(exiting)
             else:

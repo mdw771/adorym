@@ -5,8 +5,9 @@ import dxchange
 import h5py
 import matplotlib.pyplot as plt
 import matplotlib
-from pyfftw.interfaces.numpy_fft import fftn
+from pyfftw.interfaces.numpy_fft import fft2, ifft2
 from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
+from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
 import warnings
 try:
     from constants import *
@@ -337,38 +338,19 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
     _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
 
     if free_prop_cm is not None:
-        dist_nm = free_prop_cm * 1e7
-        l = np.prod(size_nm)**(1. / 3)
-        crit_samp = lmbda_nm * dist_nm / l
-        algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
-        if algorithm == 'TF':
-            h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
+        if free_prop_cm == 'inf':
+            wavefront = fftshift((tf.fft2d(wavefront)))
         else:
-            h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
-        wavefront = fftshift(tf.fft2d(wavefront)) * h
-        wavefront = tf.ifft2d(ifftshift(wavefront))
-
-    # for i_slice in range(n_slice):
-    #     # print('Slice: {:d}'.format(i_slice))
-    #     # sys.stdout.flush()
-    #     delta_slice = grid_delta[:, :, i_slice]
-    #     delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
-    #     beta_slice = grid_beta[:, :, i_slice]
-    #     beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
-    #     c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
-    #     # c = tf.reshape(c, wavefront.shape)
-    #     wavefront = wavefront * c
-    #
-    #     dist_nm = delta_nm
-    #     l = np.prod(size_nm)**(1. / 3)
-    #     crit_samp = lmbda_nm * dist_nm / l
-    #
-    #     if mean_voxel_nm > crit_samp:
-    #         # wavefront = tf.nn.conv2d(wavefront, h, (1, 1, 1, 1), 'SAME')
-    #         wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
-    #     else:
-    #         wavefront = tf.fft2d(fftshift(wavefront))
-    #         wavefront = ifftshift(tf.ifft2d(wavefront * h))
+            dist_nm = free_prop_cm * 1e7
+            l = np.prod(size_nm)**(1. / 3)
+            crit_samp = lmbda_nm * dist_nm / l
+            algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+            if algorithm == 'TF':
+                h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
+            else:
+                h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
+            wavefront = fftshift(tf.fft2d(wavefront)) * h
+            wavefront = tf.ifft2d(ifftshift(wavefront))
 
     return wavefront
 
@@ -396,7 +378,6 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     if h is None:
         h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
         h = tf.convert_to_tensor(h, dtype=tf.complex64, name='kernel')
-        # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
     k = 2. * PI * delta_nm / lmbda_nm
 
     def modulate_and_propagate(i, wavefront):
@@ -414,16 +395,6 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     i = tf.constant(0)
     c = lambda i, wavefront: tf.less(i, n_slice)
     _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
-
-    # for i in range(n_slice):
-    #     delta_slice = grid_delta_batch[:, :, :, i]
-    #     delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
-    #     beta_slice = grid_beta_batch[:, :, :, i]
-    #     beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
-    #     c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
-    #     # c = tf.reshape(c, wavefront.shape)
-    #     wavefront = wavefront * c
-    #     wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
 
     if free_prop_cm is not None:
         if free_prop_cm == 'inf':
@@ -458,8 +429,6 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
     delta_nm = voxel_nm[-1]
 
     h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
-    # h = np_fftshift(h)
-    # h = tf.reshape(h, [h.shape[0].value, h.shape[1].value, 1, 1])
     k = 2. * PI * delta_nm / lmbda_nm
 
     for i in range(n_slice):
@@ -467,18 +436,21 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
         beta_slice = grid_beta_batch[:, :, :, i]
         c = np.exp(1j * k * delta_slice) * np.exp(-k * beta_slice)
         wavefront = wavefront * c
-        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront)) * h))
+        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
 
     if free_prop_cm is not None:
-        dist_nm = free_prop_cm * 1e7
-        l = np.prod(size_nm)**(1. / 3)
-        crit_samp = lmbda_nm * dist_nm / l
-        algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
-        if algorithm == 'TF':
-            h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+        if free_prop_cm == 'inf':
+            wavefront = np_fftshift(fft2(wavefront), axes=[1, 2])
         else:
-            h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront)) * h))
+            dist_nm = free_prop_cm * 1e7
+            l = np.prod(size_nm)**(1. / 3)
+            crit_samp = lmbda_nm * dist_nm / l
+            algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+            if algorithm == 'TF':
+                h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+            else:
+                h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+            wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
 
     return wavefront
 
