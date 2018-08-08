@@ -59,15 +59,15 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'probe_options': {'probe_mag_sigma': 10,
                                  'probe_phase_sigma': 10,
                                  'probe_phase_max': 0.5},
-               'probe_pos': [(y, x) for y in np.linspace(18, 120, 52) for x in np.linspace(54, 198, 72)] +
-                            [(y, x) for y in np.linspace(120, 222, 52) for x in np.linspace(22, 230, 104)]
+               'probe_pos': [(y, x) for y in np.linspace(18, 120, 35) for x in np.linspace(54, 198, 49)] +
+                            [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)]
                }
 
 params = params_adhesin
 
-init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
-init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
-init = [init_delta, init_beta]
+# init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
+# init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
+# init = [init_delta, init_beta]
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
