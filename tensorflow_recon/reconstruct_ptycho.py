@@ -6,19 +6,19 @@ import dxchange
 params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
-                  'n_epochs': 'auto',
+                  'n_epochs': 1,
                   'obj_size': (64, 64, 64),
                   'alpha_d': 0,
                   'alpha_b': 0,
                   'gamma': 0,
                   'probe_size': (18, 18),
-                  'learning_rate': 1e-5,
+                  'learning_rate': 1e-7,
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
                   'batch_size': 1,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test',
+                  'output_folder': 'test_batchsum',
                   'cpu_only': True,
                   'save_folder': 'adhesin_ptycho',
                   'phantom_path': 'adhesin_ptycho/phantom',
@@ -67,6 +67,7 @@ params = params_adhesin
 
 init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
 init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
+init = [init_delta, init_beta]
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
