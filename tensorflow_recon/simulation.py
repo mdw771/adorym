@@ -166,11 +166,32 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     def rotate_and_project(theta, obj):
         obj_rot = sp_rotate(obj, theta, reshape=False)
 
+        # pad if needed
+        pad_arr = np.array([[0, 0], [0, 0]])
+        if probe_pos[:, 0].min() - probe_size_half[0] < 0:
+            pad_len = probe_size_half[0] - probe_pos[:, 0].min()
+            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0)), mode='constant')
+            pad_arr[0, 0] = pad_len
+        if probe_pos[:, 0].max() + probe_size_half[0] > img_dim[0]:
+            pad_len = probe_pos[:, 0].max() + probe_size_half[0] - img_dim[0]
+            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0)), mode='constant')
+            pad_arr[0, 1] = pad_len
+        if probe_pos[:, 1].min() - probe_size_half[1] < 0:
+            pad_len = probe_size_half[1] - probe_pos[:, 1].min()
+            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0)), mode='constant')
+            pad_arr[1, 0] = pad_len
+        if probe_pos[:, 1].max() + probe_size_half[1] > img_dim[1]:
+            pad_len = probe_pos[:, 1].max() + probe_size_half[0] - img_dim[1]
+            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len)), mode='constant')
+            pad_arr[1, 1] = pad_len
+
         for k, pos_batch in tqdm(enumerate(probe_pos_batches)):
             grid_delta_ls = []
             grid_beta_ls = []
             for j, pos in enumerate(pos_batch):
                 pos = np.array(pos, dtype=int)
+                pos[0] = pos[0] + pad_arr[0, 0]
+                pos[1] = pos[1] + pad_arr[1, 0]
                 subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
                                  pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
                                  :, :]

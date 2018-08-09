@@ -8,8 +8,8 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_end': 2 * np.pi,
                   'n_epochs': 1,
                   'obj_size': (64, 64, 64),
-                  'alpha_d': 0,
-                  'alpha_b': 0,
+                  'alpha_d': 1e-9,
+                  'alpha_b': 1e-10,
                   'gamma': 0,
                   'probe_size': (18, 18),
                   'learning_rate': 1e-7,
@@ -18,7 +18,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'batch_size': 1,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_batchsum',
+                  'output_folder': None,
                   'cpu_only': True,
                   'save_folder': 'adhesin_ptycho',
                   'phantom_path': 'adhesin_ptycho/phantom',
@@ -32,7 +32,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                                     'probe_phase_max': 0.5},
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23) for x in np.linspace(9, 55, 23)]}
 
-params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
+params_cone = {'fname': 'data_cone_256_1nm_dense.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
                'n_epochs': 5,
@@ -60,14 +60,16 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                                  'probe_phase_sigma': 10,
                                  'probe_phase_max': 0.5},
                'probe_pos': [(y, x) for y in np.linspace(18, 120, 35) for x in np.linspace(54, 198, 49)] +
-                            [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)]
+                            [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)],
+               'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_adhesin
+params = params_cone
 
 # init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
 # init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]
+
 
 reconstruct_ptychography(fname=params['fname'],
                          probe_pos=params['probe_pos'],
