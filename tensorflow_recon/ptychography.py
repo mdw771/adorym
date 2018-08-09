@@ -21,14 +21,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, **kwargs):
+                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, **kwargs):
 
     def rotate_and_project(i, obj):
 
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
-
-        probe_pos_batch_ls = np.array_split(probe_pos, np.ceil(n_pos / hvd.size() / 100, dtype=int))
+        probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / 100)))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
         exiting_ls = []
         for k, pos_batch in enumerate(probe_pos_batch_ls):
@@ -100,7 +99,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     initializer_flag = False
 
     if output_folder is None:
-        output_folder = 'recon_360_minibatch_{}_' \
+        output_folder = 'recon_ptycho_minibatch_{}_' \
                         'iter_{}_' \
                         'alphad_{}_' \
                         'alphab_{}_' \
@@ -207,6 +206,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             obj_init[:, :, :, 1] += np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5)
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
+        if finite_support_mask is not None:
+            finite_support_mask = finite_support_mask.astype('float')
+            obj_init[:, :, :, 0] *= finite_support_mask
+            obj_init[:, :, :, 1] *= finite_support_mask
         obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
         # ====================================================
 
