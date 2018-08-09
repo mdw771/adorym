@@ -30,6 +30,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_options': {'probe_mag_sigma': 10,
                                     'probe_phase_sigma': 10,
                                     'probe_phase_max': 0.5},
+                  'finite_support_mask': None,
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23) for x in np.linspace(9, 55, 23)]}
 
 params_cone = {'fname': 'data_cone_256_1nm_dense.h5',
@@ -103,4 +104,5 @@ reconstruct_ptychography(fname=params['fname'],
                          probe_learning_rate=1e-3,
                          pupil_function=None,
                          probe_circ_mask=None,
+                         finite_support_mask=params['finite_support_mask'],
                          **params['probe_options'])
