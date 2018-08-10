@@ -30,8 +30,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / n_dp_batch)))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
-        exiting_ls = []
-        loss = tf.constant(0)
+        # exiting_ls = []
+        loss = tf.constant(0.0)
+        ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             subobj_ls = []
             for j, pos in enumerate(pos_batch):
@@ -46,11 +47,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 subobj_ls.append(subobj)
 
             subobj_ls = tf.stack(subobj_ls)
-            # good until here
             exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
                                                  energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
                                                  obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
-            loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
+            loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][ind:ind+len(pos_batch)]))) * n_pos
+            ind += len(pos_batch)
             # exiting_ls.append(exiting)
         # exiting_ls = tf.concat(exiting_ls, 0)
         # if probe_circ_mask is not None:
@@ -341,6 +342,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         # create benchmarking metadata
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
+
+        # Create options to profile the time and memory information.
+        builder = tf.profiler.ProfileOptionBuilder
+        opts = builder(builder.time_and_memory()).order_by('micros').build()
+        # Create a profiling context, set constructor argument `trace_steps`,
+        # `dump_steps` to empty for explicit control.
+        pctx = tf.contrib.tfprof.ProfileContext(os.path.join(output_folder, 'tmp/train_dir'),
+                                                trace_steps=[],
+                                                dump_steps=[])
+
         if cpu_only:
             sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}, allow_soft_placement=True))
         else:
@@ -351,6 +362,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         sess.run(tf.global_variables_initializer())
         hvd.broadcast_global_variables(0)
+
+        # Enable tracing for next session.run.
+        pctx.trace_next_step()
+        # Dump the profile to '/tmp/train_dir' after the step.
+        pctx.dump_next_step()
 
         summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
 
@@ -415,7 +431,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                             print_flush(
                                 'Minibatch done in {} s (rank {}); current loss = {}.'.format(
                                     time.time() - t0_batch, hvd.rank(), current_loss))
-
+                            pctx.profiler.profile_operations(options=opts)
                             ##############################
                             temp_obj = sess.run(obj)
                             temp_obj = np.abs(temp_obj)
