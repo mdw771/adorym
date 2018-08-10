@@ -31,6 +31,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / n_dp_batch)))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
         exiting_ls = []
+        loss = tf.constant(0)
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             subobj_ls = []
             for j, pos in enumerate(pos_batch):
@@ -49,11 +50,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
                                                  energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
                                                  obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
-            exiting_ls.append(exiting)
-        exiting_ls = tf.concat(exiting_ls, 0)
+            loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
+            # exiting_ls.append(exiting)
+        # exiting_ls = tf.concat(exiting_ls, 0)
         if probe_circ_mask is not None:
             exiting_ls = exiting_ls * probe_mask
-        loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
+        # loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
 
         return loss
 
