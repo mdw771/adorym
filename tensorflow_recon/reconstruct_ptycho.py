@@ -32,7 +32,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                                     'probe_phase_sigma': 10,
                                     'probe_phase_max': 0.5},
                   'finite_support_mask': None,
-                  'probe_pos': [(y, x) for y in np.linspace(9, 55, 23) for x in np.linspace(9, 55, 23)]}
+                  'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
 
 params_cone = {'fname': 'data_cone_256_1nm_dense.h5',
                'theta_st': 0,
@@ -62,8 +62,8 @@ params_cone = {'fname': 'data_cone_256_1nm_dense.h5',
                'probe_options': {'probe_mag_sigma': 10,
                                  'probe_phase_sigma': 10,
                                  'probe_phase_max': 0.5},
-               'probe_pos': [(y, x) for y in np.linspace(18, 120, 35) for x in np.linspace(54, 198, 49)] +
-                            [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)],
+               'probe_pos': [(y, x) for y in np.linspace(18, 120, 35, dtype=int) for x in np.linspace(54, 198, 49, dtype=int)] +
+                            [(y, x) for y in np.linspace(120, 222, 35, dtype=int) for x in np.linspace(22, 230, 70, dtype=int)],
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
