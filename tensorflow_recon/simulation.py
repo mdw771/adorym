@@ -170,19 +170,19 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
         pad_arr = np.array([[0, 0], [0, 0]])
         if probe_pos[:, 0].min() - probe_size_half[0] < 0:
             pad_len = probe_size_half[0] - probe_pos[:, 0].min()
-            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0)), mode='constant')
+            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[0, 0] = pad_len
         if probe_pos[:, 0].max() + probe_size_half[0] > img_dim[0]:
             pad_len = probe_pos[:, 0].max() + probe_size_half[0] - img_dim[0]
-            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0)), mode='constant')
+            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[0, 1] = pad_len
         if probe_pos[:, 1].min() - probe_size_half[1] < 0:
             pad_len = probe_size_half[1] - probe_pos[:, 1].min()
-            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0)), mode='constant')
+            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[1, 0] = pad_len
         if probe_pos[:, 1].max() + probe_size_half[1] > img_dim[1]:
             pad_len = probe_pos[:, 1].max() + probe_size_half[0] - img_dim[1]
-            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len)), mode='constant')
+            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
             pad_arr[1, 1] = pad_len
 
         for k, pos_batch in tqdm(enumerate(probe_pos_batches)):
@@ -210,6 +210,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
                 exiting_ls = np.vstack([exiting_ls, exiting])
         return exiting_ls
 
+    probe_pos = np.array(probe_pos)
     n_pos = len(probe_pos)
     minibatch_size = min([minibatch_size, n_pos])
     n_batch = np.ceil(float(n_pos) / minibatch_size)
