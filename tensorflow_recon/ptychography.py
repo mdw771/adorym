@@ -21,13 +21,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, **kwargs):
+                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
+                             n_dp_batch=20, **kwargs):
 
     def rotate_and_project(i, obj):
 
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
-        probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / 50)))
+        probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / n_dp_batch)))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
         exiting_ls = []
         for k, pos_batch in enumerate(probe_pos_batch_ls):
