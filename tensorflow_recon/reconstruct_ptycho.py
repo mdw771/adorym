@@ -34,6 +34,39 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'finite_support_mask': None,
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
 
+params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
+                    'theta_st': 0,
+                    'theta_end': 2 * np.pi,
+                    'theta_downsample': 5,
+                    'n_epochs': 1,
+                    'obj_size': (256, 256, 256),
+                    'alpha_d': 0,
+                    'alpha_b': 0,
+                    'gamma': 0,
+                    'probe_size': (72, 72),
+                    'learning_rate': 1e-7,
+                    'center': 128,
+                    'energy_ev': 5000,
+                    'psize_cm': 1.e-7,
+                    'batch_size': 1,
+                    'n_batch_per_update': 1,
+                    'output_folder': 'test',
+                    'cpu_only': True,
+                    'save_folder': 'cone_256_filled_ptycho',
+                    'phantom_path': 'cone_256_filled_ptycho/phantom',
+                    'multiscale_level': 1,
+                    'n_epoch_final_pass': None,
+                    'save_intermediate': True,
+                    'full_intermediate': True,
+                    'n_dp_batch': 100,
+                    'probe_type': 'gaussian',
+                    'probe_options': {'probe_mag_sigma': 6,
+                                      'probe_phase_sigma': 6,
+                                      'probe_phase_max': 0.5},
+                    'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
+                    'finite_support_mask': None
+                    }
+
 params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
@@ -68,7 +101,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_cone
+params = params_cone_marc
 
 # init_delta = np.load('adhesin_ptycho/phantom/grid_delta.npy')
 # init_beta = np.load('adhesin_ptycho/phantom/grid_beta.npy')
@@ -80,6 +113,7 @@ reconstruct_ptychography(fname=params['fname'],
                          probe_size=params['probe_size'],
                          theta_st=0,
                          theta_end=params['theta_end'],
+                         theta_downsample=params['theta_downsample'],
                          obj_size=params['obj_size'],
                          n_epochs=params['n_epochs'],
                          crit_conv_rate=0.03,

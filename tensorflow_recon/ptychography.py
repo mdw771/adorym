@@ -14,7 +14,7 @@ plt.switch_backend('agg')
 PI = 3.1415927
 
 
-def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
+def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, theta_downsample=None, n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                              alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                              output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                              energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
@@ -117,6 +117,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
+    if theta_downsample is not None:
+        prj_0 = prj_0[::theta_downsample]
     original_shape = prj_0.shape
     print_flush('Data reading: {} s'.format(time.time() - t0))
     print_flush('Data shape: {}'.format(original_shape))
