@@ -30,8 +30,28 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / n_dp_batch)))
         # probe_pos_batch_ls = np.array_split(probe_pos, 6)
-        # exiting_ls = []
-        loss = tf.constant(0.0)
+        exiting_ls = []
+        # loss = tf.constant(0.0)
+
+        # pad if needed
+        pad_arr = np.array([[0, 0], [0, 0]])
+        if probe_pos[:, 0].min() - probe_size_half[0] < 0:
+            pad_len = probe_size_half[0] - probe_pos[:, 0].min()
+            obj_rot = tf.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[0, 0] = pad_len
+        if probe_pos[:, 0].max() + probe_size_half[0] > obj_size[0]:
+            pad_len = probe_pos[:, 0].max() + probe_size_half[0] - obj_size[0]
+            obj_rot = tf.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[0, 1] = pad_len
+        if probe_pos[:, 1].min() - probe_size_half[1] < 0:
+            pad_len = probe_size_half[1] - probe_pos[:, 1].min()
+            obj_rot = tf.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[1, 0] = pad_len
+        if probe_pos[:, 1].max() + probe_size_half[1] > obj_size[1]:
+            pad_len = probe_pos[:, 1].max() + probe_size_half[0] - obj_size[1]
+            obj_rot = tf.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[1, 1] = pad_len
+
         ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             subobj_ls = []
@@ -41,6 +61,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 #                   for y in range(int(pos[1]) - probe_size_half[1], int(pos[1]) - probe_size_half[1] + probe_size[1])],
                 #                  [probe_size[0], probe_size[1], 2])
                 # subobj = tf.gather_nd(obj_rot, ind)
+                pos[0] = pos[0] + pad_arr[0, 0]
+                pos[1] = pos[1] + pad_arr[1, 0]
                 subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
                                  pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
                                  :, :]
@@ -50,13 +72,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
                                                  energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
                                                  obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
-            loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][ind:ind+len(pos_batch)]))) * n_pos
-            ind += len(pos_batch)
-            # exiting_ls.append(exiting)
-        # exiting_ls = tf.concat(exiting_ls, 0)
-        # if probe_circ_mask is not None:
-        #     exiting_ls = exiting_ls * probe_mask
-        # loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
+            # loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][ind:ind+len(pos_batch)]))) * n_pos
+            # ind += len(pos_batch)
+            exiting_ls.append(exiting)
+        exiting_ls = tf.concat(exiting_ls, 0)
+        if probe_circ_mask is not None:
+            exiting_ls = exiting_ls * probe_mask
+        loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
 
         return loss
 
@@ -145,6 +167,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         n_theta = prj.shape[0]
         theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
         n_pos = len(probe_pos)
+        probe_pos = np.array(probe_pos)
         # probe_pos = tf.convert_to_tensor(probe_pos)
         probe_size_half = (np.array(probe_size) / 2).astype('int')
         comm.Barrier()
@@ -348,9 +371,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         opts = builder(builder.time_and_memory()).order_by('micros').build()
         # Create a profiling context, set constructor argument `trace_steps`,
         # `dump_steps` to empty for explicit control.
-        pctx = tf.contrib.tfprof.ProfileContext(os.path.join(output_folder, 'tmp/train_dir'),
-                                                trace_steps=[],
-                                                dump_steps=[])
+        # pctx = tf.contrib.tfprof.ProfileContext(os.path.join(output_folder, 'tmp/train_dir'),
+        #                                         trace_steps=[],
+        #                                         dump_steps=[])
 
         if cpu_only:
             sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}, allow_soft_placement=True))
@@ -364,9 +387,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         hvd.broadcast_global_variables(0)
 
         # Enable tracing for next session.run.
-        pctx.trace_next_step()
+        # pctx.trace_next_step()
         # Dump the profile to '/tmp/train_dir' after the step.
-        pctx.dump_next_step()
+        # pctx.dump_next_step()
 
         summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
 
@@ -431,7 +454,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                             print_flush(
                                 'Minibatch done in {} s (rank {}); current loss = {}.'.format(
                                     time.time() - t0_batch, hvd.rank(), current_loss))
-                            pctx.profiler.profile_operations(options=opts)
+                            # pctx.profiler.profile_operations(options=opts)
                             ##############################
                             temp_obj = sess.run(obj)
                             temp_obj = np.abs(temp_obj)
