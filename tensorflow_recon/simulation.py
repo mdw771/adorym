@@ -153,6 +153,7 @@ def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_fo
     theta_ls = -np.linspace(theta_st, theta_end, n_theta)
     theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
     n_pos = len(probe_pos)
+    probe_pos = np.array(probe_pos)
 
     # generate Fresnel kernel
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
