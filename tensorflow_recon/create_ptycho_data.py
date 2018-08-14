@@ -1,6 +1,6 @@
 import numpy as np
 
-from simulation import create_ptychography_data_batch_numpy
+from simulation import *
 
 
 # ============================================
