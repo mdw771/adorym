@@ -79,6 +79,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         if probe_circ_mask is not None:
             exiting_ls = exiting_ls * probe_mask
         loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_ls), tf.abs(this_prj_batch[i]))) * n_pos
+        loss = tf.identity(loss, name='loss')
 
         return loss
 
@@ -117,8 +118,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
+    n_theta = prj_0.shape[0]
+    theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
         prj_0 = prj_0[::theta_downsample]
+        theta = theta[::theta_downsample]
+        n_theta = prj_0.shape[0]
     original_shape = prj_0.shape
     print_flush('Data reading: {} s'.format(time.time() - t0))
     print_flush('Data shape: {}'.format(original_shape))
@@ -166,8 +171,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         dim_y, dim_x = prj.shape[-2:]
-        n_theta = prj.shape[0]
-        theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
         n_pos = len(probe_pos)
         probe_pos = np.array(probe_pos)
         # probe_pos = tf.convert_to_tensor(probe_pos)
@@ -239,7 +242,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             finite_support_mask = finite_support_mask.astype('float')
             obj_init[:, :, :, 0] *= finite_support_mask
             obj_init[:, :, :, 1] *= finite_support_mask
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32, name='object_func')
         # ====================================================
 
         print_flush('Initialzing probe...')
@@ -369,8 +372,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         run_metadata = tf.RunMetadata()
 
         # Create options to profile the time and memory information.
-        builder = tf.profiler.ProfileOptionBuilder
-        opts = builder(builder.time_and_memory()).order_by('micros').build()
+        # builder = tf.profiler.ProfileOptionBuilder
+        # opts = builder(builder.time_and_memory()).order_by('micros').build()
         # Create a profiling context, set constructor argument `trace_steps`,
         # `dump_steps` to empty for explicit control.
         # pctx = tf.contrib.tfprof.ProfileContext(os.path.join(output_folder, 'tmp/train_dir'),
@@ -393,7 +396,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         # Dump the profile to '/tmp/train_dir' after the step.
         # pctx.dump_next_step()
 
-        summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
+        summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), sess.graph)
 
         t0 = time.time()
 
@@ -472,6 +475,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                         probe_real = probe_real * pupil_function
                         probe_imag = probe_imag * pupil_function
 
+                    # run Tensorboard summarizer
+                    if hvd.rank() == 0:
+                        summary_writer.add_run_metadata(run_metadata, '{}_{}'.format(epoch, i_batch))
+                        summary_writer.add_summary(summary_str, i_batch)
+                        summary_writer.close()
+                        # raise Exception
+
             else:
                 if probe_type == 'optimizable':
                     _, _, current_loss, current_reg, summary_str = sess.run([optimizer, optimizer_probe, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
@@ -499,7 +509,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if len(loss_ls) > 0 and -crit_conv_rate < (current_loss - loss_ls[-1]) / loss_ls[-1] < 0 and hvd.rank() == 0:
                     loss_ls.append(current_loss)
                     reg_ls.append(current_reg)
-                    summary_writer.add_summary(summary_str, epoch)
                     if mpi4py_is_ok:
                         stop_iteration = True
                     else:
@@ -520,7 +529,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if hvd.rank() == 0:
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
-                summary_writer.add_summary(summary_str, epoch)
             if save_intermediate and hvd.rank() == 0:
                 temp_obj = sess.run(obj)
                 temp_obj = np.abs(temp_obj)

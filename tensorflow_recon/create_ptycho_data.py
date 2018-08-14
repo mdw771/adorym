@@ -46,6 +46,6 @@ probe_pos = [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12 ]
 # probe_pos = [(y, x) for y in np.linspace(18, 120, 35) for x in np.linspace(54, 198, 49)] + \
 #             [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)]
 
-create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
-                                     probe_type='gaussian', probe_size=probe_size, theta_st=theta_st, theta_end=theta_end,
-                                     probe_mag_sigma=probe_mag_sigma, probe_phase_sigma=probe_phase_sigma, probe_phase_max=probe_phase_max, probe_circ_mask=None)
+create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
+                         probe_type='gaussian', probe_size=probe_size, theta_st=theta_st, theta_end=theta_end,
+                         probe_mag_sigma=probe_mag_sigma, probe_phase_sigma=probe_phase_sigma, probe_phase_max=probe_phase_max, probe_circ_mask=None)
