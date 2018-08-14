@@ -120,8 +120,8 @@ def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_fo
                 pos[0] = pos[0] + pad_arr[0, 0]
                 pos[1] = pos[1] + pad_arr[1, 0]
                 subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
-                         pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
-                         :, :]
+                                 pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
+                                 :, :]
                 subobj_ls.append(subobj)
 
             subobj_ls = tf.stack(subobj_ls)
@@ -206,7 +206,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
     def rotate_and_project(theta, obj):
-        obj_rot = sp_rotate(obj, theta, reshape=False)
+        obj_rot = sp_rotate(obj, theta, reshape=False, axes=(1, 2))
 
         # pad if needed
         pad_arr = np.array([[0, 0], [0, 0]])

@@ -214,8 +214,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
                 grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
                 obj_init = np.zeros(np.append(obj_size, 2))
-                obj_init[:, :, :, 0] = np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5)
-                obj_init[:, :, :, 1] = np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5)
+                obj_init[:, :, :, 0] = np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
+                obj_init[:, :, :, 1] = np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
                 obj_init[obj_init < 0] = 0
             else:
                 print_flush('Using supplied initial guess.')
@@ -234,8 +234,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             obj_init[:, :, :, 1] = beta_init
             # obj_init = res
             obj_init = upsample_2x(obj_init)
-            obj_init[:, :, :, 0] += np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5)
-            obj_init[:, :, :, 1] += np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5)
+            obj_init[:, :, :, 0] += np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
+            obj_init[:, :, :, 1] += np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
         if finite_support_mask is not None:
@@ -476,11 +476,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                         probe_imag = probe_imag * pupil_function
 
                     # run Tensorboard summarizer
-                    if hvd.rank() == 0:
+                    if hvd.rank() == 0 and i_batch % 20 == 0:
                         summary_writer.add_run_metadata(run_metadata, '{}_{}'.format(epoch, i_batch))
                         summary_writer.add_summary(summary_str, i_batch)
-                        summary_writer.close()
-                        # raise Exception
+                try:
+                    summary_writer.close()
+                except:
+                    pass
 
             else:
                 if probe_type == 'optimizable':
