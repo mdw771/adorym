@@ -82,23 +82,55 @@ def create_fullfield_data(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_pa
 
 def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
                              probe_type='gaussian', probe_size=(72, 72), wavefront_initial=None,
-                             theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, **kwargs):
+                             theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, n_dp_batch=20, **kwargs):
     """
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
     def rotate_and_project(i, obj):
+
+        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, theta_ls_tensor[i], interpolation='BILINEAR')
+        probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / n_dp_batch)))
+        # probe_pos_batch_ls = np.array_split(probe_pos, 6)
         exiting_ls = []
-        for j, pos in enumerate(probe_pos):
-            print('Pos: {}'.format(j))
-            subobj = tf.slice(obj_rot, [int(pos[0]) - probe_size_half[0], int(pos[1]) - probe_size_half[1], 0, 0],
-                              [probe_size[0], probe_size[1], img_dim[2], 2])
-            exiting = multislice_propagate(subobj[:, :, :, 0], subobj[:, :, :, 1], probe_real, probe_imag, energy_ev,
-                                           psize_cm, free_prop_cm=None)
-            if probe_circ_mask is not None:
-                exiting = exiting * probe_mask
-            exiting = fftshift(tf.fft2d(exiting))
+
+        # pad if needed
+        pad_arr = np.array([[0, 0], [0, 0]])
+        if probe_pos[:, 0].min() - probe_size_half[0] < 0:
+            pad_len = probe_size_half[0] - probe_pos[:, 0].min()
+            obj_rot = tf.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[0, 0] = pad_len
+        if probe_pos[:, 0].max() + probe_size_half[0] > obj_size[0]:
+            pad_len = probe_pos[:, 0].max() + probe_size_half[0] - obj_size[0]
+            obj_rot = tf.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[0, 1] = pad_len
+        if probe_pos[:, 1].min() - probe_size_half[1] < 0:
+            pad_len = probe_size_half[1] - probe_pos[:, 1].min()
+            obj_rot = tf.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[1, 0] = pad_len
+        if probe_pos[:, 1].max() + probe_size_half[1] > obj_size[1]:
+            pad_len = probe_pos[:, 1].max() + probe_size_half[0] - obj_size[1]
+            obj_rot = tf.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='CONSTANT')
+            pad_arr[1, 1] = pad_len
+
+        for k, pos_batch in enumerate(probe_pos_batch_ls):
+            subobj_ls = []
+            for j, pos in enumerate(pos_batch):
+                pos = [int(x) for x in pos]
+                pos[0] = pos[0] + pad_arr[0, 0]
+                pos[1] = pos[1] + pad_arr[1, 0]
+                subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
+                         pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
+                         :, :]
+                subobj_ls.append(subobj)
+
+            subobj_ls = tf.stack(subobj_ls)
+            exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
+                                                 probe_imag,
+                                                 energy_ev, psize_cm, h=h, free_prop_cm='inf',
+                                                 obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
             exiting_ls.append(exiting)
+        exiting_ls = tf.concat(exiting_ls, 0)
         return exiting_ls
 
     config = tf.ConfigProto(device_count={'GPU': 0})
@@ -114,11 +146,20 @@ def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_fo
     obj_init = np.zeros(np.append(img_dim, 2))
     obj_init[:, :, :, 0] = grid_delta
     obj_init[:, :, :, 1] = grid_beta
+    obj_size = grid_delta.shape
     obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
 
     # list of angles
     theta_ls = -np.linspace(theta_st, theta_end, n_theta)
     theta_ls_tensor = tf.constant(theta_ls, dtype='float32')
+    n_pos = len(probe_pos)
+
+    # generate Fresnel kernel
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    lmbda_nm = 1240. / energy_ev
+    delta_nm = voxel_nm[-1]
+    kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, probe_size)
+    h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
     # create data file
     flag_overwrite = 'y'
