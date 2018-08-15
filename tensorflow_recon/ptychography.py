@@ -7,8 +7,9 @@ import time
 import os
 import h5py
 import warnings
-from util import *
 import matplotlib.pyplot as plt
+from util import *
+from misc import *
 plt.switch_backend('agg')
 
 PI = 3.1415927
@@ -117,14 +118,15 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     # read data
     print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
-    prj_0 = f['exchange/data'][...].astype('complex64')
-    n_theta = prj_0.shape[0]
+    prj = f['exchange/data']
+    n_theta = prj.shape[0]
+    prj_theta_ind = np.arange(n_theta, dtype=int)
     theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
-        prj_0 = prj_0[::theta_downsample]
         theta = theta[::theta_downsample]
-        n_theta = prj_0.shape[0]
-    original_shape = prj_0.shape
+        prj_theta_ind = prj_theta_ind[::theta_downsample]
+        n_theta = len(theta)
+    original_shape = [n_theta, *prj.shape[1:]]
     print_flush('Data reading: {} s'.format(time.time() - t0))
     print_flush('Data shape: {}'.format(original_shape))
     comm.Barrier()
@@ -145,7 +147,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             .format(minibatch_size,
                     n_epochs, alpha_d, alpha_b,
                     learning_rate, energy_ev,
-                    prj_0.shape[-1], prj_0.shape[0],
+                    prj.shape[-1], prj.shape[0],
                     multiscale_level, cpu_only)
         if abs(PI - theta_end) < 1e-3:
             output_folder += '_180'
@@ -162,19 +164,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         print_flush('Multiscale downsampling level: {}'.format(ds_level))
         comm.Barrier()
 
-        # downsample data
-        print_flush('Downsampling...')
-        prj = prj_0
-        if ds_level > 1:
-            prj = prj[:, :, :ds_level, ::ds_level]
-            prj = prj.astype('complex64')
-        comm.Barrier()
-
-        dim_y, dim_x = prj.shape[-2:]
         n_pos = len(probe_pos)
         probe_pos = np.array(probe_pos)
         # probe_pos = tf.convert_to_tensor(probe_pos)
         probe_size_half = (np.array(probe_size) / 2).astype('int')
+        prj_shape = original_shape
+        if ds_level > 1:
+            obj_size = [int(x / ds_level) for x in obj_size]
+
+        dim_y, dim_x = prj_shape[-2:]
+
         comm.Barrier()
 
         print_flush('Creating dataset...')
@@ -184,7 +183,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         # prj_iter = prj_dataset.make_one_shot_iterator()
         # this_theta_batch, this_prj_batch = prj_iter.get_next()
         theta_placeholder = tf.placeholder(theta.dtype, minibatch_size * hvd.size())
-        prj_placeholder = tf.placeholder(prj.dtype, [minibatch_size * hvd.size(), *prj.shape[1:]])
+        prj_placeholder = tf.placeholder(prj.dtype, [minibatch_size * hvd.size(), *prj_shape[1:]])
         prj_dataset = tf.data.Dataset.from_tensor_slices((theta_placeholder, prj_placeholder)).shard(hvd.size(), hvd.rank()).batch(minibatch_size)
         prj_iter = prj_dataset.make_initializable_iterator()
         this_theta_batch, this_prj_batch = prj_iter.get_next()
@@ -371,15 +370,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         run_options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
         run_metadata = tf.RunMetadata()
 
-        # Create options to profile the time and memory information.
-        # builder = tf.profiler.ProfileOptionBuilder
-        # opts = builder(builder.time_and_memory()).order_by('micros').build()
-        # Create a profiling context, set constructor argument `trace_steps`,
-        # `dump_steps` to empty for explicit control.
-        # pctx = tf.contrib.tfprof.ProfileContext(os.path.join(output_folder, 'tmp/train_dir'),
-        #                                         trace_steps=[],
-        #                                         dump_steps=[])
-
         if cpu_only:
             sess = tf.Session(config=tf.ConfigProto(device_count = {'GPU': 0}, allow_soft_placement=True))
         else:
@@ -391,12 +381,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         sess.run(tf.global_variables_initializer())
         hvd.broadcast_global_variables(0)
 
-        # Enable tracing for next session.run.
-        # pctx.trace_next_step()
-        # Dump the profile to '/tmp/train_dir' after the step.
-        # pctx.dump_next_step()
-
-        summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), sess.graph)
+        if hvd.rank() == 0:
+            summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), sess.graph)
+            create_summary(output_folder, locals(), preset='ptycho')
+            print_flush('Summary text created.')
 
         t0 = time.time()
 
@@ -412,6 +400,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             ind_list_rand = np.arange(n_theta, dtype=int)
             ind_list_rand = np.split(ind_list_rand, n_batch)
+            print(prj)
+            print(n_batch)
+            print(ind_list_rand)
+            print(prj_theta_ind)
 
             if mpi4py_is_ok:
                 stop_iteration = False
@@ -423,8 +415,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if minibatch_size < n_theta:
                 batch_counter = 0
                 for i_batch in range(n_batch):
-                    sess.run(prj_iter.initializer, feed_dict={theta_placeholder: theta[ind_list_rand[i_batch]],
-                                                              prj_placeholder: prj[ind_list_rand[i_batch]]})
+                    this_theta_numpy = theta[ind_list_rand[i_batch]]
+                    this_prj_numpy = prj[list(prj_theta_ind[ind_list_rand[i_batch]])]
+                    if ds_level > 1:
+                        this_prj_numpy = this_prj_numpy[:, :, ::ds_level, ::ds_level]
+                    sess.run(prj_iter.initializer, feed_dict={theta_placeholder: this_theta_numpy,
+                                                              prj_placeholder: this_prj_numpy})
                     if n_batch_per_update > 1:
                         t0_batch = time.time()
                         if probe_type == 'optimizable':
@@ -479,10 +475,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     if hvd.rank() == 0 and i_batch % 20 == 0:
                         summary_writer.add_run_metadata(run_metadata, '{}_{}'.format(epoch, i_batch))
                         summary_writer.add_summary(summary_str, i_batch)
-                try:
-                    summary_writer.close()
-                except:
-                    pass
+                if hvd.rank() == 0:
+                    try:
+                        summary_writer.close()
+                    except:
+                        pass
 
             else:
                 if probe_type == 'optimizable':
