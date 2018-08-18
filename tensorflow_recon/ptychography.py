@@ -151,6 +151,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     multiscale_level, cpu_only)
         if abs(PI - theta_end) < 1e-3:
             output_folder += '_180'
+    print_flush('Output folder is {}'.format(output_folder))
 
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
@@ -400,10 +401,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             ind_list_rand = np.arange(n_theta, dtype=int)
             ind_list_rand = np.split(ind_list_rand, n_batch)
-            print(prj)
-            print(n_batch)
-            print(ind_list_rand)
-            print(prj_theta_ind)
 
             if mpi4py_is_ok:
                 stop_iteration = False
@@ -457,13 +454,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                     time.time() - t0_batch, hvd.rank(), current_loss))
                             # pctx.profiler.profile_operations(options=opts)
                             ##############################
-                            temp_obj = sess.run(obj)
-                            temp_obj = np.abs(temp_obj)
-                            dxchange.write_tiff(temp_obj[:, :, :, 0],
-                                                fname=os.path.join(output_folder, 'intermediate',
-                                                                   'theta_{}'.format(i_batch)),
-                                                dtype='float32',
-                                                overwrite=True)
+                            if hvd.rank() == 0:
+                                temp_obj = sess.run(obj)
+                                temp_obj = np.abs(temp_obj)
+                                dxchange.write_tiff(temp_obj[:, :, :, 0],
+                                                    fname=os.path.join(output_folder, 'intermediate',
+                                                                       'theta_{}'.format(i_batch)),
+                                                    dtype='float32',
+                                                    overwrite=True)
                             ##############################
 
                     # enforce pupil function
