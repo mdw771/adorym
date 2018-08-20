@@ -247,12 +247,15 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         print_flush('Initialzing probe...')
         if probe_type == 'gaussian':
+            probe_mag_sigma = kwargs['probe_mag_sigma']
+            probe_phase_sigma = kwargs['probe_phase_sigma']
+            probe_phase_max = kwargs['probe_phase_max']
             py = np.arange(probe_size[0]) - (probe_size[0] - 1.) / 2
             px = np.arange(probe_size[1]) - (probe_size[1] - 1.) / 2
             pxx, pyy = np.meshgrid(px, py)
-            probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * kwargs['probe_mag_sigma'] ** 2))
-            probe_phase = kwargs['probe_phase_max'] * np.exp(
-                -(pxx ** 2 + pyy ** 2) / (2 * kwargs['probe_phase_sigma'] ** 2))
+            probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
+            probe_phase = probe_phase_max * np.exp(
+                -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
             probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             probe_real = tf.constant(probe_real, dtype=tf.float32)
             probe_imag = tf.constant(probe_imag, dtype=tf.float32)

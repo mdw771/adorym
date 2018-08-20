@@ -16,7 +16,10 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'free_prop_cm',
                          'psize_cm',
                          'energy_ev',
-                         'fname']
+                         'fname',
+                         'probe_mag_sigma',
+                         'probe_phase_sigma',
+                         'probe_phase_max']
 
 
 def create_summary(save_path, locals_dict, var_list=None, preset=None):
