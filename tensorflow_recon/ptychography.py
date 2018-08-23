@@ -405,6 +405,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             ind_list_rand = np.arange(n_theta, dtype=int)
             ind_list_rand = np.random.choice(ind_list_rand, n_theta, replace=False)
             ind_list_rand = np.split(ind_list_rand, n_batch)
+            ind_list_rand = [np.sort(x) for x in ind_list_rand]
 
             if mpi4py_is_ok:
                 stop_iteration = False
