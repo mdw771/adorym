@@ -669,7 +669,7 @@ def total_variation_3d(arr):
     res = tf.reduce_sum(tf.image.total_variation(arr))
     res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[2, 0, 1, 3])))
     res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[1, 2, 0, 3])))
-    return res
+    return res / 3
 
 
 def generate_sphere(shape, radius, anti_aliasing=5):
