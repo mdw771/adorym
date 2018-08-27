@@ -557,6 +557,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                         dtype='float32',
                                         overwrite=True)
                 dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+                dxchange.write_tiff(temp_obj[:, :, :, 1], os.path.join(output_folder, 'current', 'beta'), dtype='float32', overwrite=True)
                 print_flush('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
             sys.stdout.flush()
             # except:
