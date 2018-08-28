@@ -664,16 +664,16 @@ def rotate_image_tensor(image, angle, mode='black'):
 
 
 def total_variation_3d(arr):
-
-    # res = tf.pow(tf.manip.roll(arr, 1, 0) - arr, 2)
-    # res += tf.pow(tf.manip.roll(arr, 1, 1) - arr, 2)
-    # res += tf.pow(tf.manip.roll(arr, 1, 2) - arr, 2)
-    # res = tf.sqrt(res)
-    # res = tf.reduce_sum(tf.boolean_mask(res, tf.is_finite(res)))
-    res = tf.reduce_sum(tf.image.total_variation(arr))
-    res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[2, 0, 1, 3])))
-    res += tf.reduce_sum(tf.image.total_variation(tf.transpose(arr, perm=[1, 2, 0, 3])))
-    return res / 2.
+    """
+    Calculate total variation of a 3D array.
+    :param arr: 3D Tensor.
+    :return: Scalar.
+    """
+    res = tf.image.total_variation(arr)
+    res += tf.image.total_variation(tf.transpose(arr, perm=[2, 0, 1]))
+    res += tf.image.total_variation(tf.transpose(arr, perm=[1, 2, 0]))
+    res = res / 2
+    return res
 
 
 def generate_sphere(shape, radius, anti_aliasing=5):
