@@ -51,7 +51,7 @@ params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
                     'psize_cm': 1.e-7,
                     'batch_size': 1,
                     'n_batch_per_update': 1,
-                    'output_folder': 'n100/iter10_xrmlite',
+                    'output_folder': 'test',
                     'cpu_only': True,
                     'save_folder': 'cone_256_filled_ptycho',
                     'phantom_path': 'cone_256_filled_ptycho/phantom',
@@ -104,9 +104,9 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
 
 params = params_cone_marc
 
-init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/delta_ds_1.tiff')
-init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/beta_ds_1.tiff')
-init = [init_delta, init_beta]
+# init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/delta_ds_1.tiff')
+# init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/beta_ds_1.tiff')
+# init = [init_delta, init_beta]
 
 
 reconstruct_ptychography(fname=params['fname'],
@@ -134,7 +134,7 @@ reconstruct_ptychography(fname=params['fname'],
                          phantom_path=params['phantom_path'],
                          multiscale_level=params['multiscale_level'],
                          n_epoch_final_pass=params['n_epoch_final_pass'],
-                         initial_guess=init,
+                         initial_guess=None,
                          n_batch_per_update=params['n_batch_per_update'],
                          dynamic_rate=True,
                          probe_type=params['probe_type'],
