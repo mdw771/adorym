@@ -403,7 +403,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         for epoch in range(n_loop):
 
             if epoch == 0:
-                current_loss, current_reg = sess.run(loss, reg_term)
+                current_loss, current_reg = sess.run([loss, reg_term])
                 print('Initial loss = {}, reg = {}.'.format(current_loss, current_reg))
 
             ind_list_rand = np.arange(n_theta, dtype=int)
