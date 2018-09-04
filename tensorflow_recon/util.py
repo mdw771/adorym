@@ -459,6 +459,9 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
     return wavefront
 
 
+def multislice_spherical_numpy()
+
+
 def create_batches(arr, batch_size):
 
     arr_len = len(arr)

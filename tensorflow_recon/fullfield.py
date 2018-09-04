@@ -2,6 +2,7 @@ from tensorflow.contrib.image import rotate as tf_rotate
 from tensorflow.python.client import timeline
 import tensorflow as tf
 import dxchange
+import numpy as np
 import time
 import os
 import h5py
@@ -72,8 +73,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     :param probe_initial: can be provided for 'optimizable' probe_type, and must be provided for
                               'fixed'.
     """
-
-    # TODO: rewrite minibatching to ensure going through the entire dataset
 
     def rotate_and_project(i, loss, obj):
 
