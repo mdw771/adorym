@@ -40,5 +40,9 @@ create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             probe_type=params['probe_type'],
                             wavefront_initial=None,
                             theta_st=params['theta_st'],
-                            theta_end=params['theta_end']
+                            theta_end=params['theta_end'],
+                            dist_to_source_cm=params['dist_to_source_cm'],
+                            det_psize_cm=params['det_psize_cm'],
+                            theta_max=params['theta_max'],
+                            phi_max=params['phi_max'],
                             )

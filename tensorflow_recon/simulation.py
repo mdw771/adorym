@@ -139,13 +139,13 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
         assert wavefront_initial.shape == img_dim
         probe_mag, probe_phase = wavefront_initial
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-    elif probe_type == 'plane':
+    elif probe_type == 'point':
         probe_real = np.ones([img_dim[0], img_dim[1]])
         probe_imag = np.zeros([img_dim[0], img_dim[1]])
     else:
         raise ValueError('Invalid wavefront type. Choose from \'plane\', \'point\', or \'fixed\'.')
 
-    for i_batch, this_theta_batch in enumerate(theta_batch):
+    for i_batch, this_theta_batch in tqdm(enumerate(theta_batch)):
         wave_out = rotate_and_project(this_theta_batch, obj)
         dat[i_batch * batch_size:i_batch * batch_size + batch_size, :, :] = wave_out
     f.close()
