@@ -92,10 +92,3 @@ def triliniear_interpolation_3d(data, warp):
     f = a[:, 0] + a[:, 1] * x + a[:, 2] * y + a[:, 3] * z + \
         a[:, 4] * x * y + a[:, 5] * x * z + a[:, 6] * y * z + a[:, 7] * x * y * z
     return f
-
-
-# if __name__ == '__main__':
-#
-#     a = tf.range(27)
-#     a = tf.reshape(a, [3, 3, 3])
-#     cartesian_to_spherical(a, 1000, 1)
