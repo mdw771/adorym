@@ -96,9 +96,9 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
                                                            theta_max, phi_max, free_prop_cm,
                                                            obj_batch_shape=obj_rot_batch.shape)
         else:
-            exiting = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
-                                                 probe_real, probe_imag, energy_ev,
-                                                 psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape)
+            exiting = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                       probe_real, probe_imag, energy_ev,
+                                                       psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape)
         return exiting
 
     # read model

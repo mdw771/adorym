@@ -22,7 +22,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
-                          pupil_function=None):
+                          pupil_function=None, **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -87,15 +87,24 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         # i = tf.add(i, 1)
         return (i, loss, obj)
 
-    def rotate_and_project_batch(loss, obj):
+    def rotate_and_project_batch(obj):
 
         obj_rot_batch = []
         for i in range(minibatch_size):
             obj_rot_batch.append(tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR'))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
-        exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1], energy_ev, psize_cm)
-        loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
+        if probe_type == 'point':
+            exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                       probe_real, probe_imag, energy_ev,
+                                                       psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape)
+        else:
+            exiting_batch = multislice_propagate_spherical(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                           probe_real, probe_imag, energy_ev,
+                                                           psize_cm, dist_to_source_cm, det_psize_cm,
+                                                           theta_max, phi_max, free_prop_cm,
+                                                           obj_batch_shape=obj_rot_batch.shape)
+        loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss
 
     # import Horovod or its fake shell
@@ -139,6 +148,12 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     print_flush('Data reading: {} s'.format(time.time() - t0))
     print_flush('Data shape: {}'.format(original_shape))
     comm.Barrier()
+
+    if probe_type == 'point':
+        dist_to_source_cm = kwargs['dist_to_source_cm']
+        det_psize_cm = kwargs['det_psize_cm']
+        theta_max = kwargs['theta_max']
+        phi_max = kwargs['phi_max']
 
     initializer_flag = False
 
@@ -291,8 +306,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
-        loss = tf.constant(0.0)
-
         # generate Fresnel kernel
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
@@ -300,15 +313,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x])
         h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
-        if cpu_only:
-            # TODO: check if i should be removed
-            # i = tf.constant(0)
-            # c = lambda i, loss, obj: tf.less(i, minibatch_size)
-            # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
-            for j in range(minibatch_size):
-                j, loss, obj = rotate_and_project(j, loss, obj)
-        else:
-            loss = rotate_and_project_batch(loss, obj)
+        loss = rotate_and_project_batch(obj)
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
         # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
@@ -321,8 +326,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0:1])
                 reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.norm(obj[:, :, :, 0], ord=2)
             # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
-
         loss = loss + reg_term
+
         if probe_type == 'optimizable':
             probe_reg = 1.e-10 * (tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])) +
                                    tf.image.total_variation(tf.reshape(probe_real, [dim_y, dim_x, -1])))
