@@ -1,49 +1,53 @@
 import numpy as np
 import tensorflow as tf
+from scipy.interpolate import RegularGridInterpolator
+
+from constants import *
 
 
-def cartesian_to_spherical(arr, dist_to_source_nm, psize_nm):
+def cartesian_to_spherical(arr, dist_to_source_nm, psize_nm, theta_max=PI/18, phi_max=PI/18, interpolation='nearest'):
     """
     Convert 3D cartesian array into spherical coordinates.
     """
-    # Cartesian array indices
-    x_ind, y_ind, z_ind = [np.arange(arr.shape[0], dtype=int),
-                           np.arange(arr.shape[1], dtype=int),
-                           np.arange(arr.shape[2], dtype=int)]
-    # Cartesian coordiantes with real unit
-    x_true, y_true, z_true = [(x_ind - np.median(x_ind)) * psize_nm,
-                              (y_ind - np.median(y_ind)) * psize_nm,
-                              z_ind * psize_nm]
-    cart_interp = RegularGridInterpolator((x_true, y_true, z_true), arr, bounds_error=False, fill_value=0)
     # Spherical array indices
-    r_ind, theta_ind, phi_ind = [np.arange(arr.shape[0], dtype=int),
-                                 np.arange(arr.shape[1], dtype=int),
-                                 np.arange(arr.shape[2], dtype=int)]
-    r_true = r_ind * psize_nm + dist_to_source_nm
-    theta_true = (theta_ind - np.median(theta_ind)) * (2 * theta_max / (theta_ind.size - 1))
-    phi_true = (phi_ind - np.median(phi_ind)) * (2 * phi_max / (phi_ind.size - 1))
-    r, theta, phi = np.meshgrid(r_true, theta_true, phi_true)
-    x_interp = r * np.cos(theta) * np.sin(phi)
-    y_interp = r * np.sin(theta)
-    z_interp = r * np.cos(theta) * np.cos(phi)
-    z_interp -= dist_to_source_nm
-    x_interp /= psize_nm
-    y_interp /= psize_nm
-    z_interp /= psize_nm
-    coords_interp = np.vstack([x_interp.flatten(), y_interp.flatten(), z_interp.flatten()]).transpose()
-    dat_interp = cart_interp(coords_interp)
-    r_ind_mesh, theta_ind_mesh, phi_ind_mesh = np.meshgrid(r_ind, theta_ind, phi_ind)
-    arr_sph = np.zeros_like(arr)
-    arr_sph[r_ind_mesh.flatten(), theta_ind_mesh.flatten(), phi_ind_mesh.flatten()] = dat_interp
+    arr = tf.cast(arr, dtype=tf.float32)
+    arr_shape_float = tf.cast(arr.get_shape(), dtype=tf.float32)
+    theta_ind, phi_ind, r_ind = [tf.cast(tf.range(arr.get_shape()[0]), dtype=tf.float32),
+                                 tf.cast(tf.range(arr.get_shape()[1]), dtype=tf.float32),
+                                         tf.cast(tf.range(arr.get_shape()[2]), dtype=tf.float32)]
+    theta_mid = (arr_shape_float[0] - 1) / 2
+    phi_mid = (arr_shape_float[1] - 1) / 2
+    r_true = r_ind + dist_to_source_nm / psize_nm
+    theta_true = (theta_ind - theta_mid) * (2 * theta_max / (arr_shape_float[0] - 1))
+    phi_true = (phi_ind - phi_mid) * (2 * phi_max / (arr_shape_float[1] - 1))
+    phi, theta, r = tf.meshgrid(phi_true, theta_true, r_true)
+    x_interp = r * tf.sin(theta) + theta_mid
+    y_interp = r * tf.cos(theta) * tf.sin(phi) + phi_mid
+    z_interp = r * tf.cos(theta) * tf.cos(phi)
+    z_interp -= dist_to_source_nm / psize_nm
+    coords_interp = tf.transpose(tf.stack([tf.reshape(x_interp, [-1]), tf.reshape(y_interp, [-1]), tf.reshape(z_interp, [-1])]))
+    if interpolation == 'trilinear':
+        coords_interp = tf.clip_by_value(coords_interp, 0, tf.reduce_min(arr_shape_float) - 2)
+        dat_interp = triliniear_interpolation_3d(arr, coords_interp)
+    elif interpolation == 'nearest':
+        coords_interp = tf.round(coords_interp)
+        coords_interp = tf.clip_by_value(coords_interp, 0, tf.reduce_min(arr_shape_float) - 1)
+        coords_interp = tf.cast(coords_interp, tf.int32)
+        dat_interp = tf.gather_nd(arr, coords_interp)
+    else:
+        raise ValueError('Interpolation must be \'trilinear\' or \'nearest\'.')
+    arr_sph = tf.reshape(dat_interp, arr.get_shape())
 
     return arr_sph, (r_true, theta_true, phi_true)
 
 
-def biliniear_interpolation_3d(data, warp):
+def triliniear_interpolation_3d(data, warp):
     """
     Interpolate a 3D array (monochannel).
     """
     n_pts = warp.shape[0]
+    arr_shape = data.get_shape().as_list()
+    warp = tf.cast(warp, tf.float32)
     i000 = tf.cast(tf.floor(warp), dtype=tf.int32)
     i100 = i000 + tf.constant([1, 0, 0])
     i010 = i000 + tf.constant([0, 1, 0])
@@ -88,3 +92,10 @@ def biliniear_interpolation_3d(data, warp):
     f = a[:, 0] + a[:, 1] * x + a[:, 2] * y + a[:, 3] * z + \
         a[:, 4] * x * y + a[:, 5] * x * z + a[:, 6] * y * z + a[:, 7] * x * y * z
     return f
+
+
+# if __name__ == '__main__':
+#
+#     a = tf.range(27)
+#     a = tf.reshape(a, [3, 3, 3])
+#     cartesian_to_spherical(a, 1000, 1)

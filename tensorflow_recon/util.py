@@ -5,12 +5,11 @@ import dxchange
 import h5py
 import matplotlib.pyplot as plt
 import matplotlib
-from pyfftw.interfaces.numpy_fft import fft2, ifft2
+from pyfftw.interfaces.numpy_fft import fft2, ifft2, fftn, ifftn
 from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
 from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
 import warnings
 try:
-    from constants import *
     import sys
     from scipy.ndimage import gaussian_filter
     from scipy.ndimage import fourier_shift
@@ -19,6 +18,9 @@ except:
 import os
 import pickle
 import glob
+
+from constants import *
+from interpolation import *
 
 
 class Simulator(object):
@@ -198,6 +200,18 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     h = tf.convert_to_tensor(h, dtype='complex64')
     H = fftshift(tf.fft2d(h)) * voxel_nm[0] * voxel_nm[1]
 
+    return H
+
+
+def get_kernel_spherical(dist_nm, lmbda_nm, r_nm, theta_max, phi_max, probe_shape):
+
+    k_theta = PI / theta_max * (np.arange(probe_shape[0]) - float(probe_shape[0] - 1) / 2)
+    k_phi = PI / phi_max * (np.arange(probe_shape[1]) - float(probe_shape[1] - 1) / 2)
+    k_theta = k_theta.astype(np.complex64)
+    k_phi = k_phi.astype(np.complex64)
+    k_phi, k_theta = tf.meshgrid(k_phi, k_theta)
+    k = 2 * PI / lmbda_nm
+    H = tf.exp(-1j / (2 * k) * (k_theta ** 2 + k_phi ** 2) * tf.cast(1. / (r_nm + dist_nm) - 1. / r_nm, tf.complex64))
     return H
 
 
@@ -416,50 +430,132 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     return wavefront
 
 
-def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, free_prop_cm=None, obj_batch_shape=None):
+def multislice_propagate_spherical(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
+                                   dist_to_source_cm, det_psize_cm, theta_max=PI/18, phi_max=PI/18, free_prop_cm=None,
+                                   obj_batch_shape=None):
 
-    minibatch_size = obj_batch_shape[0]
+    batch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
-    wavefront = np.zeros([minibatch_size, obj_batch_shape[1], obj_batch_shape[2]], dtype='complex64')
-    wavefront += (probe_real + 1j * probe_imag)
-
-    lmbda_nm = 1240. / energy_ev
-    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
-    size_nm = np.array(grid_shape) * voxel_nm
-
-    n_slice = obj_batch_shape[-1]
+    dist_to_source_nm = dist_to_source_cm * 1e7
     delta_nm = voxel_nm[-1]
+    grid_delta_sph_batch = []
+    grid_beta_sph_batch = []
+    for i_batch in range(batch_size):
+        this_sph_batch, _ = cartesian_to_spherical(grid_delta_batch[i_batch], dist_to_source_nm, delta_nm, theta_max=theta_max, phi_max=phi_max)
+        grid_delta_sph_batch.append(this_sph_batch)
+        this_sph_batch, _ = cartesian_to_spherical(grid_beta_batch[i_batch], dist_to_source_nm, delta_nm, theta_max=theta_max, phi_max=phi_max)
+        grid_beta_sph_batch.append(this_sph_batch)
+    grid_delta_sph_batch = tf.stack(grid_delta_sph_batch)
+    grid_beta_sph_batch = tf.stack(grid_beta_sph_batch)
 
-    h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
+    grid_delta_sph_batch = tf.cast(grid_delta_sph_batch, tf.complex64)
+    grid_beta_sph_batch = tf.cast(grid_beta_sph_batch, tf.complex64)
+
+    wavefront = tf.zeros([batch_size, *grid_shape[:2]], dtype=tf.complex64)
+    wavefront = wavefront + (tf.cast(probe_real, tf.complex64) + 1j * tf.cast(probe_imag, tf.complex64))
+    lmbda_nm = 1240. / energy_ev
+    size_nm = np.array(grid_shape) * voxel_nm
+    n_slice = obj_batch_shape[-1]
     k = 2. * PI * delta_nm / lmbda_nm
 
-    for i in range(n_slice):
-        delta_slice = grid_delta_batch[:, :, :, i]
-        beta_slice = grid_beta_batch[:, :, :, i]
-        c = np.exp(1j * k * delta_slice) * np.exp(-k * beta_slice)
-        wavefront = wavefront * c
-        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+    def modulate_and_propagate(i, wavefront):
 
+        h = get_kernel_spherical(delta_nm, lmbda_nm, dist_to_source_nm + tf.cast(i, tf.float32) * delta_nm, theta_max, phi_max, grid_shape[:2])
+
+        delta_slice = grid_delta_sph_batch[:, :, :, i]
+        beta_slice = grid_beta_sph_batch[:, :, :, i]
+        c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+        wavefront = wavefront * c
+        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+        i = i + 1
+        return (i, wavefront)
+
+    i = tf.constant(0)
+    c = lambda i, wavefront: tf.less(i, n_slice)
+    _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
+
+    r_nm = dist_to_source_nm + delta_nm * n_slice
     if free_prop_cm is not None:
-        if free_prop_cm == 'inf':
-            wavefront = np_fftshift(fft2(wavefront), axes=[1, 2])
-        else:
-            dist_nm = free_prop_cm * 1e7
-            l = np.prod(size_nm)**(1. / 3)
-            crit_samp = lmbda_nm * dist_nm / l
-            algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
-            if algorithm == 'TF':
-                h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
-            else:
-                h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = np_ifftshift(ifft2(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+        free_prop_nm = free_prop_cm * 1e7
+        h = get_kernel_spherical(free_prop_nm, lmbda_nm, r_nm, theta_max, phi_max, grid_shape[:2])
+        r_nm += free_prop_nm
+        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+
+    # map back to planar space
+    wavefront_batch = []
+    for i_batch in range(batch_size):
+        this_wavefront = get_wavefront_on_plane(wavefront[i], r_nm, energy_ev, grid_shape[:2], delta_nm, det_psize_cm * 1e7, theta_max, phi_max)
+        wavefront_batch.append(this_wavefront)
+    wavefront = tf.stack(wavefront_batch)
 
     return wavefront
 
 
-def multislice_spherical_numpy()
+def get_wavefront_on_plane(wavefront_sph, r_nm, energy_ev, detector_size, delta_r_nm, psize_nm, theta_max=PI/18, phi_max=PI/18,
+                           interpolation='nearest'):
+
+    try:
+        detector_size = detector_size.get_shape().as_list()
+    except:
+        pass
+    x_ind, y_ind = [np.arange(detector_size[1], dtype=int),
+                    np.arange(detector_size[0], dtype=int)]
+    x_true = (x_ind - np.median(x_ind)) * psize_nm
+    y_true = (y_ind - np.median(y_ind)) * psize_nm
+    x_true_mesh, y_true_mesh = np.meshgrid(x_true, y_true)
+    z_true = r_nm
+    lmbda_nm = 1240. / energy_ev
+    delta_theta = (2 * theta_max / (detector_size[0] - 1))
+    delta_phi = (2 * phi_max / (detector_size[1] - 1))
+    r_interp_mesh = np.sqrt(x_true_mesh ** 2 + y_true_mesh ** 2 + z_true ** 2)
+    theta_interp_mesh = -np.arccos(y_true_mesh / r_interp_mesh) + PI / 2
+    phi_interp_mesh = np.arctan(x_true_mesh / z_true)
+
+    r_interp_mesh_px = (r_interp_mesh - r_nm) / delta_r_nm
+    theta_interp_mesh_px = theta_interp_mesh / delta_theta + (detector_size[0] - 1) / 2
+    phi_interp_mesh_px = phi_interp_mesh / delta_phi + (detector_size[1] - 1) / 2
+
+    sph_wave_array = []
+    # r_current = tf.constant(r_nm)
+    r_current_nm = r_nm
+
+    while r_current_nm < r_interp_mesh.max():
+        r_current_nm += delta_r_nm
+        h = get_kernel_spherical(delta_r_nm, lmbda_nm, r_current_nm, theta_max, phi_max, detector_size)
+        wavefront_sph = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront_sph)) * h))
+        sph_wave_array.append(wavefront_sph)
+
+    sph_wave_array = tf.stack(sph_wave_array)
+    # c = lambda r_current, wavefront_sph, sph_wave_array: tf.less(r_current, tf.reduce_max(r_interp_mesh))
+    # _, _, sph_wave_array = tf.while_loop(c, repeated_propagate, [r_current, wavefront_sph, sph_wave_array])
+
+
+    coords_interp = np.vstack([r_interp_mesh_px.flatten(), theta_interp_mesh_px.flatten(),
+                               phi_interp_mesh_px.flatten()]).transpose()
+    sph_array_shape = sph_wave_array.get_shape().as_list()
+    sph_wave_array_real = tf.real(sph_wave_array)
+    sph_wave_array_imag = tf.imag(sph_wave_array)
+    if interpolation == 'trilinear':
+        coords_interp[:, 0] = np.clip(coords_interp[:, 0], 0, sph_array_shape[0] - 2)
+        coords_interp[:, 1] = np.clip(coords_interp[:, 1], 0, sph_array_shape[1] - 2)
+        coords_interp[:, 2] = np.clip(coords_interp[:, 2], 0, sph_array_shape[2] - 2)
+        coords_interp = tf.constant(coords_interp)
+        dat_interp_real = triliniear_interpolation_3d(sph_wave_array_real, coords_interp)
+        dat_interp_imag = triliniear_interpolation_3d(sph_wave_array_imag, coords_interp)
+    elif interpolation == 'nearest':
+        coords_interp = np.round(coords_interp)
+        coords_interp[:, 0] = np.clip(coords_interp[:, 0], 0, sph_array_shape[0] - 1)
+        coords_interp[:, 1] = np.clip(coords_interp[:, 1], 0, sph_array_shape[1] - 1)
+        coords_interp[:, 2] = np.clip(coords_interp[:, 2], 0, sph_array_shape[2] - 1)
+        coords_interp = tf.constant(coords_interp, tf.int32)
+        dat_interp_real = tf.gather_nd(sph_wave_array_real, coords_interp)
+        dat_interp_imag = tf.gather_nd(sph_wave_array_imag, coords_interp)
+    else:
+        raise ValueError('Interpolation must be \'trilinear\' or \'nearest\'.')
+    dat_interp = tf.cast(dat_interp_real, tf.complex64) + 1j * tf.cast(dat_interp_imag, tf.complex64)
+    wavefront_pla = tf.reshape(dat_interp, detector_size)
+    return wavefront_pla
 
 
 def create_batches(arr, batch_size):
@@ -579,7 +675,6 @@ def apply_rotation(obj, coord_old, src_folder):
     obj_rot = tf.stack(obj_rot_channel_ls, axis=3)
     # print(sess.run(obj_rot))
     return obj_rot
-
 
 
 def rotate_image_tensor(image, angle, mode='black'):

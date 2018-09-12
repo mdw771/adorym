@@ -15,6 +15,7 @@ from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
 from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
 
 from util import *
+from npfuncs import *
 
 
 def create_fullfield_data(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_path, save_folder, fname,
@@ -76,6 +77,77 @@ def create_fullfield_data(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_pa
         wave_out = sess.run(wave, feed_dict={i:ii})
         dat[ii, :, :] = wave_out
         dxchange.write_tiff(abs(wave_out), os.path.join(save_folder, 'diffraction_dat', 'mag_{:05d}'.format(ii)), overwrite=True, dtype='float32')
+    f.close()
+    return
+
+
+def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_path, save_folder, fname, batch_size=1,
+                                probe_type='plane', wavefront_initial=None, theta_st=0, theta_end=2*PI, **kwargs):
+
+    def rotate_and_project(this_theta_batch, obj):
+        obj_rot_batch = []
+        for theta in this_theta_batch:
+            obj_rot_batch.append(sp_rotate(obj, theta, reshape=False, axes=(1, 2)))
+        obj_rot_batch = np.array(obj_rot_batch)
+        if probe_type == 'point':
+            exiting = multislice_propagate_spherical_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                           probe_real, probe_imag, energy_ev,
+                                                           psize_cm, dist_to_source_cm, det_psize_cm,
+                                                           theta_max, phi_max, free_prop_cm,
+                                                           obj_batch_shape=obj_rot_batch.shape )
+        else:
+            exiting = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                 probe_real, probe_imag, energy_ev,
+                                                 psize_cm, free_prop_cm=free_prop_cm)
+        return exiting
+
+    # read model
+    grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+    grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+    img_dim = grid_delta.shape
+    obj = np.zeros(np.append(img_dim, 2))
+    obj[:, :, :, 0] = grid_delta
+    obj[:, :, :, 1] = grid_beta
+
+    if probe_type == 'point':
+        dist_to_source_cm = kwargs['dist_to_source_cm']
+        det_psize_cm = kwargs['det_psize_cm']
+        theta_max = kwargs['theta_max']
+        phi_max = kwargs['phi_max']
+
+    # list of angles
+    theta_ls = -np.linspace(theta_st, theta_end, n_theta)
+    n_batch = np.ceil(float(n_theta) / batch_size)
+    theta_batch = np.array_split(theta_ls, n_batch)
+
+    # create data file
+    flag_overwrite = 'y'
+    if os.path.exists(os.path.join(save_folder, fname)):
+        flag_overwrite = input('File exists. Overwrite? (y/n) ')
+    if flag_overwrite in ['y', 'Y']:
+        f = h5py.File(os.path.join(save_folder, fname), 'w')
+        grp = f.create_group('exchange')
+        dat = grp.create_dataset('data', shape=(n_theta, grid_delta.shape[0], grid_delta.shape[1]), dtype=np.complex64)
+    else:
+        return
+
+    # create probe function
+    if probe_type == 'plane':
+        probe_real = np.ones([img_dim[0], img_dim[1]])
+        probe_imag = np.zeros([img_dim[0], img_dim[1]])
+    elif probe_type == 'fixed':
+        assert wavefront_initial.shape == img_dim
+        probe_mag, probe_phase = wavefront_initial
+        probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+    elif probe_type == 'plane':
+        probe_real = np.ones([img_dim[0], img_dim[1]])
+        probe_imag = np.zeros([img_dim[0], img_dim[1]])
+    else:
+        raise ValueError('Invalid wavefront type. Choose from \'plane\', \'point\', or \'fixed\'.')
+
+    for i_batch, this_theta_batch in enumerate(theta_batch):
+        wave_out = rotate_and_project(this_theta_batch, obj)
+        dat[i_batch * batch_size:i_batch * batch_size + batch_size, :, :] = wave_out
     f.close()
     return
 
