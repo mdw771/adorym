@@ -8,6 +8,7 @@ import os
 import h5py
 import warnings
 from util import *
+from misc import *
 import matplotlib.pyplot as plt
 plt.switch_backend('agg')
 
@@ -22,7 +23,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
-                          pupil_function=None, **kwargs):
+                          pupil_function=None, theta_downsample=None, **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -76,6 +77,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
     def rotate_and_project(i, loss, obj):
 
+        warnings.warn('Obsolete function. The output loss is scaled by minibatch_size. Proceed with caution.')
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
@@ -95,17 +97,17 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
         if probe_type == 'point':
-            exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
-                                                       probe_real, probe_imag, energy_ev,
-                                                       psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape)
-        else:
             exiting_batch = multislice_propagate_spherical(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
                                                            probe_real, probe_imag, energy_ev,
-                                                           psize_cm, dist_to_source_cm, det_psize_cm,
+                                                           psize_cm * ds_level, dist_to_source_cm, det_psize_cm,
                                                            theta_max, phi_max, free_prop_cm,
-                                                           obj_batch_shape=obj_rot_batch.shape)
+                                                           obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+        else:
+            exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                       probe_real, probe_imag, energy_ev,
+                                                       psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size[:-1]])
         loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
-        return loss
+        return loss, exiting_batch
 
     # import Horovod or its fake shell
     if core_parallelization is False:
@@ -200,8 +202,12 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         comm.Barrier()
 
         dim_y, dim_x = prj.shape[-2:]
-        n_theta = prj.shape[0]
-        theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+        theta = -np.linspace(theta_st, theta_end, prj.shape[0], dtype='float32')
+        if theta_downsample is not None:
+            prj = prj[::theta_downsample]
+            theta = theta[::theta_downsample]
+            prj_theta_ind = prj_theta_ind[::theta_downsample]
+        n_theta = len(theta)
         comm.Barrier()
         prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
             buffer_size=100).repeat().batch(minibatch_size)
@@ -248,11 +254,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         if initializer_flag == False:
             if initial_guess is None:
                 print_flush('Initializing with Gaussian random.')
-                grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-                grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+                # grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+                # grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
                 obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
-                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
+                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=8.7e-7, scale=4.4e-7) * mask
+                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=5.1e-8, scale=2.5e-8) * mask
                 obj_init[obj_init < 0] = 0
             else:
                 print_flush('Using supplied initial guess.')
@@ -262,8 +268,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 obj_init[:, :, :, 1] = initial_guess[1]
         else:
             print_flush('Initializing with Gaussian random.')
-            grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-            grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
+            # grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
+            # grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
             delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
             beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
             obj_init = np.zeros([delta_init.shape[0], delta_init.shape[1], delta_init.shape[2], 2])
@@ -271,10 +277,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             obj_init[:, :, :, 1] = beta_init
             # obj_init = res
             obj_init = upsample_2x(obj_init)
-            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_delta.mean(), scale=grid_delta.mean() * 0.5) * mask
-            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=grid_beta.mean(), scale=grid_beta.mean() * 0.5) * mask
+            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=8.7e-7, scale=4.4e-7) * mask
+            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=5.1e-8, scale=2.5e-8) * mask
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
+        obj_size = obj_init.shape
         obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
         # ====================================================
 
@@ -303,6 +310,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             probe_real = tf.constant(probe_real, dtype=tf.float32)
             probe_imag = tf.constant(probe_imag, dtype=tf.float32)
+        elif probe_type == 'point':
+            # this should be in spherical coordinates
+            probe_real = tf.constant(np.ones([dim_y, dim_x]), dtype=tf.float32)
+            probe_imag = tf.constant(np.zeros([dim_y, dim_x]), dtype=tf.float32)
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
@@ -313,18 +324,22 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         kernel = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x])
         h = tf.convert_to_tensor(kernel, dtype=tf.complex64, name='kernel')
 
-        loss = rotate_and_project_batch(obj)
+        # loss = tf.constant(0.)
+        # i = tf.constant(0)
+        # for j in range(minibatch_size):
+        #     i, loss, obj = rotate_and_project(i, loss, obj)
+        loss, exiting = rotate_and_project_batch(obj)
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
         # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
         if alpha_d is None:
-            reg_term = alpha * tf.norm(obj, ord=1) + gamma * tf.image.total_variation(obj[:, :, :, 0])
+            reg_term = alpha * tf.norm(obj, ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
         else:
             if gamma == 0:
                 reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
             else:
                 # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0:1])
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.norm(obj[:, :, :, 0], ord=2)
+                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
             # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
         loss = loss + reg_term
 
@@ -392,7 +407,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         sess.run(tf.global_variables_initializer())
         hvd.broadcast_global_variables(0)
 
-        summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
+        if hvd.rank() == 0:
+            preset = 'pp' if probe_type == 'point' else 'fullfield'
+            create_summary(output_folder, locals(), preset=preset)
+            summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
 
         t0 = time.time()
 
@@ -446,9 +464,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                             else:
                                 _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
                                 print_flush(
-                                    'Minibatch done in {} s (rank {}); current loss = {}.'.format(
-                                        time.time() - t0_batch, hvd.rank(), current_loss))
-
+                                    'Minibatch done in {} s (rank {}); current loss = {}; current reg = {}.'.format(
+                                        time.time() - t0_batch, hvd.rank(), current_loss, current_reg))
+                                # dxchange.write_tiff(exiting_wave, save_path + '/exit', dtype='float32')
                         # enforce pupil function
                         if probe_type == 'optimizable' and pupil_function is not None:
                             probe_real = probe_real * pupil_function

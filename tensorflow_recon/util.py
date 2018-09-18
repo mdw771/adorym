@@ -462,7 +462,6 @@ def multislice_propagate_spherical(grid_delta_batch, grid_beta_batch, probe_real
     def modulate_and_propagate(i, wavefront):
 
         h = get_kernel_spherical(delta_nm, lmbda_nm, dist_to_source_nm + tf.cast(i, tf.float32) * delta_nm, theta_max, phi_max, grid_shape[:2])
-
         delta_slice = grid_delta_sph_batch[:, :, :, i]
         beta_slice = grid_beta_sph_batch[:, :, :, i]
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)

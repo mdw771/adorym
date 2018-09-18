@@ -296,8 +296,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             # i = tf.constant(0)
             # c = lambda i, loss, obj: tf.less(i, minibatch_size)
             # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
-        for j in range(minibatch_size):
-            loss = rotate_and_project(j, obj)
+        loss = rotate_and_project(j, obj)
+        for j in range(1, minibatch_size):
+            loss += rotate_and_project(j, obj)
         print_flush('Physical model built in {} s.'.format(time.time() - t00))
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))

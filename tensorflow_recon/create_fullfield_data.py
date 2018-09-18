@@ -12,7 +12,7 @@ PI = 3.1415927
 
 params_cone_point = {'fname': 'data_cone_256_1nm_1um.h5',
                      'theta_st': 0,
-                     'theta_end': 2 * np.pi,
+                     'theta_end': 2 * PI,
                      'n_theta': 500,
                      'energy_ev': 5000,
                      'psize_cm': 1.e-7,

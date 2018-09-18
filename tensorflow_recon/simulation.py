@@ -94,11 +94,11 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
                                                            probe_real, probe_imag, energy_ev,
                                                            psize_cm, dist_to_source_cm, det_psize_cm,
                                                            theta_max, phi_max, free_prop_cm,
-                                                           obj_batch_shape=obj_rot_batch.shape)
+                                                           obj_batch_shape=obj_rot_batch.shape[:-1])
         else:
             exiting = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
                                                        probe_real, probe_imag, energy_ev,
-                                                       psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape)
+                                                       psize_cm, free_prop_cm=free_prop_cm, obj_batch_shape=obj_rot_batch.shape[:-1])
         return exiting
 
     # read model
@@ -133,15 +133,15 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
 
     # create probe function
     if probe_type == 'plane':
-        probe_real = np.ones([img_dim[0], img_dim[1]])
-        probe_imag = np.zeros([img_dim[0], img_dim[1]])
+        probe_real = np.ones([img_dim[0], img_dim[1]], dtype='float32')
+        probe_imag = np.zeros([img_dim[0], img_dim[1]], dtype='float32')
     elif probe_type == 'fixed':
         assert wavefront_initial.shape == img_dim
         probe_mag, probe_phase = wavefront_initial
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
     elif probe_type == 'point':
-        probe_real = np.ones([img_dim[0], img_dim[1]])
-        probe_imag = np.zeros([img_dim[0], img_dim[1]])
+        probe_real = np.ones([img_dim[0], img_dim[1]], dtype='float32')
+        probe_imag = np.zeros([img_dim[0], img_dim[1]], dtype='float32')
     else:
         raise ValueError('Invalid wavefront type. Choose from \'plane\', \'point\', or \'fixed\'.')
 
