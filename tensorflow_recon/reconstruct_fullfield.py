@@ -2,10 +2,14 @@ from fullfield import reconstruct_fullfield
 import numpy as np
 from constants import *
 
-init_delta_adhesin = np.zeros([64, 64, 64])
-init_delta_adhesin[...] = 8e-7
-init_beta_adhesin = np.zeros([64, 64, 64])
-init_beta_adhesin[...] = 8e-8
+# init_delta_adhesin = np.zeros([64, 64, 64])
+# init_delta_adhesin[...] = 8e-7
+# init_beta_adhesin = np.zeros([64, 64, 64])
+# init_beta_adhesin[...] = 8e-8
+init_delta_adhesin = np.load('adhesin/phantom/grid_delta.npy')
+init_beta_adhesin = np.load('adhesin/phantom/grid_beta.npy')
+
+
 params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
@@ -30,17 +34,18 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'n_epoch_final_pass': None,
                   'save_intermediate': True,
                   'full_intermediate': True,
-                  'initial_guess': [init_delta_adhesin, init_beta_adhesin],
+                  'initial_guess': None,
                   'probe_type': 'plane',
+                  'forward_algorithm': 'fresnel',
                   'kwargs': {}}
 
-params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
+params_cone = {'fname': 'data_cone_256_1nm_1um_snr10.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
                'n_epochs': 10,
-               'alpha_d': 3e-7,
-               'alpha_b': 3e-8,
-               'gamma': 1e-7,
+               'alpha_d': 1.5e-7,
+               'alpha_b': 1.5e-8,
+               'gamma': 5e-8,
                'learning_rate': 1e-7,
                'center': 128,
                'energy_ev': 5000,
@@ -50,25 +55,26 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'shrink_cycle': 1,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 1,
-               'output_folder': None,
+               'output_folder': 'snr10',
                'cpu_only': True,
                'save_folder': 'cone_256_filled/new',
                'phantom_path': 'cone_256_filled/phantom',
                'multiscale_level': 3,
-               'n_epoch_final_pass': 3,
+               'n_epoch_final_pass': 6,
                'save_intermediate': True,
                'full_intermediate': True,
                'initial_guess': None,
                'probe_type': 'plane',
+               'forward_algorithm': 'fresnel',
                'kwargs': {}}
 
 params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
-                  'n_epochs': 5,
-                  'alpha_d': 1.e-9,
-                  'alpha_b': 1.e-10,
-                  'gamma': 1e-10,
+                  'n_epochs': 7,
+                  'alpha_d': 1.5e-7,
+                  'alpha_b': 1.5e-8,
+                  'gamma': 1e-7,
                   'learning_rate': 1e-7,
                   'center': 128,
                   'energy_ev': 5000,
@@ -82,12 +88,13 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                   'cpu_only': True,
                   'save_folder': 'cone_256_filled_pp',
                   'phantom_path': 'cone_256_filled_pp/phantom',
-                  'multiscale_level': 1,
-                  'n_epoch_final_pass': None,
+                  'multiscale_level': 3,
+                  'n_epoch_final_pass': 6,
                   'save_intermediate': True,
                   'full_intermediate': True,
                   'initial_guess': None,
                   'probe_type': 'point',
+                  'forward_algorithm': 'fresnel',
                   'kwargs': {'dist_to_source_cm': 1e-4,
                              'det_psize_cm': 3e-7,
                              'theta_max': PI / 15,
@@ -129,4 +136,5 @@ reconstruct_fullfield(fname=params['fname'],
                       probe_initial=None,
                       probe_learning_rate=1e-3,
                       pupil_function=None,
+                      forward_algorithm=params['forward_algorithm'],
                       **params['kwargs'])

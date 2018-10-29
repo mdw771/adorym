@@ -167,12 +167,15 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     dist : float
         Propagation distance in cm.
     """
-    # k = 2 * PI / lmbda_nm
+    k = 2 * PI / lmbda_nm
     u_max = 1. / (2. * voxel_nm[0])
     v_max = 1. / (2. * voxel_nm[1])
     u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
     # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
-    H = np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+    try:
+        H = np.exp(1j * k * dist_nm) * np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+    except:
+        H = tf.exp(1j * k * dist_nm) * tf.exp(-1j * PI * lmbda_nm * dist_nm * (u ** 2 + v ** 2))
 
     return H
 
@@ -213,6 +216,38 @@ def get_kernel_spherical(dist_nm, lmbda_nm, r_nm, theta_max, phi_max, probe_shap
     k = 2 * PI / lmbda_nm
     H = tf.exp(-1j / (2 * k) * (k_theta ** 2 + k_phi ** 2) * tf.cast(1. / (r_nm + dist_nm) - 1. / r_nm, tf.complex64))
     return H
+
+
+def rescale_image(arr, m, original_shape):
+    """
+    :param arr: 3D image array [NHW]
+    :param m:
+    :param original_shape:
+    :return:
+    """
+    n_batch = arr.shape[0]
+    arr_shape = tf.cast(arr.shape[-2:], tf.float32)
+    y_newlen = arr_shape[0] / m
+    x_newlen = arr_shape[1] / m
+    # tf.linspace shouldn't be used since it does not support gradient
+    y = tf.range(0, arr_shape[0], 1, dtype=tf.float32)
+    y = y / m + (original_shape[1] - y_newlen) / 2.
+    x = tf.range(0, arr_shape[1], 1, dtype=tf.float32)
+    x = x / m + (original_shape[2] - x_newlen) / 2.
+    y = tf.clip_by_value(y, 0, arr_shape[0])
+    x = tf.clip_by_value(x, 0, arr_shape[1])
+    x_resample, y_resample = tf.meshgrid(x, y, indexing='ij')
+    warp = tf.transpose(tf.stack([x_resample, y_resample]))
+    # warp = tf.transpose(tf.stack([tf.reshape(y_resample, (np.prod(original_shape), )), tf.reshape(x_resample, (np.prod(original_shape), ))]))
+    # warp = tf.cast(warp, tf.int32)
+    # arr = arr * tf.reshape(warp[:, 0], original_shape)
+    # arr = tf.gather_nd(arr, warp)
+    warp = tf.expand_dims(warp, 0)
+    warp = tf.tile(warp, [n_batch, 1, 1, 1])
+    arr = tf.contrib.resampler.resampler(tf.expand_dims(arr, -1), warp)
+    arr = tf.reshape(arr, original_shape)
+
+    return arr
 
 
 def preprocess(dat, blur=None, normalize_bg=False):
@@ -299,6 +334,19 @@ def ifftshift(tensor):
     return tensor
 
 
+def free_propagate_paraxial(wavefront, dist_cm, r_cm, wavelen_nm, psize_cm, h=None):
+    m = (dist_cm + r_cm) / r_cm
+    dist_nm = dist_cm * 1.e7
+    dist_eff_nm = dist_nm / m
+    psize_nm = psize_cm * 1.e7
+    if h is None:
+        h = get_kernel(dist_eff_nm, wavelen_nm, [psize_nm, psize_nm], wavefront.shape)
+        h = tf.convert_to_tensor(h, dtype=tf.complex64)
+    wavefront = fftshift(tf.fft2d(wavefront)) * h
+    wavefront = tf.ifft2d(ifftshift(wavefront))
+    return wavefront, m
+
+
 def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, pad=None):
 
     if pad is not None:
@@ -371,8 +419,15 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
     return wavefront
 
 
-def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, obj_batch_shape=None):
+def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, obj_batch_shape=None, type='plane', **kwargs):
+    """
+    :param type: str, 'plane' or 'projection'
+    :param kwargs: if 'type' is 'projection', supply 's_r_cm'.
+    :return:
+    """
 
+    if type == 'projection':
+        s_r_cm = kwargs['s_r_cm']
     batch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
@@ -404,7 +459,11 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
         wavefront = wavefront * c
         # wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
-        wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+        if type == 'projection':
+            wavefront, m = free_propagate_paraxial(wavefront, psize_cm, s_r_cm + psize_cm * i, lmbda_nm, psize_cm)
+            wavefront = rescale_image(wavefront, m, [batch_size, obj_batch_shape[1], obj_batch_shape[2]])
+        else:
+            wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
         i = i + 1
         return (i, wavefront)
 
@@ -416,17 +475,90 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         if free_prop_cm == 'inf':
             wavefront = fftshift((tf.fft2d(wavefront)))
         else:
-            dist_nm = free_prop_cm * 1e7
-            l = np.prod(size_nm)**(1. / 3)
-            crit_samp = lmbda_nm * dist_nm / l
-            algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
-            if algorithm == 'TF':
-                h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+            if type == 'projection':
+                wavefront, m = free_propagate_paraxial(wavefront, free_prop_cm, s_r_cm + psize_cm * obj_batch_shape[-1], lmbda_nm, psize_cm)
             else:
-                h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = ifftshift(tf.ifft2d(fftshift(tf.fft2d(wavefront)) * h))
+                dist_nm = free_prop_cm * 1e7
+                l = np.prod(size_nm)**(1. / 3)
+                crit_samp = lmbda_nm * dist_nm / l
+                algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+                if algorithm == 'TF':
+                    h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+                    wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+                else:
+                    h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+                    wavefront = ifftshift(tf.ifft2d(fftshift(tf.fft2d(wavefront)) * h))
+    return wavefront
 
+
+def multislice_propagate_fd(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, h=None, free_prop_cm=None, obj_batch_shape=None, type='plane', **kwargs):
+    """
+    :param type: str, 'plane' or 'projection'
+    :param kwargs: if 'type' is 'projection', supply 's_r_cm'.
+    :return:
+    """
+
+    if type == 'projection':
+        s_r_cm = kwargs['s_r_cm']
+    batch_size = obj_batch_shape[0]
+    grid_shape = obj_batch_shape[1:]
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    # wavefront = tf.convert_to_tensor(wavefront, dtype=tf.complex64, name='wavefront')
+    wavefront = np.zeros([batch_size, obj_batch_shape[1], obj_batch_shape[2]])
+    wavefront = tf.constant(wavefront, dtype='complex64')
+    wavefront = wavefront + (tf.cast(probe_real, tf.complex64) + 1j * tf.cast(probe_imag, tf.complex64))
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_shape) * voxel_nm
+    # wavefront = tf.reshape(wavefront, [1, wavefront.shape[0].value, wavefront.shape[1].value, 1])
+
+    n_slice = obj_batch_shape[-1]
+    delta_nm = voxel_nm[-1]
+
+    grid_delta_batch = tf.cast(grid_delta_batch, tf.complex64)
+    grid_beta_batch = tf.cast(grid_beta_batch, tf.complex64)
+
+    k = 2. * PI * delta_nm / lmbda_nm
+    kernel = tf.constant([[0, -1., 0], [-1., 4., -1.], [0, -1., 0]], dtype=tf.float32)
+    kernel = tf.reshape(kernel, [3, 3, 1, 1])
+
+    def modulate_and_propagate(i, wavefront):
+        delta_slice = grid_delta_batch[:, :, :, i]
+        delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+        beta_slice = grid_beta_batch[:, :, :, i]
+        beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+        n = 1 - delta_slice - 1j * beta_slice
+        wavefront_temp = tf.pad(wavefront, [[0, 0], [1, 1], [1, 1]], 'CONSTANT', constant_values=1)
+        dudz = (tf.cast(tf.nn.conv2d(tf.expand_dims(tf.real(wavefront_temp), -1), kernel, strides=[1, 1, 1, 1], padding='VALID'), tf.complex64) +
+                1j * tf.cast(tf.nn.conv2d(tf.expand_dims(tf.imag(wavefront_temp), -1), kernel, strides=[1, 1, 1, 1], padding='VALID'), tf.complex64)) / \
+               (voxel_nm[0] * voxel_nm[1])
+        dudz = 1 / (2j * k * n) * tf.reshape(dudz, wavefront.shape) - 1j * k * (n - 1) * wavefront
+
+        wavefront = wavefront + dudz * delta_nm
+        i = i + 1
+        return (i, wavefront)
+
+    i = tf.constant(0)
+    c = lambda i, wavefront: tf.less(i, n_slice)
+    _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
+
+    if free_prop_cm is not None:
+        if free_prop_cm == 'inf':
+            wavefront = fftshift((tf.fft2d(wavefront)))
+        else:
+            if type == 'projection':
+                wavefront, m = free_propagate_paraxial(wavefront, free_prop_cm, s_r_cm + psize_cm * obj_batch_shape[-1], lmbda_nm, psize_cm)
+            else:
+                dist_nm = free_prop_cm * 1e7
+                l = np.prod(size_nm)**(1. / 3)
+                crit_samp = lmbda_nm * dist_nm / l
+                algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+                if algorithm == 'TF':
+                    h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+                    wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+                else:
+                    h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+                    wavefront = ifftshift(tf.ifft2d(fftshift(tf.fft2d(wavefront)) * h))
     return wavefront
 
 
@@ -434,6 +566,7 @@ def multislice_propagate_spherical(grid_delta_batch, grid_beta_batch, probe_real
                                    dist_to_source_cm, det_psize_cm, theta_max=PI/18, phi_max=PI/18, free_prop_cm=None,
                                    obj_batch_shape=None):
 
+    warnings.warn('Deprecated function.')
     batch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7

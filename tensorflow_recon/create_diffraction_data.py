@@ -49,7 +49,7 @@ for i, theta in enumerate(theta_ls):
                     psize=[1e-7, 1e-7, 1e-7])
 
     sim.initialize_wavefront('plane')
-    wavefront = sim.multislice_propagate(free_prop_dist=1e-4)
+    wavefront = sim.multislice_propagate(free_prop_dist=None)
     wavefront = abs(wavefront)
     plt.imshow(wavefront)
     plt.show()

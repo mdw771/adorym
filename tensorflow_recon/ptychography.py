@@ -22,7 +22,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
+                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, forward_algorithm='fresnel',
                              n_dp_batch=20, **kwargs):
 
     def rotate_and_project(i, obj):
@@ -70,9 +70,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 subobj_ls.append(subobj)
 
             subobj_ls = tf.stack(subobj_ls)
-            exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
-                                                 energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
-                                                 obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
+            if forward_algorithm == 'fresnel':
+                exiting = multislice_propagate_batch(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
+                                                     energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
+                                                     obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
+            elif forward_algorithm == 'fd':
+                exiting = multislice_propagate_fd(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real, probe_imag,
+                                                  energy_ev, psize_cm * ds_level, h=h, free_prop_cm='inf',
+                                                  obj_batch_shape=[len(pos_batch), *probe_size, obj_size[-1]])
             # loss += tf.reduce_mean(tf.squared_difference(tf.abs(exiting), tf.abs(this_prj_batch[i][ind:ind+len(pos_batch)]))) * n_pos
             # ind += len(pos_batch)
             exiting_ls.append(exiting)

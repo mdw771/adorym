@@ -35,6 +35,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                                     'probe_phase_sigma': 10,
                                     'probe_phase_max': 0.5},
                   'finite_support_mask': None,
+                  'forward_algorithm': 'fresnel',
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
 
 params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
@@ -67,6 +68,7 @@ params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
                     'probe_options': {'probe_mag_sigma': 6,
                                       'probe_phase_sigma': 6,
                                       'probe_phase_max': 0.5},
+                    'forward_algorithm': 'fresnel',
                     'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
                     'finite_support_mask': None
                     }
@@ -100,6 +102,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'probe_options': {'probe_mag_sigma': 6,
                                  'probe_phase_sigma': 6,
                                  'probe_phase_max': 0.5},
+               'forward_algorithm': 'fd',
                # 'probe_pos': [(y, x) for y in np.linspace(18, 120, 35, dtype=int) for x in np.linspace(54, 198, 49, dtype=int)] +
                #              [(y, x) for y in np.linspace(120, 222, 35, dtype=int) for x in np.linspace(22, 230, 70, dtype=int)],
                'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
@@ -148,4 +151,5 @@ reconstruct_ptychography(fname=params['fname'],
                          probe_circ_mask=None,
                          n_dp_batch=params['n_dp_batch'],
                          finite_support_mask=params['finite_support_mask'],
+                         forward_algorithm=params['forward_algorithm'],
                          **params['probe_options'])

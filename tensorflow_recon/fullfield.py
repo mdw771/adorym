@@ -23,7 +23,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
-                          pupil_function=None, theta_downsample=None, **kwargs):
+                          pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -69,7 +69,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                which obj is updated.
     :param dynamic_rate: when n_batch_per_update > 1, adjust learning rate dynamically to allow it
                          to decrease with epoch number
-    :param probe_type: type of wavefront. Can be 'plane', 'fixed', or 'optimizable'. If 'optimizable',
+    :param probe_type: type of wavefront. Can be 'plane', '  fixed', or 'optimizable'. If 'optimizable',
                            the probe function will be optimized along with the object.
     :param probe_initial: can be provided for 'optimizable' probe_type, and must be provided for
                               'fixed'.
@@ -103,9 +103,15 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                            theta_max, phi_max, free_prop_cm,
                                                            obj_batch_shape=[minibatch_size, *obj_size[:-1]])
         else:
-            exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
-                                                       probe_real, probe_imag, energy_ev,
-                                                       psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+            if forward_algorithm == 'fresnel':
+                exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                        probe_real, probe_imag, energy_ev,
+                                                        psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+            elif forward_algorithm == 'fd':
+                exiting_batch = multislice_propagate_fd(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                        probe_real, probe_imag, energy_ev,
+                                                        psize_cm * ds_level, free_prop_cm=free_prop_cm,
+                                                        obj_batch_shape=[minibatch_size, *obj_size[:-1]])
         loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss, exiting_batch
 
