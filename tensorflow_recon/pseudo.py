@@ -3,9 +3,7 @@
 class Hvd(object):
 
     def __init__(self):
-        self.size = 1
-        self.local_rank = 0
-        self.rank = 0
+        pass
 
     def init(self):
         pass
