@@ -20,7 +20,7 @@ class Hvd(object):
     def broadcast_global_variables(a):
         pass
 
-    def DistributedOptimizer(self, op):
+    def DistributedOptimizer(self, op, name=None):
         return op
 
 
