@@ -17,7 +17,7 @@ class Hvd(object):
     def local_rank(self):
         return 0
 
-    def broadcast_global_variables(a):
+    def broadcast_global_variables(self, a):
         pass
 
     def DistributedOptimizer(self, op, name=None):
