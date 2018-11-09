@@ -1,6 +1,11 @@
-from pyfftw.interfaces.numpy_fft import fft2, ifft2
-from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
-from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
+try:
+    from pyfftw.interfaces.numpy_fft import fft2, ifft2
+    from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
+    from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
+except:
+    from numpy.fft import fft2, ifft2
+    from numpy.fft import fftshift as np_fftshift
+    from numpy.fft import ifftshift as np_ifftshift
 from scipy.interpolate import RegularGridInterpolator
 import numpy as np
 from util import get_kernel, get_kernel_ir

@@ -9,10 +9,6 @@ from tensorflow.contrib.image import rotate as tf_rotate
 from scipy.ndimage import rotate as sp_rotate
 from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
-import tomopy
-from pyfftw.interfaces.numpy_fft import fft2, ifft2
-from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
-from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
 
 from util import *
 from npfuncs import *
