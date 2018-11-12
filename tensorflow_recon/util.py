@@ -23,6 +23,7 @@ except:
 import os
 import pickle
 import glob
+from scipy.special import erf
 
 from constants import *
 from interpolation import *
@@ -1016,3 +1017,31 @@ def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
     wavefront = np.fft.fftshift(np.fft.fft2(wavefront)) * h
     wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
     return wavefront
+
+
+def multidistance_ctf(prj_ls, dist_cm_ls, psize_cm, energy_kev, kappa=50, sigma_cut=0.01, alpha_1=5e-4, alpha_2=1e-16):
+
+    prj_ls = np.array(prj_ls)
+    dist_cm_ls = np.array(dist_cm_ls)
+    dist_nm_ls = dist_cm_ls * 1.e7
+    lmbda_nm = 1.24 / energy_kev
+    psize_nm = psize_cm * 1.e7
+    prj_shape = prj_ls.shape[1:]
+
+    u_max = 1. / (2. * psize_nm)
+    v_max = 1. / (2. * psize_nm)
+    u, v = gen_mesh([v_max, u_max], prj_shape)
+    xi_mesh = PI * lmbda_nm * (u ** 2 + v ** 2)
+    xi_ls = np.zeros([len(dist_cm_ls), *prj_shape])
+    for i in range(len(dist_cm_ls)):
+        xi_ls[i] = xi_mesh * dist_nm_ls[i]
+
+    abs_nu = np.sqrt(u ** 2 + v ** 2)
+    nu_cut = 0.6 * u_max
+    f = 0.5 * (1 - erf((abs_nu - nu_cut) / sigma_cut))
+    alpha = alpha_1 * f + alpha_2 * (1 - f)
+    phase = np.sum(np_fftshift(fft2(prj_ls - 1, axes=(-2, -1)), axes=(-2, -1)) * (np.sin(xi_ls) + 1. / kappa * np.cos(xi_ls)), axis=0)
+    phase /= (np.sum(2 * (np.sin(xi_ls) + 1. / kappa * np.cos(xi_ls)) ** 2, axis=0) + alpha)
+    phase = ifft2(np_ifftshift(phase, axes=(-2, -1)), axes=(-2, -1))
+
+    return np.abs(phase)
