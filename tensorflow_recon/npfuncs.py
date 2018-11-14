@@ -191,3 +191,27 @@ def cartesian_to_spherical_numpy(arr, dist_to_source_nm, psize_nm, theta_max=PI/
     arr_sph = dat_interp.reshape(arr.shape)
 
     return arr_sph, (r_true, theta_true, phi_true)
+
+
+def fresnel_propagate_numpy(wavefront, energy_ev, psize_cm, dist_cm):
+
+    lmbda_nm = 1240. / energy_ev
+    lmbda_cm = 0.000124 / energy_ev
+    psize_nm = psize_cm * 1e7
+    dist_nm = dist_cm * 1e7
+    if dist_cm == 'inf':
+        wavefront = np_fftshift(fft2(wavefront))
+    else:
+        n = np.mean(wavefront.shape)
+        z_crit_cm = (psize_cm * n) ** 2 / (lmbda_cm * n)
+        algorithm = 'TF' if dist_cm < z_crit_cm else 'IR'
+        algorithm = 'TF'
+        if algorithm == 'TF':
+            h = get_kernel(dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
+            wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront)) * h))
+        else:
+            h = get_kernel_ir(dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
+            wavefront = np_ifftshift(ifft2(np_fftshift(fft2(wavefront)) * h))
+
+    return wavefront
+

@@ -78,7 +78,7 @@ def create_fullfield_data(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_pa
 
 
 def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_path, save_folder, fname, batch_size=1,
-                                probe_type='plane', wavefront_initial=None, theta_st=0, theta_end=2*PI, **kwargs):
+                                probe_type='plane', wavefront_initial=None, theta_st=0, theta_end=2*PI, monitor_output=False, **kwargs):
 
     def rotate_and_project(this_theta_batch, obj):
         obj_rot_batch = []
@@ -112,7 +112,7 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
         phi_max = kwargs['phi_max']
 
     # list of angles
-    theta_ls = -np.linspace(theta_st, theta_end, n_theta)
+    theta_ls = -np.linspace(theta_st, theta_end, n_theta) / np.pi * 180
     n_batch = np.ceil(float(n_theta) / batch_size)
     theta_batch = np.array_split(theta_ls, n_batch)
 
@@ -143,6 +143,8 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
 
     for i_batch, this_theta_batch in tqdm(enumerate(theta_batch)):
         wave_out = rotate_and_project(this_theta_batch, obj)
+        if monitor_output:
+            dxchange.write_tiff(np.abs(wave_out), os.path.join(save_folder, 'monitor_output', 'prj_{}'.format(i_batch)), dtype='float32', overwrite=True)
         dat[i_batch * batch_size:i_batch * batch_size + batch_size, :, :] = wave_out
     f.close()
     return

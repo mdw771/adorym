@@ -27,7 +27,25 @@ params_cone_point = {'fname': 'data_cone_256_1nm_1um.h5',
                      'phi_max': PI / 15
                      }
 
-params = params_cone_point
+
+params_cone_512 = {'fname': 'data_cone_512_1nm_1um.h5',
+                     'theta_st': 0,
+                     'theta_end': 2 * PI,
+                     'n_theta': 500,
+                     'energy_ev': 5000,
+                     'psize_cm': 1.e-7,
+                     'batch_size': 1,
+                     'free_prop_cm': 1e-4,
+                     'save_folder': 'cone_512_filled',
+                     'phantom_path': 'cone_512_filled/phantom',
+                     'probe_type': 'plane',
+                     'dist_to_source_cm': None,
+                     'det_psize_cm': None,
+                     'theta_max': None,
+                     'phi_max': None
+                     }
+
+params = params_cone_512
 
 create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             psize_cm=params['psize_cm'],
@@ -45,4 +63,5 @@ create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             det_psize_cm=params['det_psize_cm'],
                             theta_max=params['theta_max'],
                             phi_max=params['phi_max'],
+                            monitor_output=True
                             )
