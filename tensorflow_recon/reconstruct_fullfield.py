@@ -129,7 +129,7 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_adhesin
+params = params_cone_noisy
 init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 init = [init_delta, init_beta]
