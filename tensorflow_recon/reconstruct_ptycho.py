@@ -73,6 +73,41 @@ params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
                     'finite_support_mask': None
                     }
 
+params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
+                          'theta_st': 0,
+                          'theta_end': 2 * np.pi,
+                          'theta_downsample': None,
+                          'n_epochs': 1,
+                          'obj_size': (256, 256, 256),
+                          'alpha_d': 1e-9,
+                          'alpha_b': 1e-10,
+                          'gamma': 1e-9,
+                          'probe_size': (72, 72),
+                          'learning_rate': 1e-7,
+                          'center': 128,
+                          'energy_ev': 5000,
+                          'psize_cm': 1.e-7,
+                          'batch_size': 1,
+                          'n_batch_per_update': 1,
+                          'output_folder': 'n2e5',
+                          'cpu_only': True,
+                          'save_folder': 'cone_256_filled_ptycho',
+                          'phantom_path': 'cone_256_filled_ptycho/phantom',
+                          'multiscale_level': 1,
+                          'n_epoch_final_pass': None,
+                          'save_intermediate': True,
+                          'full_intermediate': True,
+                          'initial_guess': None,
+                          'n_dp_batch': 20,
+                          'probe_type': 'gaussian',
+                          'probe_options': {'probe_mag_sigma': 6,
+                                            'probe_phase_sigma': 6,
+                                            'probe_phase_max': 0.5},
+                          'forward_algorithm': 'fresnel',
+                          'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
+                          'finite_support_mask': None
+                          }
+
 params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
@@ -109,7 +144,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_cone_marc
+params = params_cone_marc_noisy
 
 # init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/delta_ds_1.tiff')
 # init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/beta_ds_1.tiff')
