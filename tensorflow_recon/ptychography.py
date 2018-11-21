@@ -29,8 +29,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
-        probe_pos_batch_ls = np.array_split(probe_pos, int(np.ceil(float(n_pos) / hvd.size() / n_dp_batch)))
-        # probe_pos_batch_ls = np.array_split(probe_pos, 6)
+        probe_pos_batch_ls = []
+        ind = 0
+        dp_split_size = hvd.size() * n_dp_batch
+        while ind < n_pos:
+            probe_pos_batch_ls.append(probe_pos[ind:min(ind + dp_split_size, n_pos)])
+            ind += dp_split_size
         exiting_ls = []
         # loss = tf.constant(0.0)
 
