@@ -2,7 +2,9 @@ from ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
 
-
+init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter0/delta_ds_1.tiff')
+init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter0/beta_ds_1.tiff')
+init = [init_delta, init_beta]
 
 params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_st': 0,
@@ -89,7 +91,7 @@ params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
                           'psize_cm': 1.e-7,
                           'batch_size': 1,
                           'n_batch_per_update': 1,
-                          'output_folder': 'n2e5',
+                          'output_folder': 'n2e5/xrmlite_iter1',
                           'cpu_only': True,
                           'save_folder': 'cone_256_filled_ptycho',
                           'phantom_path': 'cone_256_filled_ptycho/phantom',
@@ -97,7 +99,7 @@ params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
                           'n_epoch_final_pass': None,
                           'save_intermediate': True,
                           'full_intermediate': True,
-                          'initial_guess': None,
+                          'initial_guess': init,
                           'n_dp_batch': 20,
                           'probe_type': 'gaussian',
                           'probe_options': {'probe_mag_sigma': 6,

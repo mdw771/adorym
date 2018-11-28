@@ -25,16 +25,19 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, forward_algorithm='fresnel',
                              n_dp_batch=20, **kwargs):
 
+    def split_tasks(arr, split_size):
+        res = []
+        ind = 0
+        while ind < len(arr):
+            res.append(arr[ind:min(ind + split_size, len(arr))])
+            ind += split_size
+        return res
+
     def rotate_and_project(i, obj):
 
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
-        probe_pos_batch_ls = []
-        ind = 0
-        dp_split_size = hvd.size() * n_dp_batch
-        while ind < n_pos:
-            probe_pos_batch_ls.append(probe_pos[ind:min(ind + dp_split_size, n_pos)])
-            ind += dp_split_size
+        probe_pos_batch_ls = split_tasks(probe_pos, n_dp_batch)
         exiting_ls = []
         # loss = tf.constant(0.0)
 
@@ -408,14 +411,17 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         n_loop = n_epochs if n_epochs != 'auto' else max_nepochs
         if ds_level == 1 and n_epoch_final_pass is not None:
             n_loop = n_epoch_final_pass
-        n_batch = int(np.ceil(float(n_theta) / minibatch_size) / hvd.size())
+        n_batch = int(np.ceil(float(n_theta) / minibatch_size / hvd.size()))
         t00 = time.time()
 
         for epoch in range(n_loop):
 
+            n_tot_per_batch = minibatch_size * hvd.size()
             ind_list_rand = np.arange(n_theta, dtype=int)
             ind_list_rand = np.random.choice(ind_list_rand, n_theta, replace=False)
-            ind_list_rand = np.split(ind_list_rand, n_batch)
+            if n_theta % n_batch != 0:
+                ind_list_rand = np.append(ind_list_rand, np.random.choice(ind_list_rand[:-(n_theta % n_tot_per_batch)], n_tot_per_batch - (n_theta % n_tot_per_batch), replace=False))
+            ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             ind_list_rand = [np.sort(x) for x in ind_list_rand]
 
             if mpi4py_is_ok:
