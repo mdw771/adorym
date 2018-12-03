@@ -2,8 +2,8 @@ from ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
 
-init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter0/delta_ds_1.tiff')
-init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter0/beta_ds_1.tiff')
+init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/delta_ds_1.tiff')
+init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/beta_ds_1.tiff')
 init = [init_delta, init_beta]
 
 params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
@@ -91,7 +91,7 @@ params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
                           'psize_cm': 1.e-7,
                           'batch_size': 1,
                           'n_batch_per_update': 1,
-                          'output_folder': 'n2e5/xrmlite_iter1',
+                          'output_folder': 'n2e5/xrmlite_iter3',
                           'cpu_only': True,
                           'save_folder': 'cone_256_filled_ptycho',
                           'phantom_path': 'cone_256_filled_ptycho/phantom',

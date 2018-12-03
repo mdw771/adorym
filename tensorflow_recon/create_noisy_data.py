@@ -6,8 +6,8 @@ from tqdm import trange
 
 
 src_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc.h5'
-dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n2e5.h5'
-n_ph = 2.e5
+dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n8e4.h5'
+n_ph = 8.e4
 
 is_ptycho = False
 if 'ptycho' in src_fname:

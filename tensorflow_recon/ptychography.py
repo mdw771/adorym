@@ -419,7 +419,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             n_tot_per_batch = minibatch_size * hvd.size()
             ind_list_rand = np.arange(n_theta, dtype=int)
             ind_list_rand = np.random.choice(ind_list_rand, n_theta, replace=False)
-            if n_theta % n_batch != 0:
+            if n_theta % n_tot_per_batch != 0:
                 ind_list_rand = np.append(ind_list_rand, np.random.choice(ind_list_rand[:-(n_theta % n_tot_per_batch)], n_tot_per_batch - (n_theta % n_tot_per_batch), replace=False))
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             ind_list_rand = [np.sort(x) for x in ind_list_rand]
@@ -508,14 +508,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
 
             # timeline for benchmarking
-            tl = timeline.Timeline(run_metadata.step_stats)
-            ctf = tl.generate_chrome_trace_format()
-            try:
-                os.makedirs(os.path.join(output_folder, 'profiling'))
-            except:
-                pass
-            with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
-                f.write(ctf)
+            if hvd.rank() == 0:
+                tl = timeline.Timeline(run_metadata.step_stats)
+                ctf = tl.generate_chrome_trace_format()
+                try:
+                    os.makedirs(os.path.join(output_folder, 'profiling'))
+                except:
+                    pass
+                with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
+                    f.write(ctf)
+                    f.close()
 
             # non negative hard
             obj = tf.nn.relu(obj)

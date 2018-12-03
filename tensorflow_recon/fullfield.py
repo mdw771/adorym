@@ -152,7 +152,16 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
+    theta = -np.linspace(theta_st, theta_end, prj_0.shape[0], dtype='float32')
+    n_theta = len(theta)
+    prj_theta_ind = np.arange(n_theta, dtype=int)
+    if theta_downsample is not None:
+        prj_0 = prj_0[::theta_downsample]
+        theta = theta[::theta_downsample]
+        prj_theta_ind = prj_theta_ind[::theta_downsample]
+        n_theta = len(theta)
     original_shape = prj_0.shape
+    comm.Barrier()
     print_flush('Data reading: {} s'.format(time.time() - t0))
     print_flush('Data shape: {}'.format(original_shape))
     comm.Barrier()
@@ -201,20 +210,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         comm.Barrier()
 
         # downsample data
-        prj = prj_0
+        prj = np.copy(prj_0)
         if ds_level > 1:
             prj = prj[:, ::ds_level, ::ds_level]
             prj = prj.astype('complex64')
         comm.Barrier()
 
         dim_y, dim_x = prj.shape[-2:]
-        theta = -np.linspace(theta_st, theta_end, prj.shape[0], dtype='float32')
-        if theta_downsample is not None:
-            prj = prj[::theta_downsample]
-            theta = theta[::theta_downsample]
-            prj_theta_ind = prj_theta_ind[::theta_downsample]
-        n_theta = len(theta)
-        comm.Barrier()
         prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
             buffer_size=100).repeat().batch(minibatch_size)
         prj_iter = prj_dataset.make_one_shot_iterator()
@@ -487,14 +489,16 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
 
             # timeline for benchmarking
-            tl = timeline.Timeline(run_metadata.step_stats)
-            ctf = tl.generate_chrome_trace_format()
-            try:
-                os.makedirs(os.path.join(output_folder, 'profiling'))
-            except:
-                pass
-            with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
-                f.write(ctf)
+            if hvd.rank() == 0:
+                tl = timeline.Timeline(run_metadata.step_stats)
+                ctf = tl.generate_chrome_trace_format()
+                try:
+                    os.makedirs(os.path.join(output_folder, 'profiling'))
+                except:
+                    pass
+                with open(os.path.join(output_folder, 'profiling', 'time_{}.json'.format(epoch)), 'w') as f:
+                    f.write(ctf)
+                    f.close()
 
             # non negative hard
             obj = tf.nn.relu(obj)
