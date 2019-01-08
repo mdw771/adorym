@@ -3,11 +3,15 @@ import numpy as np
 import matplotlib.pyplot as plt
 import dxchange
 from tqdm import trange
+import time
 
+np.random.seed(2536)
 
-src_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc.h5'
-dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n8e4.h5'
-n_ph = 8.e4
+src_fname = 'cone_256_filled/new/data_cone_256_1nm_1um.h5'
+dest_fname = 'cone_256_filled/new/data_cone_256_1nm_1um_n2e3_xxx.h5'
+# src_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc.h5'
+# dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n2e3_2.h5'
+n_ph = 2.e3
 
 is_ptycho = False
 if 'ptycho' in src_fname:
@@ -46,6 +50,8 @@ else:
         prj_o = o[i]
         prj_o_inten = np.abs(prj_o) ** 2
         prj_o_inten_noisy = np.random.poisson(prj_o_inten * n_ph)
+        # noise = prj_o_inten_noisy - prj_o_inten
+        # print(np.var(noise))
         prj_o_inten_noisy = prj_o_inten_noisy / n_ph
         noise = prj_o_inten_noisy - prj_o_inten
         snr = np.var(prj_o_inten) / np.var(noise)
@@ -54,6 +60,8 @@ else:
         n[i] = data.astype('complex64')
 
 print('Average SNR is {}.'.format(np.mean(snr_ls)))
+
+dxchange.write_tiff(abs(n[0]), 'n2e{}'.format(int(np.round(np.log10(n_ph / 2)))), dtype='float32')
 
 
 # ------- based on SNR -------

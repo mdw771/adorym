@@ -23,7 +23,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
-                          pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', **kwargs):
+                          pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True, **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -217,8 +217,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         comm.Barrier()
 
         dim_y, dim_x = prj.shape[-2:]
-        prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
-            buffer_size=100).repeat().batch(minibatch_size)
+        if random_theta:
+            prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).shuffle(
+                buffer_size=100).repeat().batch(minibatch_size)
+        else:
+            prj_dataset = tf.data.Dataset.from_tensor_slices((theta, prj)).shard(hvd.size(), hvd.rank()).repeat().batch(minibatch_size)
         prj_iter = prj_dataset.make_one_shot_iterator()
         this_theta_batch, this_prj_batch = prj_iter.get_next()
         comm.Barrier()
@@ -240,17 +243,21 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         try:
             mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(prj_0.shape[1]), 5)
         except:
-            obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(prj_0.shape[1]), 5)
-            obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
-            mask = np.zeros_like(obj_pr)
-            mask[obj_pr > 1e-5] = 1
-            dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
+            try:
+                mask = dxchange.read_tiff(os.path.join(save_path, 'fin_sup_mask', 'mask.tiff'))
+            except:
+                obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(prj_0.shape[1]), 5)
+                obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
+                mask = np.zeros_like(obj_pr)
+                mask[obj_pr > 1e-5] = 1
+                dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
         if ds_level > 1:
             mask = mask[::ds_level, ::ds_level, ::ds_level]
         mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
         mask_add[:, :, :, 0] = mask
         mask_add[:, :, :, 1] = mask
         mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
+        dim_z = mask.shape[-1]
 
         # unify random seed for all threads
         comm.Barrier()
@@ -259,19 +266,20 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         comm.Barrier()
 
         # initializer_flag = True
+        np.random.seed(int(time.time()))
         if initializer_flag == False:
             if initial_guess is None:
                 print_flush('Initializing with Gaussian random.')
                 # grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
                 # grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
-                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=8.7e-7, scale=4.4e-7) * mask
-                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_y, dim_x], loc=5.1e-8, scale=2.5e-8) * mask
+                obj_init = np.zeros([dim_y, dim_x, dim_z, 2])
+                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=4.4e-7) * mask
+                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=2.5e-8) * mask
                 obj_init[obj_init < 0] = 0
             else:
                 print_flush('Using supplied initial guess.')
                 sys.stdout.flush()
-                obj_init = np.zeros([dim_y, dim_x, dim_x, 2])
+                obj_init = np.zeros([dim_y, dim_x, dim_z, 2])
                 obj_init[:, :, :, 0] = initial_guess[0]
                 obj_init[:, :, :, 1] = initial_guess[1]
         else:
@@ -285,8 +293,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             obj_init[:, :, :, 1] = beta_init
             # obj_init = res
             obj_init = upsample_2x(obj_init)
-            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=8.7e-7, scale=4.4e-7) * mask
-            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_y, dim_x], loc=5.1e-8, scale=2.5e-8) * mask
+            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=4.4e-7) * mask
+            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=2.5e-8) * mask
             obj_init[obj_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
         obj_size = obj_init.shape
@@ -322,6 +330,19 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             # this should be in spherical coordinates
             probe_real = tf.constant(np.ones([dim_y, dim_x]), dtype=tf.float32)
             probe_imag = tf.constant(np.zeros([dim_y, dim_x]), dtype=tf.float32)
+        elif probe_type == 'gaussian':
+            probe_mag_sigma = kwargs['probe_mag_sigma']
+            probe_phase_sigma = kwargs['probe_phase_sigma']
+            probe_phase_max = kwargs['probe_phase_max']
+            py = np.arange(obj_size[0]) - (obj_size[0] - 1.) / 2
+            px = np.arange(obj_size[1]) - (obj_size[1] - 1.) / 2
+            pxx, pyy = np.meshgrid(px, py)
+            probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
+            probe_phase = probe_phase_max * np.exp(
+                -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
+            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+            probe_real = tf.constant(probe_real, dtype=tf.float32)
+            probe_imag = tf.constant(probe_imag, dtype=tf.float32)
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
@@ -377,8 +398,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
         else:
             optimizer = optimizer.minimize(loss, var_list=[obj])
-        if minibatch_size >= n_theta:
-            optimizer = optimizer.minimize(loss, var_list=[obj])
+        # if minibatch_size >= n_theta:
+        #     optimizer = optimizer.minimize(loss, var_list=[obj])
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
 
         if probe_type == 'optimizable':
@@ -437,7 +458,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 stop_iteration_file.write('False')
                 stop_iteration_file.close()
             i_epoch = i_epoch + 1
-            if minibatch_size < n_theta:
+            if minibatch_size <= n_theta:
                 batch_counter = 0
                 for i_batch in range(n_batch):
                     try:
@@ -470,10 +491,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                         time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
 
                             else:
-                                _, current_loss, current_reg, summary_str = sess.run([optimizer, loss, reg_term, merged_summary_op], options=run_options, run_metadata=run_metadata)
+                                _, current_loss, current_reg, summary_str, ex = sess.run([optimizer, loss, reg_term, merged_summary_op, exiting], options=run_options, run_metadata=run_metadata)
                                 print_flush(
                                     'Minibatch done in {} s (rank {}); current loss = {}; current reg = {}.'.format(
                                         time.time() - t0_batch, hvd.rank(), current_loss, current_reg))
+                                # dxchange.write_tiff(abs(ex), '2d_512/ex', dtype='float32')
                                 # dxchange.write_tiff(exiting_wave, save_path + '/exit', dtype='float32')
                         # enforce pupil function
                         if probe_type == 'optimizable' and pupil_function is not None:

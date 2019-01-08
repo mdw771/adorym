@@ -12,16 +12,16 @@ PI = 3.1415927
 
 # ============================================
 theta_st = 0
-theta_end = 2 * PI
-n_theta = 500
+theta_end = 0
+n_theta = 1
 energy_ev = 5000
 # energy_ev = 800
 psize_cm = 1.e-7
 # psize_cm = 0.67e-7
 # free_prop_cm = None
-phantom_path = 'cone_256_filled_ptycho/phantom'
+phantom_path = '2d/phantom'
 # phantom_path = 'adhesin_ptycho/phantom'
-save_folder = 'cone_256_filled_ptycho'
+save_folder = '2d'
 # save_folder = 'adhesin_ptycho'
 # fname = 'data_adhesin_64_1nm_1um.h5'
 fname = 'data_cone_256_1nm_marc.h5'

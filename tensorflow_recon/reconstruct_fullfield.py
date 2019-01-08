@@ -6,8 +6,11 @@ from constants import *
 # init_delta_adhesin[...] = 8e-7
 # init_beta_adhesin = np.zeros([64, 64, 64])
 # init_beta_adhesin[...] = 8e-8
-init_delta_adhesin = np.load('adhesin/phantom/grid_delta.npy')
-init_beta_adhesin = np.load('adhesin/phantom/grid_beta.npy')
+# init_delta_adhesin = np.load('adhesin/phantom/grid_delta.npy')
+# init_beta_adhesin = np.load('adhesin/phantom/grid_beta.npy')
+init_delta = np.load('2d_512/phantom/grid_delta.npy')
+init_beta = np.load('2d_512/phantom/grid_beta.npy')
+init = [init_delta, init_beta]
 
 
 params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
@@ -40,7 +43,7 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'forward_algorithm': 'fresnel',
                   'kwargs': {}}
 
-params_cone = {'fname': 'data_cone_256_1nm_1um_snr10.h5',
+params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
                'n_epochs': 10,
@@ -57,7 +60,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um_snr10.h5',
                'shrink_cycle': 1,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 1,
-               'output_folder': 'snr10',
+               'output_folder': 'test',
                'cpu_only': True,
                'save_folder': 'cone_256_filled/new',
                'phantom_path': 'cone_256_filled/phantom',
@@ -70,7 +73,69 @@ params_cone = {'fname': 'data_cone_256_1nm_1um_snr10.h5',
                'forward_algorithm': 'fresnel',
                'kwargs': {}}
 
-params_cone_noisy = {'fname': 'data_cone_256_1nm_1um_n8e4_snr2.7.h5',
+params_cone_far = {'fname': 'data_cone_1nm_1um_far.h5',
+               'theta_st': 0,
+               'theta_end': 2 * np.pi,
+               'n_epochs': 10,
+               'alpha_d': 0,
+               'alpha_b': 0,
+               'gamma': 0,
+               'learning_rate': 1e-7,
+               'center': 128,
+               'energy_ev': 5000,
+               'psize_cm': 1.e-7,
+               'batch_size': 10,
+               'theta_downsample': None,
+               'n_epochs_mask_release': 10,
+               'shrink_cycle': 1,
+               'free_prop_cm': 'inf',
+               'n_batch_per_update': 1,
+               'output_folder': 'far',
+               'cpu_only': True,
+               'save_folder': 'cone_256_filled/new',
+               'phantom_path': 'cone_256_filled/phantom',
+               'multiscale_level': 3,
+               'n_epoch_final_pass': 6,
+               'save_intermediate': True,
+               'full_intermediate': True,
+               'initial_guess': None,
+               'probe_type': 'plane',
+               'forward_algorithm': 'fresnel',
+               'kwargs': {}}
+
+params_2d = {'fname': 'data_cone_2d_1nm_1um_far.h5',
+               'theta_st': 0,
+               'theta_end': 0,
+               'n_epochs': 1000,
+               'alpha_d': 0,
+               'alpha_b': 0,
+               'gamma': 0,
+               'learning_rate': 1e-6,
+               'center': 128,
+               'energy_ev': 5000,
+               'psize_cm': 1.e-7,
+               'batch_size': 1,
+               'theta_downsample': None,
+               'n_epochs_mask_release': 1000,
+               'shrink_cycle': 9999,
+               'free_prop_cm': 'inf',
+               'n_batch_per_update': 1,
+               'output_folder': 'fullfield/0_0_1e-6_far',
+               'cpu_only': True,
+               'save_folder': '2d_1024',
+               'phantom_path': '2d_1024',
+               'multiscale_level': 1,
+               'n_epoch_final_pass': None,
+               'save_intermediate': True,
+               'full_intermediate': True,
+               'initial_guess': None,
+               'probe_type': 'gaussian',
+               'forward_algorithm': 'fresnel',
+               'kwargs': {'probe_mag_sigma': 100,
+                               'probe_phase_sigma': 100,
+                               'probe_phase_max': 0.5},
+             }
+params_cone_noisy = {'fname': 'data_cone_256_1nm_1um_180.h5',
                      'theta_st': 0,
                      'theta_end': 2 * np.pi,
                      'n_epochs': 10,
@@ -87,7 +152,7 @@ params_cone_noisy = {'fname': 'data_cone_256_1nm_1um_n8e4_snr2.7.h5',
                      'shrink_cycle': 1,
                      'free_prop_cm': 1e-4,
                      'n_batch_per_update': 1,
-                     'output_folder': 'n8e4',
+                     'output_folder': '180_ref',
                      'cpu_only': True,
                      'save_folder': 'cone_256_filled/new',
                      'phantom_path': 'cone_256_filled/phantom',
@@ -133,10 +198,10 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_adhesin
-init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
-init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
-init = [init_delta, init_beta]
+params = params_2d
+# init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
+# init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
+# init = [init_delta, init_beta]
 
 reconstruct_fullfield(fname=params['fname'],
                       theta_st=0,

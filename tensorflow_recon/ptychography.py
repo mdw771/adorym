@@ -220,6 +220,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         # initializer_flag = True
+        seed = int(time.time() / 60)
+        np.random.seed(seed)
         if initializer_flag == False:
             if initial_guess is None:
                 print_flush('Initializing with Gaussian random.')
@@ -359,8 +361,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             # this_grad = optimizer.compute_gradients(loss, obj)
             # optimizer = optimizer.apply_gradients(this_grad)
 
-        if minibatch_size >= n_theta:
-            optimizer = optimizer.minimize(loss, var_list=[obj])
+        # if minibatch_size >= n_theta:
+        #     optimizer = optimizer.minimize(loss, var_list=[obj])
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
         print_flush('Optimizer created in {} s.'.format(time.time() - t00))
 
@@ -431,7 +433,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 stop_iteration_file.write('False')
                 stop_iteration_file.close()
             i_epoch = i_epoch + 1
-            if minibatch_size < n_theta:
+            if minibatch_size < n_theta+1:
                 batch_counter = 0
                 for i_batch in range(n_batch):
                     this_theta_numpy = theta[ind_list_rand[i_batch]]

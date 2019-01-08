@@ -138,6 +138,17 @@ def create_fullfield_data_numpy(energy_ev, psize_cm, free_prop_cm, n_theta, phan
     elif probe_type == 'point':
         probe_real = np.ones([img_dim[0], img_dim[1]], dtype='float32')
         probe_imag = np.zeros([img_dim[0], img_dim[1]], dtype='float32')
+    elif probe_type == 'gaussian':
+        probe_mag_sigma = kwargs['probe_mag_sigma']
+        probe_phase_sigma = kwargs['probe_phase_sigma']
+        probe_phase_max = kwargs['probe_phase_max']
+        py = np.arange(obj.shape[0]) - (obj.shape[0] - 1.) / 2
+        px = np.arange(obj.shape[1]) - (obj.shape[1] - 1.) / 2
+        pxx, pyy = np.meshgrid(px, py)
+        probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
+        probe_phase = probe_phase_max * np.exp(
+            -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
+        probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
     else:
         raise ValueError('Invalid wavefront type. Choose from \'plane\', \'point\', or \'fixed\'.')
 

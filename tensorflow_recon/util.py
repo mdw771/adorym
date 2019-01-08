@@ -5,11 +5,11 @@ import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 try:
-    from pyfftw.interfaces.numpy_fft import fft2, ifft2
+    from pyfftw.interfaces.numpy_fft import fft2, ifft2, fftn, ifftn
     from pyfftw.interfaces.numpy_fft import fftshift as np_fftshift
     from pyfftw.interfaces.numpy_fft import ifftshift as np_ifftshift
 except:
-    from numpy.fft import fft2, ifft2
+    from numpy.fft import fft2, ifft2, fftn, ifftn
     from numpy.fft import fftshift as np_fftshift
     from numpy.fft import ifftshift as np_ifftshift
 import warnings
@@ -204,9 +204,14 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     x = np.arange(xmin, xmin + size_nm[1], dx)
     y = np.arange(ymin, ymin + size_nm[0], dy)
     x, y = np.meshgrid(x, y)
-    h = np.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * np.exp(1j * k / (2 * dist_nm) * (x**2 + y**2))
-    h = tf.convert_to_tensor(h, dtype='complex64')
-    H = fftshift(tf.fft2d(h)) * voxel_nm[0] * voxel_nm[1]
+    try:
+        h = np.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * np.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
+        H = np_fftshift(fft2(h)) * voxel_nm[0] * voxel_nm[1]
+        dxchange.write_tiff(x, '2d_512/monitor_output/x', dtype='float32', overwrite=True)
+    except:
+        h = tf.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * tf.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
+        # h = tf.convert_to_tensor(h, dtype='complex64')
+        H = fftshift(tf.fft2d(h)) * voxel_nm[0] * voxel_nm[1]
 
     return H
 
@@ -419,7 +424,7 @@ def multislice_propagate(grid_delta, grid_beta, probe_real, probe_imag, energy_e
             else:
                 h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_delta.shape.as_list())
                 wavefront = fftshift(tf.fft2d(wavefront)) * h
-                wavefront = ifftshift(fft2d(wavefront))
+                wavefront = ifftshift(tf.fft2d(wavefront))
 
     return wavefront
 
@@ -487,6 +492,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                 l = np.prod(size_nm)**(1. / 3)
                 crit_samp = lmbda_nm * dist_nm / l
                 algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+                algorithm = 'TF'
+                print(algorithm)
                 if algorithm == 'TF':
                     h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
                     wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
@@ -937,6 +944,29 @@ def generate_shell(shape, radius, anti_aliasing=5):
     return sphere1 - sphere2
 
 
+def generate_disk(shape, radius, anti_aliasing=5):
+    shape = np.array(shape)
+    radius = int(radius)
+    x = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    y = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    xx, yy = np.meshgrid(x, y)
+    a = (xx**2 + yy**2 <= radius**2).astype('float')
+    res = np.zeros(shape * anti_aliasing)
+    center_res = (np.array(res.shape) / 2).astype('int')
+    res[center_res[0] - int(a.shape[0] / 2):center_res[0] + int(a.shape[0] / 2),
+        center_res[1] - int(a.shape[0] / 2):center_res[1] + int(a.shape[0] / 2)] = a
+    res = gaussian_filter(res, 0.5 * anti_aliasing)
+    res = res[::anti_aliasing, ::anti_aliasing]
+    return res
+
+
+def generate_ring(shape, radius, anti_aliasing=5):
+
+    disk1 = generate_disk(shape, radius + 0.5, anti_aliasing=anti_aliasing)
+    disk2 = generate_disk(shape, radius - 0.5, anti_aliasing=anti_aliasing)
+    return disk1 - disk2
+
+
 def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=True):
 
     if not os.path.exists(save_path):
@@ -973,6 +1003,44 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
     plt.xlabel('Spatial frequency (1 / Nyquist)')
     plt.ylabel('FSC')
     plt.savefig(os.path.join(save_path, 'fsc.pdf'), format='pdf')
+
+
+def fourier_ring_correlation(obj, ref, step_size=1, save_path='frc', save_mask=False):
+
+    if not os.path.exists(save_path):
+        os.makedirs(save_path)
+
+    radius_max = int(min(obj.shape) / 2)
+    f_obj = np_fftshift(fft2(obj))
+    f_ref = np_fftshift(fft2(ref))
+    f_prod = f_obj * np.conjugate(f_ref)
+    f_obj_2 = np.real(f_obj * np.conjugate(f_obj))
+    f_ref_2 = np.real(f_ref * np.conjugate(f_ref))
+    radius_ls = np.arange(1, radius_max, step_size)
+    fsc_ls = []
+    np.save(os.path.join(save_path, 'radii.npy'), radius_ls)
+
+    for rad in radius_ls:
+        print(rad)
+        if os.path.exists(os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad)))):
+            mask = dxchange.read_tiff(os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad))))
+        else:
+            mask = generate_ring(obj.shape, rad, anti_aliasing=2)
+            if save_mask:
+                dxchange.write_tiff(mask, os.path.join(save_path, 'mask_rad_{:04d}.tiff'.format(int(rad))),
+                                    dtype='float32', overwrite=True)
+        fsc = abs(np.sum(f_prod * mask))
+        fsc /= np.sqrt(np.sum(f_obj_2 * mask) * np.sum(f_ref_2 * mask))
+        fsc_ls.append(fsc)
+        np.save(os.path.join(save_path, 'fsc.npy'), fsc_ls)
+
+    matplotlib.rcParams['pdf.fonttype'] = 'truetype'
+    fontProperties = {'family': 'serif', 'serif': ['Times New Roman'], 'weight': 'normal', 'size': 12}
+    plt.rc('font', **fontProperties)
+    plt.plot(radius_ls.astype(float) / radius_ls[-1], fsc_ls)
+    plt.xlabel('Spatial frequency (1 / Nyquist)')
+    plt.ylabel('FRC')
+    plt.savefig(os.path.join(save_path, 'frc.pdf'), format='pdf')
 
 
 def upsample_2x(arr):

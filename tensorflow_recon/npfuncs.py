@@ -10,6 +10,7 @@ from scipy.interpolate import RegularGridInterpolator
 import numpy as np
 from util import get_kernel, get_kernel_ir
 from constants import *
+import dxchange
 
 
 def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, free_prop_cm=None, obj_batch_shape=None):
@@ -38,6 +39,7 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
         wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
 
     if free_prop_cm is not None:
+        dxchange.write_tiff(abs(wavefront), '2d_1024/monitor_output/wv', dtype='float32', overwrite=True)
         if free_prop_cm == 'inf':
             wavefront = np_fftshift(fft2(wavefront), axes=[1, 2])
         else:
@@ -45,12 +47,16 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
             l = np.prod(size_nm)**(1. / 3)
             crit_samp = lmbda_nm * dist_nm / l
             algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
+            # print(algorithm)
+            algorithm = 'TF'
             if algorithm == 'TF':
                 h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
                 wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
             else:
                 h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = np_ifftshift(ifft2(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+                wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+            # dxchange.write_tiff(abs(wavefront), '2d_512/monitor_output/wv', dtype='float32', overwrite=True)
+            # dxchange.write_tiff(np.angle(h), '2d_512/monitor_output/h', dtype='float32', overwrite=True)
 
     return wavefront
 

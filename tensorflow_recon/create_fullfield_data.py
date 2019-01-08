@@ -24,9 +24,9 @@ params_cone_point = {'fname': 'data_cone_256_1nm_1um.h5',
                      'dist_to_source_cm': 1e-4,
                      'det_psize_cm': 3e-7,
                      'theta_max': PI / 15,
-                     'phi_max': PI / 15
+                     'phi_max': PI / 15,
+                     'probe_options': None
                      }
-
 
 params_cone_512 = {'fname': 'data_cone_512_1nm_1um.h5',
                      'theta_st': 0,
@@ -42,10 +42,49 @@ params_cone_512 = {'fname': 'data_cone_512_1nm_1um.h5',
                      'dist_to_source_cm': None,
                      'det_psize_cm': None,
                      'theta_max': None,
-                     'phi_max': None
+                     'phi_max': None,
+                     'probe_options': None
                      }
 
-params = params_cone_512
+params_cone = {'fname': 'data_cone_1nm_1um_far.h5',
+                     'theta_st': 0,
+                     'theta_end': 2 * PI,
+                     'n_theta': 500,
+                     'energy_ev': 5000,
+                     'psize_cm': 1.e-7,
+                     'batch_size': 1,
+                     'free_prop_cm': 'inf',
+                     'save_folder': 'cone_256_filled',
+                     'phantom_path': 'cone_256_filled/phantom',
+                     'probe_type': 'plane',
+                     'dist_to_source_cm': None,
+                     'det_psize_cm': None,
+                     'theta_max': None,
+                     'phi_max': None,
+                     'probe_options': None
+                     }
+
+params_2d = {'fname': 'data_cone_2d_1nm_1um_far.h5',
+                     'theta_st': 0,
+                     'theta_end': 0,
+                     'n_theta': 1,
+                     'energy_ev': 5000,
+                     'psize_cm': 1.e-7,
+                     'batch_size': 1,
+                     'free_prop_cm': 'inf',
+                     'save_folder': '2d_1024',
+                     'phantom_path': '2d_1024/phantom',
+                     'probe_type': 'gaussian',
+                     'dist_to_source_cm': None,
+                     'det_psize_cm': None,
+                     'theta_max': None,
+                     'phi_max': None,
+                     'probe_options': {'probe_mag_sigma': 100,
+                                       'probe_phase_sigma': 100,
+                                       'probe_phase_max': 0.5},
+                     }
+
+params = params_2d
 
 create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             psize_cm=params['psize_cm'],
@@ -63,5 +102,6 @@ create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             det_psize_cm=params['det_psize_cm'],
                             theta_max=params['theta_max'],
                             phi_max=params['phi_max'],
-                            monitor_output=True
+                            monitor_output=True,
+                            **params['probe_options']
                             )
