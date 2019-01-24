@@ -1,17 +1,25 @@
 import h5py
 import numpy as np
 import matplotlib.pyplot as plt
+import os
 import dxchange
 from tqdm import trange
 import time
 
-np.random.seed(2536)
+np.random.seed(int(time.time()))
 
 src_fname = 'cone_256_filled/new/data_cone_256_1nm_1um.h5'
-dest_fname = 'cone_256_filled/new/data_cone_256_1nm_1um_n2e3_xxx.h5'
+# src_fname = 'cell/ptychography/data_cell_phase.h5'
 # src_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc.h5'
 # dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n2e3_2.h5'
-n_ph = 2.e3
+n_ph_tx = '1e7'
+n_sample_pixel = 28529
+n_ph = float(n_ph_tx) / n_sample_pixel
+print(n_ph)
+dest_fname = 'cone_256_filled/new/data_cone_256_1nm_1um_n{}_ref.h5'.format(n_ph_tx)
+# dest_fname = 'cell/ptychography/data_cell_phase_n{}_ref.h5'.format(n_ph_tx)
+# dest_fname = 'cell/ptychography/data_cell_phase_n4e8.h5'
+
 
 is_ptycho = False
 if 'ptycho' in src_fname:
@@ -25,10 +33,7 @@ snr_ls = []
 
 if is_ptycho:
     sigma = 6
-    fullfield_size = [256, 256]
-    n_ph *= (np.prod(fullfield_size) / (o.shape[1] * 3.14 * sigma ** 2))
-    print(n_ph)
-    print(np.prod(fullfield_size) / (o.shape[1] * 3.14 * sigma ** 2))
+    n_ph *= (n_sample_pixel / (o.shape[1] * 3.14 * sigma ** 2)) # photon per diffraction spot
 
 if is_ptycho:
     for i in trange(o.shape[0]):
@@ -61,7 +66,7 @@ else:
 
 print('Average SNR is {}.'.format(np.mean(snr_ls)))
 
-dxchange.write_tiff(abs(n[0]), 'n2e{}'.format(int(np.round(np.log10(n_ph / 2)))), dtype='float32')
+dxchange.write_tiff(abs(n[0]), os.path.join(os.path.dirname(dest_fname), 'n{}'.format(n_ph_tx)), dtype='float32', overwrite=True)
 
 
 # ------- based on SNR -------

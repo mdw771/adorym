@@ -27,8 +27,8 @@ alpha = 1.e-4
 
 
 # read model
-grid_delta = np.load('cone_256_filled/phantom/grid_delta.npy')
-grid_beta = np.load('cone_256_filled/phantom/grid_beta.npy')
+grid_delta = np.load('cell/phantom/grid_delta.npy')
+grid_beta = np.load('cell/phantom/grid_beta.npy')
 
 # list of angles
 theta_ls = -np.linspace(theta_st, theta_end, n_theta)

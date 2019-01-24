@@ -23,7 +23,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
-                          pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True, **kwargs):
+                          pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True,
+                          object_type='normal', **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -75,11 +76,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                               'fixed'.
     """
 
-    def rotate_and_project(i, loss, obj):
+    def rotate_and_project(i, loss, obj_delta, obj_beta):
 
         warnings.warn('Obsolete function. The output loss is scaled by minibatch_size. Proceed with caution.')
-        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
+        obj_rot = tf_rotate(tf.stack([obj_delta, obj_beta], axis=-1), this_theta_batch[i], interpolation='BILINEAR')
         if not cpu_only:
             with tf.device('/gpu:0'):
                 exiting = multislice_propagate(obj_rot[:, :, :, 0], obj_rot[:, :, :, 1], probe_real, probe_imag, energy_ev, psize_cm * ds_level, h=h, free_prop_cm=free_prop_cm)
@@ -89,11 +89,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         # i = tf.add(i, 1)
         return (i, loss, obj)
 
-    def rotate_and_project_batch(obj):
+    def rotate_and_project_batch(obj_delta, obj_beta):
 
         obj_rot_batch = []
         for i in range(minibatch_size):
-            obj_rot_batch.append(tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR'))
+            obj_rot_batch.append(tf_rotate(tf.stack([obj_delta, obj_beta], axis=-1), this_theta_batch[i], interpolation='BILINEAR'))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = tf.stack(obj_rot_batch)
         if probe_type == 'point':
@@ -101,17 +101,17 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                            probe_real, probe_imag, energy_ev,
                                                            psize_cm * ds_level, dist_to_source_cm, det_psize_cm,
                                                            theta_max, phi_max, free_prop_cm,
-                                                           obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+                                                           obj_batch_shape=[minibatch_size, *obj_size])
         else:
             if forward_algorithm == 'fresnel':
                 exiting_batch = multislice_propagate_batch(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
                                                         probe_real, probe_imag, energy_ev,
-                                                        psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+                                                        psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size])
             elif forward_algorithm == 'fd':
                 exiting_batch = multislice_propagate_fd(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
                                                         probe_real, probe_imag, energy_ev,
                                                         psize_cm * ds_level, free_prop_cm=free_prop_cm,
-                                                        obj_batch_shape=[minibatch_size, *obj_size[:-1]])
+                                                        obj_batch_shape=[minibatch_size, *obj_size])
         loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
         return loss, exiting_batch
 
@@ -253,10 +253,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
         if ds_level > 1:
             mask = mask[::ds_level, ::ds_level, ::ds_level]
-        mask_add = np.zeros([mask.shape[0], mask.shape[1], mask.shape[2], 2])
-        mask_add[:, :, :, 0] = mask
-        mask_add[:, :, :, 1] = mask
-        mask_add = tf.convert_to_tensor(mask_add, dtype=tf.float32)
+        mask_np = mask
+        mask = tf.convert_to_tensor(mask, dtype=tf.float32)
         dim_z = mask.shape[-1]
 
         # unify random seed for all threads
@@ -272,33 +270,37 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 print_flush('Initializing with Gaussian random.')
                 # grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
                 # grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-                obj_init = np.zeros([dim_y, dim_x, dim_z, 2])
-                obj_init[:, :, :, 0] = np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=4.4e-7) * mask
-                obj_init[:, :, :, 1] = np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=2.5e-8) * mask
-                obj_init[obj_init < 0] = 0
+                obj_delta_init = np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=1e-7) * mask_np
+                obj_beta_init = np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=1e-8) * mask_np
+                obj_delta_init[obj_delta_init < 0] = 0
+                obj_beta_init[obj_beta_init < 0] = 0
             else:
                 print_flush('Using supplied initial guess.')
                 sys.stdout.flush()
-                obj_init = np.zeros([dim_y, dim_x, dim_z, 2])
-                obj_init[:, :, :, 0] = initial_guess[0]
-                obj_init[:, :, :, 1] = initial_guess[1]
+                obj_delta_init = initial_guess[0]
+                obj_beta_init = initial_guess[1]
         else:
             print_flush('Initializing with Gaussian random.')
-            # grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
-            # grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-            delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-            beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_init = np.zeros([delta_init.shape[0], delta_init.shape[1], delta_init.shape[2], 2])
-            obj_init[:, :, :, 0] = delta_init
-            obj_init[:, :, :, 1] = beta_init
-            # obj_init = res
-            obj_init = upsample_2x(obj_init)
-            obj_init[:, :, :, 0] += np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=4.4e-7) * mask
-            obj_init[:, :, :, 1] += np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=2.5e-8) * mask
-            obj_init[obj_init < 0] = 0
-        # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
-        obj_size = obj_init.shape
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32)
+            obj_delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+            obj_beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+            obj_delta_init = upsample_2x(obj_delta_init)
+            obj_beta_init = upsample_2x(obj_beta_init)
+            obj_delta_init += np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=1e-7) * mask_np
+            obj_beta_init += np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=1e-8) * mask_np
+            obj_delta_init[obj_delta_init < 0] = 0
+            obj_beta_init[obj_beta_init < 0] = 0
+        obj_size = obj_delta_init.shape
+        if object_type == 'phase_only':
+            obj_beta_init[...] = 0
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.constant(obj_beta_init, dtype=tf.float32)
+        elif object_type == 'absorption_only':
+            obj_delta_init[...] = 0
+            obj_delta = tf.constant(obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
+        else:
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
         # ====================================================
 
         if probe_type == 'plane':
@@ -311,7 +313,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             else:
                 # probe_mag = np.ones([dim_y, dim_x])
                 # probe_phase = np.zeros([dim_y, dim_x])
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_init.shape[2])) if free_prop_cm is not None else (psize_cm * obj_init.shape[2])
+                back_prop_cm = (free_prop_cm + (psize_cm * obj_size[2])) if free_prop_cm is not None else (psize_cm * obj_size[2])
                 probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev, psize_cm * 1.e7)
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
@@ -346,6 +348,27 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
+        # =============finite support===================
+        obj_delta_m = obj_delta * mask
+        obj_beta_m = obj_beta * mask
+        obj_delta_m = tf.nn.relu(obj_delta_m)
+        obj_beta_m = tf.nn.relu(obj_beta_m)
+        # ==============================================
+        # ================shrink wrap===================
+        def shrink_wrap():
+            boolean = tf.cast(obj_delta_m > 1e-15, dtype=tf.float32)
+            _mask = mask * boolean
+            return _mask
+        def return_mask(): return mask
+        # if initializer_flag == False:
+        i_epoch = tf.Variable(0, trainable=False, dtype='float32')
+        if shrink_cycle is not None:
+            mask = tf.cond(tf.greater(i_epoch, shrink_cycle), shrink_wrap, return_mask)
+        # if hvd.rank() == 0 and hvd.local_rank() == 0:
+        #     dxchange.write_tiff(np.squeeze(sess.run(mask)),
+        #                         os.path.join(save_path, 'fin_sup_mask/runtime_mask/epoch_{}'.format(epoch)), dtype='float32', overwrite=True)
+        # ==============================================
+
         # generate Fresnel kernel
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
@@ -357,19 +380,17 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         # i = tf.constant(0)
         # for j in range(minibatch_size):
         #     i, loss, obj = rotate_and_project(i, loss, obj)
-        loss, exiting = rotate_and_project_batch(obj)
+        loss, exiting = rotate_and_project_batch(obj_delta_m, obj_beta_m)
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
         # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
         if alpha_d is None:
-            reg_term = alpha * tf.norm(obj, ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
+            reg_term = alpha * (tf.norm(obj_delta_m, ord=1) + tf.norm(obj_delta_m, ord=1)) + gamma * total_variation_3d(obj_delta_m)
         else:
             if gamma == 0:
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+                reg_term = alpha_d * tf.norm(obj_delta_m, ord=1) + alpha_b * tf.norm(obj_beta_m, ord=1)
             else:
-                # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0:1])
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
-            # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+                reg_term = alpha_d * tf.norm(obj_delta_m, ord=1) + alpha_b * tf.norm(obj_beta_m, ord=1) + gamma * total_variation_3d(obj_delta_m)
         loss = loss + reg_term
 
         if probe_type == 'optimizable':
@@ -380,9 +401,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         tf.summary.scalar('regularizer', reg_term)
         tf.summary.scalar('error', loss - reg_term)
 
-        # if initializer_flag == False:
-        i_epoch = tf.Variable(0, trainable=False, dtype='float32')
-        accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
         if dynamic_rate and n_batch_per_update > 1:
             # modifier =  1. / n_batch_per_update
             modifier = tf.exp(-i_epoch) * (n_batch_per_update - 1) + 1
@@ -391,13 +409,27 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
         if n_batch_per_update > 1:
-            this_grad = optimizer.compute_gradients(loss, obj)
-            this_grad = this_grad[0]
-            initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
-            accum_op = accum_grad.assign_add(this_grad[0])
-            update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
+            accum_grad_delta = tf.Variable(tf.zeros_like(obj_delta_m.initialized_value()), trainable=False)
+            accum_grad_beta = tf.Variable(tf.zeros_like(obj_beta_m.initialized_value()), trainable=False)
+            this_grad_delta = optimizer.compute_gradients(loss, obj_delta_m)
+            this_grad_delta = this_grad_delta[0]
+            this_grad_beta = optimizer.compute_gradients(loss, this_grad_beta)
+            this_grad_beta = this_grad_beta[0]
+            initialize_grad_delta = accum_grad_delta.assign(tf.zeros_like(accum_grad_delta))
+            initialize_grad_beta = accum_grad_beta.assign(tf.zeros_like(accum_grad_beta))
+            accum__op_delta = accum_grad_delta.assign_add(this_grad_delta[0])
+            accum_op_beta = accum_grad_beta.assign_add(this_grad_beta[0])
+            update_obj_delta = optimizer.apply_gradients([(accum_grad_delta / n_batch_per_update, this_grad_beta[1])])
+            update_obj_beta = optimizer.apply_gradients([(accum_grad_beta / n_batch_per_update, this_grad_beta[1])])
         else:
-            optimizer = optimizer.minimize(loss, var_list=[obj])
+            if object_type == 'normal':
+                optimizer = optimizer.minimize(loss, var_list=[obj_delta, obj_beta])
+            elif object_type == 'phase_only':
+                optimizer = optimizer.minimize(loss, var_list=[obj_delta])
+            elif object_type == 'absorption_only':
+                optimizer = optimizer.minimize(loss, var_list=[obj_beta])
+            else:
+                raise ValueError
         # if minibatch_size >= n_theta:
         #     optimizer = optimizer.minimize(loss, var_list=[obj])
         # hooks = [hvd.BroadcastGlobalVariablesHook(0)]
@@ -465,18 +497,18 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                         if n_batch_per_update > 1:
                             t0_batch = time.time()
                             if probe_type == 'optimizable':
-                                _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run(
-                                    [accum_op, accum_op_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options,
+                                _, _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run(
+                                    [accum__op_delta, accum_op_beta, accum_op_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options,
                                     run_metadata=run_metadata)
                             else:
-                                _, current_loss, current_reg, summary_str = sess.run(
-                                    [accum_op, loss, reg_term, merged_summary_op], options=run_options,
+                                _, _, current_loss, current_reg, summary_str = sess.run(
+                                    [accum__op_delta, accum_op_beta, loss, reg_term, merged_summary_op], options=run_options,
                                     run_metadata=run_metadata)
                             print_flush('Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
                             batch_counter += 1
                             if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
-                                sess.run(update_obj)
-                                sess.run(initialize_grad)
+                                sess.run([update_obj_delta, update_obj_beta])
+                                sess.run([initialize_grad_delta, initialize_grad_beta])
                                 if probe_type == 'optimizable':
                                     sess.run(update_probe)
                                     sess.run(initialize_grad_probe)
@@ -489,13 +521,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                 print_flush(
                                     'Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(
                                         time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
-
                             else:
-                                _, current_loss, current_reg, summary_str, ex = sess.run([optimizer, loss, reg_term, merged_summary_op, exiting], options=run_options, run_metadata=run_metadata)
+                                _, current_loss, current_reg, summary_str, mask_int, current_obj = sess.run([optimizer, loss, reg_term, merged_summary_op, mask, obj_delta], options=run_options, run_metadata=run_metadata)
                                 print_flush(
                                     'Minibatch done in {} s (rank {}); current loss = {}; current reg = {}.'.format(
                                         time.time() - t0_batch, hvd.rank(), current_loss, current_reg))
-                                # dxchange.write_tiff(abs(ex), '2d_512/ex', dtype='float32')
+                                dxchange.write_tiff(current_obj, os.path.join(output_folder, 'intermediate_minibatch/delta'), dtype='float32')
+                                # dxchange.write_tiff(abs(mask_int), os.path.join(output_folder, 'masks', 'mask_{}'.format(epoch)), dtype='float32')
                                 # dxchange.write_tiff(exiting_wave, save_path + '/exit', dtype='float32')
                         # enforce pupil function
                         if probe_type == 'optimizable' and pupil_function is not None:
@@ -522,9 +554,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     f.write(ctf)
                     f.close()
 
-            # non negative hard
-            obj = tf.nn.relu(obj)
-
             # check stopping criterion
             if n_epochs == 'auto':
                 if len(loss_ls) > 0:
@@ -550,37 +579,36 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     stop_iteration = True if stop_iteration == 'True' else False
                 if stop_iteration:
                     break
-            if epoch < n_epochs_mask_release:
-                # =============finite support===================
-                if n_epochs == 'auto' or epoch != n_epochs - 1:
-                    obj = obj * mask_add
-                # ==============================================
-                # ================shrink wrap===================
-                if epoch % shrink_cycle == 0 and epoch > 0:
-                    mask_temp = sess.run(obj[:, :, :, 0] > 1e-8)
-                    boolean = np.zeros_like(obj_init)
-                    boolean[:, :, :, 0] = mask_temp
-                    boolean[:, :, :, 1] = mask_temp
-                    boolean = tf.convert_to_tensor(boolean, dtype=tf.float32)
-                    mask_add = mask_add * boolean
-                    if hvd.rank() == 0 and hvd.local_rank() == 0:
-                        dxchange.write_tiff_stack(sess.run(mask_add[:, :, :, 0]),
-                                                  os.path.join(save_path, 'fin_sup_mask/epoch_{}/mask'.format(epoch)), dtype='float32', overwrite=True)
-                # ==============================================
+            # if epoch < n_epochs_mask_release:
+            #     # =============finite support===================
+            #     if n_epochs == 'auto' or epoch != n_epochs - 1:
+            #         obj_delta = obj_delta * mask
+            #         obj_beta = obj_beta * mask
+            #     # ==============================================
+            #     # ================shrink wrap===================
+            #     if epoch % shrink_cycle == 0 and epoch > 0:
+            #         mask_temp = sess.run(obj_delta > 1e-8)
+            #         boolean = tf.convert_to_tensor(mask_temp, dtype=tf.float32)
+            #         mask = mask * boolean
+            #         if hvd.rank() == 0 and hvd.local_rank() == 0:
+            #             dxchange.write_tiff(np.squeeze(sess.run(mask)),
+            #                                 os.path.join(save_path, 'fin_sup_mask/runtime_mask/epoch_{}'.format(epoch)), dtype='float32', overwrite=True)
+            #     # ==============================================
             if hvd.rank() == 0:
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
                 summary_writer.add_summary(summary_str, epoch)
             if save_intermediate and hvd.rank() == 0:
-                temp_obj = sess.run(obj)
-                temp_obj = np.abs(temp_obj)
+                temp_obj_delta, temp_obj_beta = sess.run([obj_delta, obj_beta])
+                temp_obj_delta = np.abs(temp_obj_delta)
+                temp_obj_beta = np.abs(temp_obj_beta)
                 if full_intermediate:
-                    dxchange.write_tiff(temp_obj[:, :, :, 0],
+                    dxchange.write_tiff(temp_obj_delta,
                                         fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
                 else:
-                    dxchange.write_tiff(temp_obj[int(temp_obj.shape[0] / 2), :, :, 0],
+                    dxchange.write_tiff(temp_obj_delta[int(temp_obj_delta.shape[0] / 2), :, :],
                                         fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
@@ -596,7 +624,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                            'phase_ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
-                dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+                dxchange.write_tiff(temp_obj_delta, os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
                 print_flush('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
             sys.stdout.flush()
             # except:
@@ -608,9 +636,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         if hvd.rank() == 0:
 
-            res = sess.run(obj)
-            dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
-            dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+            res_delta, res_beta = sess.run([obj_delta_m, obj_beta_m])
+            res_delta *= mask_np
+            res_beta *= mask_np
+            res_delta = np.clip(res_delta, 0, None)
+            res_beta = np.clip(res_beta, 0, None)
+            dxchange.write_tiff(res_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+            dxchange.write_tiff(res_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
 
             probe_final_real, probe_final_imag = sess.run([probe_real, probe_imag])
             probe_final_mag, probe_final_phase = real_imag_to_mag_phase(probe_final_real, probe_final_imag)

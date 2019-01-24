@@ -36,7 +36,8 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
         beta_slice = grid_beta_batch[:, :, :, i]
         c = np.exp(1j * k * delta_slice) * np.exp(-k * beta_slice)
         wavefront = wavefront * c
-        wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+        if i < n_slice - 1:
+            wavefront = ifft2(np_ifftshift(np_fftshift(fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
 
     if free_prop_cm is not None:
         dxchange.write_tiff(abs(wavefront), '2d_1024/monitor_output/wv', dtype='float32', overwrite=True)

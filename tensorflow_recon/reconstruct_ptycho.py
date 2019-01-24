@@ -14,7 +14,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'obj_size': (64, 64, 64),
                   'alpha_d': 1e-9,
                   'alpha_b': 1e-10,
-                  'gamma': 1e-7,
+                  'gamma': 0,
                   'probe_size': (18, 18),
                   'learning_rate': 1e-7,
                   'center': 32,
@@ -38,6 +38,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                                     'probe_phase_max': 0.5},
                   'finite_support_mask': None,
                   'forward_algorithm': 'fresnel',
+                  'object_type': 'normal',
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
 
 params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
@@ -91,7 +92,7 @@ params_2d = {'fname': 'data_cone_256_1nm_marc.h5',
                     'psize_cm': 1.e-7,
                     'batch_size': 1,
                     'n_batch_per_update': 1,
-                    'output_folder': 'ptycho/0_5e-11_1e-6',
+                    'output_folder': 'ptycho/test',
                     'cpu_only': True,
                     'save_folder': '2d',
                     'phantom_path': '2d/phantom',
@@ -107,6 +108,44 @@ params_2d = {'fname': 'data_cone_256_1nm_marc.h5',
                                       'probe_phase_max': 0.5},
                     'forward_algorithm': 'fresnel',
                     'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
+                    'finite_support_mask': None,
+                    'object_type': 'normal',
+                    }
+
+params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
+                    'theta_st': 0,
+                    'theta_end': 0,
+                    'theta_downsample': 1,
+                    'n_epochs': 200,
+                    'obj_size': (325, 325, 1),
+                    'alpha_d': 0,
+                    'alpha_b': 0,
+                    'gamma': 0,
+                    'probe_size': (72, 72),
+                    'learning_rate': 4e-3,
+                    'center': 512,
+                    'energy_ev': 5000,
+                    'psize_cm': 1.e-7,
+                    'batch_size': 1,
+                    'n_batch_per_update': 1,
+                    'output_folder': 'n1e9_ref',
+                    'cpu_only': True,
+                    'save_folder': 'cell/ptychography',
+                    'phantom_path': 'cell/phantom',
+                    'multiscale_level': 1,
+                    'n_epoch_final_pass': None,
+                    'save_intermediate': True,
+                    'full_intermediate': True,
+                    # 'initial_guess': [np.zeros([325, 325, 1]) + 0.032, np.zeros([325, 325, 1])],
+                    'initial_guess': None,
+                    'n_dp_batch': 20,
+                    'probe_type': 'gaussian',
+                    'probe_options': {'probe_mag_sigma': 6,
+                                      'probe_phase_sigma': 6,
+                                      'probe_phase_max': 0.5},
+                    'forward_algorithm': 'fresnel',
+                    'object_type': 'phase_only',
+                    'probe_pos': [(y, x) for y in np.arange(33) * 10 for x in np.arange(34) * 10],
                     'finite_support_mask': None
                     }
 
@@ -181,11 +220,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_2d
-
-# init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/delta_ds_1.tiff')
-# init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n100/iter5_cooley/beta_ds_1.tiff')
-# init = [init_delta, init_beta]
+# params = params_adhesin
+params = params_2d_cell
 
 
 reconstruct_ptychography(fname=params['fname'],
@@ -224,4 +260,5 @@ reconstruct_ptychography(fname=params['fname'],
                          n_dp_batch=params['n_dp_batch'],
                          finite_support_mask=params['finite_support_mask'],
                          forward_algorithm=params['forward_algorithm'],
+                         object_type=params['object_type'],
                          **params['probe_options'])

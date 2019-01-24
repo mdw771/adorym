@@ -20,10 +20,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                              energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
                              phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
-                             multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
+                             multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, forward_algorithm='fresnel',
-                             n_dp_batch=20, **kwargs):
+                             n_dp_batch=20, object_type='normal', **kwargs):
 
     def split_tasks(arr, split_size):
         res = []
@@ -33,10 +33,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             ind += split_size
         return res
 
-    def rotate_and_project(i, obj):
+    def rotate_and_project(i, obj_delta, obj_beta):
 
-        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
-        obj_rot = tf_rotate(obj, this_theta_batch[i], interpolation='BILINEAR')
+        obj_rot = tf_rotate(tf.stack([obj_delta, obj_beta], axis=-1), this_theta_batch[i], interpolation='BILINEAR')
         probe_pos_batch_ls = split_tasks(probe_pos, n_dp_batch)
         exiting_ls = []
         # loss = tf.constant(0.0)
@@ -220,43 +219,50 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         # initializer_flag = True
-        seed = int(time.time() / 60)
+        seed = int(time.time())
         np.random.seed(seed)
         if initializer_flag == False:
             if initial_guess is None:
                 print_flush('Initializing with Gaussian random.')
                 grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
                 grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-                obj_init = np.zeros(np.append(obj_size, 2))
-                obj_init[:, :, :, 0] = np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
-                obj_init[:, :, :, 1] = np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
-                obj_init[obj_init < 0] = 0
+                obj_delta_init = np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
+                obj_beta_init = np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
+                obj_delta_init[obj_delta_init < 0] = 0
+                obj_beta_init[obj_beta_init < 0] = 0
             else:
                 print_flush('Using supplied initial guess.')
-                sys.stdout.flush()
-                obj_init = np.zeros([*obj_size, 2])
-                obj_init[:, :, :, 0] = initial_guess[0]
-                obj_init[:, :, :, 1] = initial_guess[1]
+                obj_delta_init = initial_guess[0]
+                obj_beta_init = initial_guess[1]
         else:
             print_flush('Initializing with Gaussian random.')
             grid_delta = np.load(os.path.join(phantom_path, 'grid_delta.npy'))
             grid_beta = np.load(os.path.join(phantom_path, 'grid_beta.npy'))
-            delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-            beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_init = np.zeros([delta_init.shape[0], delta_init.shape[1], delta_init.shape[2], 2])
-            obj_init[:, :, :, 0] = delta_init
-            obj_init[:, :, :, 1] = beta_init
+            obj_delta_init = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+            obj_beta_init = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
             # obj_init = res
-            obj_init = upsample_2x(obj_init)
-            obj_init[:, :, :, 0] += np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
-            obj_init[:, :, :, 1] += np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
-            obj_init[obj_init < 0] = 0
+            obj_delta_init = upsample_2x(obj_delta_init)
+            obj_beta_init = upsample_2x(obj_beta_init)
+            obj_delta_init += np.random.normal(size=obj_size, loc=grid_delta.mean(), scale=grid_delta.mean() * 0.05)
+            obj_beta_init += np.random.normal(size=obj_size, loc=grid_beta.mean(), scale=grid_beta.mean() * 0.05)
+            obj_delta_init[obj_delta_init < 0] = 0
+            obj_beta_init[obj_beta_init < 0] = 0
         # dxchange.write_tiff(obj_init[:, :, :, 0], 'cone_256_filled/dump/obj_init', dtype='float32')
         if finite_support_mask is not None:
             finite_support_mask = finite_support_mask.astype('float')
-            obj_init[:, :, :, 0] *= finite_support_mask
-            obj_init[:, :, :, 1] *= finite_support_mask
-        obj = tf.Variable(initial_value=obj_init, dtype=tf.float32, name='object_func')
+            obj_delta_init *= finite_support_mask
+            obj_beta_init *= finite_support_mask
+        if object_type == 'phase_only':
+            obj_beta_init[...] = 0
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.constant(obj_beta_init, dtype=tf.float32)
+        elif object_type == 'absorption_only':
+            obj_delta_init[...] = 0
+            obj_delta = tf.constant(obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
+        else:
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
         # ====================================================
 
         print_flush('Initialzing probe...')
@@ -278,9 +284,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
-                # probe_mag = np.ones([dim_y, dim_x])
-                # probe_phase = np.zeros([dim_y, dim_x])
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_init.shape[2])) if free_prop_cm is not None else (psize_cm * obj_init.shape[2])
+                back_prop_cm = (free_prop_cm + (psize_cm * obj_delta_init.shape[2])) if free_prop_cm is not None else (psize_cm * obj_delta_init.shape[2])
                 probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev, psize_cm * 1.e7)
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
@@ -307,27 +311,18 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         print_flush('Building physical model...')
         t00 = time.time()
-            # i = tf.constant(0)
-            # c = lambda i, loss, obj: tf.less(i, minibatch_size)
-            # _, loss, _ = tf.while_loop(c, rotate_and_project, [i, loss, obj])
-        # loss = rotate_and_project(j, obj)
         loss = tf.constant(0.)
         for j in range(0, minibatch_size):
-            loss += rotate_and_project(j, obj)
+            loss += rotate_and_project(j, obj_delta, obj_beta)
         print_flush('Physical model built in {} s.'.format(time.time() - t00))
 
-        # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
-        # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
         if alpha_d is None:
-            reg_term = alpha * tf.norm(obj, ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
+            reg_term = alpha * (tf.norm(obj_delta, ord=1) + tf.norm(obj_beta, ord=1)) + gamma * total_variation_3d(obj_delta)
         else:
             if gamma == 0:
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
+                reg_term = alpha_d * tf.norm(obj_delta, ord=1) + alpha_b * tf.norm(obj_beta, ord=1)
             else:
-                reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * total_variation_3d(obj[:, :, :, 0])
-                # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1) + gamma * tf.norm(obj[:, :, :, 0], ord=2)
-            # reg_term = alpha_d * tf.norm(obj[:, :, :, 0], ord=1) + alpha_b * tf.norm(obj[:, :, :, 1], ord=1)
-
+                reg_term = alpha_d * tf.norm(obj_delta, ord=1) + alpha_b * tf.norm(obj_beta, ord=1) + gamma * total_variation_3d(obj_delta)
 
         loss = loss / n_theta / float(n_pos) + reg_term
         if probe_type == 'optimizable':
@@ -342,7 +337,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         t00 = time.time()
         # if initializer_flag == False:
         i_epoch = tf.Variable(0, trainable=False, dtype='float32')
-        accum_grad = tf.Variable(tf.zeros_like(obj.initialized_value()), trainable=False)
         if dynamic_rate and n_batch_per_update > 1:
             # modifier =  1. / n_batch_per_update
             modifier = tf.exp(-i_epoch) * (n_batch_per_update - 1) + 1
@@ -351,15 +345,27 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
         if n_batch_per_update > 1:
-            this_grad = optimizer.compute_gradients(loss, obj)
-            this_grad = this_grad[0]
-            initialize_grad = accum_grad.assign(tf.zeros_like(accum_grad))
-            accum_op = accum_grad.assign_add(this_grad[0])
-            update_obj = optimizer.apply_gradients([(accum_grad / n_batch_per_update, this_grad[1])])
+            accum_grad_delta = tf.Variable(tf.zeros_like(obj_delta.initialized_value()), trainable=False)
+            accum_grad_beta = tf.Variable(tf.zeros_like(obj_beta.initialized_value()), trainable=False)
+            this_grad_delta = optimizer.compute_gradients(loss, obj_delta)
+            this_grad_delta = this_grad_delta[0]
+            this_grad_beta = optimizer.compute_gradients(loss, this_grad_beta)
+            this_grad_beta = this_grad_beta[0]
+            initialize_grad_delta = accum_grad_delta.assign(tf.zeros_like(accum_grad_delta))
+            initialize_grad_beta = accum_grad_beta.assign(tf.zeros_like(accum_grad_beta))
+            accum__op_delta = accum_grad_delta.assign_add(this_grad_delta[0])
+            accum_op_beta = accum_grad_beta.assign_add(this_grad_beta[0])
+            update_obj_delta = optimizer.apply_gradients([(accum_grad_delta / n_batch_per_update, this_grad_beta[1])])
+            update_obj_beta = optimizer.apply_gradients([(accum_grad_beta / n_batch_per_update, this_grad_beta[1])])
         else:
-            optimizer = optimizer.minimize(loss, var_list=[obj])
-            # this_grad = optimizer.compute_gradients(loss, obj)
-            # optimizer = optimizer.apply_gradients(this_grad)
+            if object_type == 'normal':
+                optimizer = optimizer.minimize(loss, var_list=[obj_delta, obj_beta])
+            elif object_type == 'phase_only':
+                optimizer = optimizer.minimize(loss, var_list=[obj_delta])
+            elif object_type == 'absorption_only':
+                optimizer = optimizer.minimize(loss, var_list=[obj_beta])
+            else:
+                raise ValueError
 
         # if minibatch_size >= n_theta:
         #     optimizer = optimizer.minimize(loss, var_list=[obj])
@@ -445,8 +451,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     if n_batch_per_update > 1:
                         t0_batch = time.time()
                         if probe_type == 'optimizable':
-                            _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run(
-                                [accum_op, accum_op_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options,
+                            _, _, _, current_loss, current_reg, current_probe_reg, summary_str = sess.run(
+                                [accum__op_delta, accum_op_beta, accum_op_probe, loss, reg_term, probe_reg, merged_summary_op], options=run_options,
                                 run_metadata=run_metadata)
                         else:
                             _, current_loss, current_reg, summary_str = sess.run(
@@ -455,8 +461,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                         print_flush('Minibatch done in {} s (rank {}); current loss = {}, probe reg. = {}.'.format(time.time() - t0_batch, hvd.rank(), current_loss, current_probe_reg))
                         batch_counter += 1
                         if batch_counter == n_batch_per_update or i_batch == n_batch - 1:
-                            sess.run(update_obj)
-                            sess.run(initialize_grad)
+                            sess.run([update_obj_delta, update_obj_beta])
+                            sess.run([initialize_grad_delta, initialize_grad_beta])
                             if probe_type == 'optimizable':
                                 sess.run(update_probe)
                                 sess.run(initialize_grad_probe)
@@ -479,9 +485,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                             # pctx.profiler.profile_operations(options=opts)
                             ##############################
                             if hvd.rank() == 0:
-                                temp_obj = sess.run(obj)
+                                temp_obj = sess.run(obj_delta)
                                 temp_obj = np.abs(temp_obj)
-                                dxchange.write_tiff(temp_obj[:, :, :, 0],
+                                dxchange.write_tiff(temp_obj,
                                                     fname=os.path.join(output_folder, 'intermediate',
                                                                        'theta_{}'.format(i_batch)),
                                                     dtype='float32',
@@ -521,8 +527,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     f.write(ctf)
                     f.close()
 
-            # non negative hard
-            obj = tf.nn.relu(obj)
+            obj_delta = tf.nn.relu(obj_delta)
+            obj_beta = tf.nn.relu(obj_beta)
 
             # check stopping criterion
             if n_epochs == 'auto':
@@ -553,15 +559,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 loss_ls.append(current_loss)
                 reg_ls.append(current_reg)
             if save_intermediate and hvd.rank() == 0:
-                temp_obj = sess.run(obj)
-                temp_obj = np.abs(temp_obj)
+                temp_obj = sess.run(obj_delta)
                 if full_intermediate:
-                    dxchange.write_tiff(temp_obj[:, :, :, 0],
+                    dxchange.write_tiff(temp_obj,
                                         fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
                 else:
-                    dxchange.write_tiff(temp_obj[int(temp_obj.shape[0] / 2), :, :, 0],
+                    dxchange.write_tiff(temp_obj[int(temp_obj.shape[0] / 2), :, :],
                                         fname=os.path.join(output_folder, 'intermediate', 'ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
@@ -577,8 +582,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                            'phase_ds_{}_iter_{:03d}'.format(ds_level, epoch)),
                                         dtype='float32',
                                         overwrite=True)
-                dxchange.write_tiff(temp_obj[:, :, :, 0], os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
-                dxchange.write_tiff(temp_obj[:, :, :, 1], os.path.join(output_folder, 'current', 'beta'), dtype='float32', overwrite=True)
+                dxchange.write_tiff(temp_obj, os.path.join(output_folder, 'current', 'delta'), dtype='float32', overwrite=True)
+                # dxchange.write_tiff(temp_obj[:, :, :, 1], os.path.join(output_folder, 'current', 'beta'), dtype='float32', overwrite=True)
                 print_flush('Iteration {} (rank {}); loss = {}; time = {} s'.format(epoch, hvd.rank(), current_loss, time.time() - t00))
             sys.stdout.flush()
             # except:
@@ -590,9 +595,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         if hvd.rank() == 0:
 
-            res = sess.run(obj)
-            dxchange.write_tiff(res[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
-            dxchange.write_tiff(res[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+            res_delta, res_beta = sess.run([obj_delta, obj_beta])
+            dxchange.write_tiff(res_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
+            dxchange.write_tiff(res_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32', overwrite=True)
 
             probe_final_real, probe_final_imag = sess.run([probe_real, probe_imag])
             probe_final_mag, probe_final_phase = real_imag_to_mag_phase(probe_final_real, probe_final_imag)

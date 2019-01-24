@@ -461,25 +461,31 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         h = tf.convert_to_tensor(h, dtype=tf.complex64, name='kernel')
     k = 2. * PI * delta_nm / lmbda_nm
 
-    def modulate_and_propagate(i, wavefront):
-        delta_slice = grid_delta_batch[:, :, :, i]
-        # delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
-        beta_slice = grid_beta_batch[:, :, :, i]
-        # beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+    if n_slice > 1:
+        def modulate_and_propagate(i, wavefront):
+            delta_slice = grid_delta_batch[:, :, :, i]
+            # delta_slice = tf.cast(delta_slice, dtype=tf.complex64)
+            beta_slice = grid_beta_batch[:, :, :, i]
+            # beta_slice = tf.cast(beta_slice, dtype=tf.complex64)
+            c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
+            wavefront = wavefront * c
+            # wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
+            if type == 'projection':
+                wavefront, m = free_propagate_paraxial(wavefront, psize_cm, s_r_cm + psize_cm * i, lmbda_nm, psize_cm)
+                wavefront = rescale_image(wavefront, m, [batch_size, obj_batch_shape[1], obj_batch_shape[2]])
+            else:
+                wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
+            i = i + 1
+            return (i, wavefront)
+
+        i = tf.constant(0)
+        c = lambda i, wavefront: tf.less(i, n_slice)
+        _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
+    else:
+        delta_slice = grid_delta_batch[:, :, :, 0]
+        beta_slice = grid_beta_batch[:, :, :, 0]
         c = tf.exp(1j * k * delta_slice) * tf.exp(-k * beta_slice)
         wavefront = wavefront * c
-        # wavefront = tf.ifft2d(tf.fft2d(wavefront) * h)
-        if type == 'projection':
-            wavefront, m = free_propagate_paraxial(wavefront, psize_cm, s_r_cm + psize_cm * i, lmbda_nm, psize_cm)
-            wavefront = rescale_image(wavefront, m, [batch_size, obj_batch_shape[1], obj_batch_shape[2]])
-        else:
-            wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))
-        i = i + 1
-        return (i, wavefront)
-
-    i = tf.constant(0)
-    c = lambda i, wavefront: tf.less(i, n_slice)
-    _, wavefront = tf.while_loop(c, modulate_and_propagate, [i, wavefront])
 
     if free_prop_cm is not None:
         if free_prop_cm == 'inf':
@@ -493,7 +499,6 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                 crit_samp = lmbda_nm * dist_nm / l
                 algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
                 algorithm = 'TF'
-                print(algorithm)
                 if algorithm == 'TF':
                     h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
                     wavefront = tf.ifft2d(ifftshift(fftshift(tf.fft2d(wavefront)) * h))

@@ -64,17 +64,36 @@ params_cone = {'fname': 'data_cone_1nm_1um_far.h5',
                      'probe_options': None
                      }
 
-params_2d = {'fname': 'data_cone_2d_1nm_1um_far.h5',
+params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180.h5',
+                     'theta_st': 0,
+                     'theta_end': PI,
+                     'n_theta': 500,
+                     'energy_ev': 5000,
+                     'psize_cm': 1.e-7,
+                     'batch_size': 1,
+                     'free_prop_cm': 1e-4,
+                     'save_folder': 'cone_256_filled/new',
+                     'phantom_path': 'cone_256_filled/phantom',
+                     'probe_type': 'plane',
+                     'dist_to_source_cm': None,
+                     'det_psize_cm': None,
+                     'theta_max': None,
+                     'phi_max': None,
+                     'probe_options': {}
+                     }
+
+
+params_2d = {'fname': 'data_cone_2d_1nm_1um_phase.h5',
                      'theta_st': 0,
                      'theta_end': 0,
                      'n_theta': 1,
                      'energy_ev': 5000,
                      'psize_cm': 1.e-7,
                      'batch_size': 1,
-                     'free_prop_cm': 'inf',
-                     'save_folder': '2d_1024',
-                     'phantom_path': '2d_1024/phantom',
-                     'probe_type': 'gaussian',
+                     'free_prop_cm': 1e-4,
+                     'save_folder': '2d_512',
+                     'phantom_path': '2d_512/phantom_phase',
+                     'probe_type': 'plane',
                      'dist_to_source_cm': None,
                      'det_psize_cm': None,
                      'theta_max': None,
@@ -84,7 +103,27 @@ params_2d = {'fname': 'data_cone_2d_1nm_1um_far.h5',
                                        'probe_phase_max': 0.5},
                      }
 
-params = params_2d
+params_2d_cell = {'fname': 'data_cell_phase.h5',
+                     'theta_st': 0,
+                     'theta_end': 0,
+                     'n_theta': 1,
+                     'energy_ev': 5000,
+                     'psize_cm': 1.e-7,
+                     'batch_size': 1,
+                     'free_prop_cm': 1. / (0.001 * (1.24 / 5)) * 1e-7,
+                     'save_folder': 'cell/fullfield',
+                     'phantom_path': 'cell/fullfield/phantom',
+                     'probe_type': 'plane',
+                     'dist_to_source_cm': None,
+                     'det_psize_cm': None,
+                     'theta_max': None,
+                     'phi_max': None,
+                     'probe_options': {'probe_mag_sigma': 100,
+                                       'probe_phase_sigma': 100,
+                                       'probe_phase_max': 0.5},
+                     }
+
+params = params_cone_180
 
 create_fullfield_data_numpy(energy_ev=params['energy_ev'],
                             psize_cm=params['psize_cm'],

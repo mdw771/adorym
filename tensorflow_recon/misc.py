@@ -54,7 +54,8 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'free_prop_cm',
                      'psize_cm',
                      'energy_ev',
-                     'fname']
+                     'fname',
+                     'object_type']
 
 
 def create_summary(save_path, locals_dict, var_list=None, preset=None):
