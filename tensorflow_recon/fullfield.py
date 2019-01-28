@@ -303,6 +303,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
         # ====================================================
 
+        # =============finite support===================
+        obj_delta = obj_delta * mask
+        obj_beta = obj_beta * mask
+        obj_delta = tf.nn.relu(obj_delta)
+        obj_beta = tf.nn.relu(obj_beta)
+        # ==============================================
+
         if probe_type == 'plane':
             probe_real = tf.constant(np.ones([dim_y, dim_x]), dtype=tf.float32)
             probe_imag = tf.constant(np.zeros([dim_y, dim_x]), dtype=tf.float32)
@@ -348,15 +355,15 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
-        # =============finite support===================
-        obj_delta_m = obj_delta * mask
-        obj_beta_m = obj_beta * mask
-        obj_delta_m = tf.nn.relu(obj_delta_m)
-        obj_beta_m = tf.nn.relu(obj_beta_m)
-        # ==============================================
+        # # =============finite support===================
+        # obj_delta = obj_delta * mask
+        # obj_beta = obj_beta * mask
+        # obj_delta = tf.nn.relu(obj_delta)
+        # obj_beta = tf.nn.relu(obj_beta)
+        # # ==============================================
         # ================shrink wrap===================
         def shrink_wrap():
-            boolean = tf.cast(obj_delta_m > 1e-15, dtype=tf.float32)
+            boolean = tf.cast(obj_delta > 1e-15, dtype=tf.float32)
             _mask = mask * boolean
             return _mask
         def return_mask(): return mask
@@ -380,17 +387,17 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         # i = tf.constant(0)
         # for j in range(minibatch_size):
         #     i, loss, obj = rotate_and_project(i, loss, obj)
-        loss, exiting = rotate_and_project_batch(obj_delta_m, obj_beta_m)
+        loss, exiting = rotate_and_project_batch(obj_delta, obj_beta)
 
         # loss = loss / n_theta + alpha * tf.reduce_sum(tf.image.total_variation(obj))
         # loss = loss / n_theta + gamma * energy_leak(obj, mask_add)
         if alpha_d is None:
-            reg_term = alpha * (tf.norm(obj_delta_m, ord=1) + tf.norm(obj_delta_m, ord=1)) + gamma * total_variation_3d(obj_delta_m)
+            reg_term = alpha * (tf.norm(obj_delta, ord=1) + tf.norm(obj_delta, ord=1)) + gamma * total_variation_3d(obj_delta)
         else:
             if gamma == 0:
-                reg_term = alpha_d * tf.norm(obj_delta_m, ord=1) + alpha_b * tf.norm(obj_beta_m, ord=1)
+                reg_term = alpha_d * tf.norm(obj_delta, ord=1) + alpha_b * tf.norm(obj_beta, ord=1)
             else:
-                reg_term = alpha_d * tf.norm(obj_delta_m, ord=1) + alpha_b * tf.norm(obj_beta_m, ord=1) + gamma * total_variation_3d(obj_delta_m)
+                reg_term = alpha_d * tf.norm(obj_delta, ord=1) + alpha_b * tf.norm(obj_beta, ord=1) + gamma * total_variation_3d(obj_delta)
         loss = loss + reg_term
 
         if probe_type == 'optimizable':
@@ -409,9 +416,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             optimizer = tf.train.AdamOptimizer(learning_rate=learning_rate * hvd.size())
         optimizer = hvd.DistributedOptimizer(optimizer, name='distopt_{}'.format(ds_level))
         if n_batch_per_update > 1:
-            accum_grad_delta = tf.Variable(tf.zeros_like(obj_delta_m.initialized_value()), trainable=False)
-            accum_grad_beta = tf.Variable(tf.zeros_like(obj_beta_m.initialized_value()), trainable=False)
-            this_grad_delta = optimizer.compute_gradients(loss, obj_delta_m)
+            accum_grad_delta = tf.Variable(tf.zeros_like(obj_delta.initialized_value()), trainable=False)
+            accum_grad_beta = tf.Variable(tf.zeros_like(obj_beta.initialized_value()), trainable=False)
+            this_grad_delta = optimizer.compute_gradients(loss, obj_delta)
             this_grad_delta = this_grad_delta[0]
             this_grad_beta = optimizer.compute_gradients(loss, this_grad_beta)
             this_grad_beta = this_grad_beta[0]
@@ -423,11 +430,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             update_obj_beta = optimizer.apply_gradients([(accum_grad_beta / n_batch_per_update, this_grad_beta[1])])
         else:
             if object_type == 'normal':
-                optimizer = optimizer.minimize(loss, var_list=[obj_delta, obj_beta])
+                optimizer = optimizer.minimize(loss)
             elif object_type == 'phase_only':
-                optimizer = optimizer.minimize(loss, var_list=[obj_delta])
+                optimizer = optimizer.minimize(loss)
             elif object_type == 'absorption_only':
-                optimizer = optimizer.minimize(loss, var_list=[obj_beta])
+                optimizer = optimizer.minimize(loss)
             else:
                 raise ValueError
         # if minibatch_size >= n_theta:
@@ -580,11 +587,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 if stop_iteration:
                     break
             # if epoch < n_epochs_mask_release:
-            #     # =============finite support===================
-            #     if n_epochs == 'auto' or epoch != n_epochs - 1:
-            #         obj_delta = obj_delta * mask
-            #         obj_beta = obj_beta * mask
-            #     # ==============================================
             #     # ================shrink wrap===================
             #     if epoch % shrink_cycle == 0 and epoch > 0:
             #         mask_temp = sess.run(obj_delta > 1e-8)
@@ -636,7 +638,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         if hvd.rank() == 0:
 
-            res_delta, res_beta = sess.run([obj_delta_m, obj_beta_m])
+            res_delta, res_beta = sess.run([obj_delta, obj_beta])
             res_delta *= mask_np
             res_beta *= mask_np
             res_delta = np.clip(res_delta, 0, None)

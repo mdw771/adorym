@@ -64,9 +64,9 @@ params_cone = {'fname': 'data_cone_1nm_1um_far.h5',
                      'probe_options': None
                      }
 
-params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180.h5',
-                     'theta_st': 0,
-                     'theta_end': PI,
+params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180_tilt.h5',
+                     'theta_st': PI/6,
+                     'theta_end': PI*7/6,
                      'n_theta': 500,
                      'energy_ev': 5000,
                      'psize_cm': 1.e-7,
