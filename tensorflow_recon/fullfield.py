@@ -112,7 +112,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                         probe_real, probe_imag, energy_ev,
                                                         psize_cm * ds_level, free_prop_cm=free_prop_cm,
                                                         obj_batch_shape=[minibatch_size, *obj_size])
-        loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)))
+        loss = tf.reduce_mean(tf.squared_difference(tf.abs(exiting_batch), tf.abs(this_prj_batch)), name='loss')
         return loss, exiting_batch
 
     # import Horovod or its fake shell
@@ -254,7 +254,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         if ds_level > 1:
             mask = mask[::ds_level, ::ds_level, ::ds_level]
         mask_np = mask
-        mask = tf.convert_to_tensor(mask, dtype=tf.float32)
+        mask = tf.convert_to_tensor(mask, dtype=tf.float32, name='mask')
         dim_z = mask.shape[-1]
 
         # unify random seed for all threads
@@ -292,23 +292,18 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         obj_size = obj_delta_init.shape
         if object_type == 'phase_only':
             obj_beta_init[...] = 0
-            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
-            obj_beta = tf.constant(obj_beta_init, dtype=tf.float32)
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32, name='obj_delta')
+            obj_beta = tf.constant(obj_beta_init, dtype=tf.float32, name='obj_beta')
         elif object_type == 'absorption_only':
             obj_delta_init[...] = 0
-            obj_delta = tf.constant(obj_delta_init, dtype=tf.float32)
-            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
+            obj_delta = tf.constant(obj_delta_init, dtype=tf.float32, name='obj_delta')
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32, name='obj_beta')
         else:
-            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32)
-            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32)
+            obj_delta = tf.Variable(initial_value=obj_delta_init, dtype=tf.float32, name='obj_delta')
+            obj_beta = tf.Variable(initial_value=obj_beta_init, dtype=tf.float32, name='obj_beta')
         # ====================================================
 
-        # =============finite support===================
-        obj_delta = obj_delta * mask
-        obj_beta = obj_beta * mask
-        obj_delta = tf.nn.relu(obj_delta)
-        obj_beta = tf.nn.relu(obj_beta)
-        # ==============================================
+
 
         if probe_type == 'plane':
             probe_real = tf.constant(np.ones([dim_y, dim_x]), dtype=tf.float32)
@@ -355,12 +350,12 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         else:
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
-        # # =============finite support===================
-        # obj_delta = obj_delta * mask
-        # obj_beta = obj_beta * mask
-        # obj_delta = tf.nn.relu(obj_delta)
-        # obj_beta = tf.nn.relu(obj_beta)
-        # # ==============================================
+        # =============finite support===================
+        obj_delta = obj_delta * mask
+        obj_beta = obj_beta * mask
+        obj_delta = tf.nn.relu(obj_delta)
+        obj_beta = tf.nn.relu(obj_beta)
+        # ==============================================
         # ================shrink wrap===================
         def shrink_wrap():
             boolean = tf.cast(obj_delta > 1e-15, dtype=tf.float32)
@@ -456,6 +451,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             if minibatch_size >= n_theta:
                 optimizer_probe = optimizer_probe.minimize(loss, var_list=[probe_real, probe_imag])
 
+        # =============finite support===================
+        obj_delta = obj_delta * mask
+        obj_beta = obj_beta * mask
+        obj_delta = tf.nn.relu(obj_delta)
+        obj_beta = tf.nn.relu(obj_beta)
+        # ==============================================
+
         loss_ls = []
         reg_ls = []
 
@@ -478,7 +480,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         if hvd.rank() == 0:
             preset = 'pp' if probe_type == 'point' else 'fullfield'
             create_summary(output_folder, locals(), preset=preset)
-            summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'))
+            summary_writer = tf.summary.FileWriter(os.path.join(output_folder, 'tb'), sess.graph)
 
         t0 = time.time()
 
