@@ -61,7 +61,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'shrink_cycle': None,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 1,
-               'output_folder': 'test_both',
+               'output_folder': 'test_m_mr',
                'cpu_only': True,
                'save_path': 'cone_256_filled/new',
                'phantom_path': 'cone_256_filled/phantom',
@@ -91,11 +91,11 @@ params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180.h5',
                'shrink_cycle': None,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 1,
-               'output_folder': '180_ref',
+               'output_folder': '180_r_mr',
                'cpu_only': True,
                'save_path': 'cone_256_filled/new',
                'phantom_path': 'cone_256_filled/phantom',
-               'multiscale_level': 1,
+               'multiscale_level': 3,
                'n_epoch_final_pass': 6,
                'save_intermediate': True,
                'full_intermediate': True,
@@ -265,7 +265,7 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_cone
+params = params_cone_180
 # init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 # init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]

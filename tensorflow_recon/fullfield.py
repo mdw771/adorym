@@ -351,8 +351,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
 
         # =============finite support===================
-        obj_delta = obj_delta * mask
-        obj_beta = obj_beta * mask
+        # obj_delta = obj_delta * mask
+        # obj_beta = obj_beta * mask
         obj_delta = tf.nn.relu(obj_delta)
         obj_beta = tf.nn.relu(obj_beta)
         # ==============================================
