@@ -8,15 +8,15 @@ import time
 
 np.random.seed(int(time.time()))
 
-src_fname = 'cone_256_filled/new/data_cone_256_1nm_1um.h5'
+src_fname = 'cone_256_foam_ptycho/data_cone_256_foam_1nm.h5'
 # src_fname = 'cell/ptychography/data_cell_phase.h5'
 # src_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc.h5'
 # dest_fname = 'cone_256_filled_ptycho/data_cone_256_1nm_marc_n2e3_2.h5'
-n_ph_tx = '1e7'
+n_ph_tx = '1e9'
 n_sample_pixel = 28529
 n_ph = float(n_ph_tx) / n_sample_pixel
 print(n_ph)
-dest_fname = 'cone_256_filled/new/data_cone_256_1nm_1um_n{}_ref.h5'.format(n_ph_tx)
+dest_fname = 'cone_256_foam_ptycho/data_cone_256_foam_1nm_n{}.h5'.format(n_ph_tx)
 # dest_fname = 'cell/ptychography/data_cell_phase_n{}_ref.h5'.format(n_ph_tx)
 # dest_fname = 'cell/ptychography/data_cell_phase_n4e8.h5'
 
