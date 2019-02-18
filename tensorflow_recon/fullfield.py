@@ -1,8 +1,6 @@
-from tensorflow.contrib.image import rotate as tf_rotate
-from tensorflow.python.client import timeline
-import tensorflow as tf
+import autograd.numpy as np
+from autograd import grad
 import dxchange
-import numpy as np
 import time
 import os
 import h5py
