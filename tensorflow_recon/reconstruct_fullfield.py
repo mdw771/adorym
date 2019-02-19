@@ -8,9 +8,9 @@ from constants import *
 # init_beta_adhesin[...] = 8e-8
 # init_delta_adhesin = np.load('adhesin/phantom/grid_delta.npy')
 # init_beta_adhesin = np.load('adhesin/phantom/grid_beta.npy')
-init_delta = np.load('2d_512/phantom/grid_delta.npy')
-init_beta = np.load('2d_512/phantom/grid_beta.npy')
-init = [init_delta, init_beta]
+# init_delta = np.load('2d_512/phantom/grid_delta.npy')
+# init_beta = np.load('2d_512/phantom/grid_beta.npy')
+# init = [init_delta, init_beta]
 
 
 params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
@@ -43,7 +43,7 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'forward_algorithm': 'fresnel',
                   'kwargs': {}}
 
-params_cone = {'fname': 'data_cone_256_1nm_1um_n1e7.h5',
+params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
                'n_epochs': 10,
@@ -55,16 +55,15 @@ params_cone = {'fname': 'data_cone_256_1nm_1um_n1e7.h5',
                'energy_ev': 5000,
                'psize_cm': 1.e-7,
                'minibatch_size': 10,
-               # 'minibatch_size': 1,
                'theta_downsample': None,
                'n_epochs_mask_release': 10,
                'shrink_cycle': None,
                'free_prop_cm': 1e-4,
-               'n_batch_per_update': 1,
-               'output_folder': 'n1e7',
+               'n_batch_per_update': 10,
+               'output_folder': 'test',
                'cpu_only': True,
-               'save_path': 'cone_256_foam',
-               'phantom_path': 'cone_256_foam/phantom',
+               'save_path': 'cone_256_filled',
+               'phantom_path': 'cone_256_filled/phantom',
                'multiscale_level': 3,
                'n_epoch_final_pass': 6,
                'save_intermediate': True,

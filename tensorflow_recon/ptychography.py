@@ -25,14 +25,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None, forward_algorithm='fresnel',
                              n_dp_batch=20, object_type='normal', **kwargs):
 
-    def split_tasks(arr, split_size):
-        res = []
-        ind = 0
-        while ind < len(arr):
-            res.append(arr[ind:min(ind + split_size, len(arr))])
-            ind += split_size
-        return res
-
     def rotate_and_project(i, obj_delta, obj_beta):
 
         obj_rot = tf_rotate(tf.stack([obj_delta, obj_beta], axis=-1), this_theta_batch[i], interpolation='BILINEAR')
