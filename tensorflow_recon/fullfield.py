@@ -1,6 +1,6 @@
 import autograd.numpy as np
 from autograd import grad
-from autograd.misc.optimizers import adam
+from mpi4py import MPI
 import dxchange
 import time
 import os
@@ -102,36 +102,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         return loss
 
-    # import Horovod or its fake shell
-    if core_parallelization is False:
-        warnings.warn('Parallelization is disabled in the reconstruction routine. ')
-        from pseudo import hvd
-    else:
-        try:
-            import horovod.tensorflow as hvd
-            hvd.init()
-        except:
-            from pseudo import Hvd
-            hvd = Hvd()
-            warnings.warn('Unable to import Horovod.')
-        try:
-            assert hvd.mpi_threads_supported()
-        except:
-            warnings.warn('MPI multithreading is not supported.')
-        try:
-            import mpi4py.rc
-            mpi4py.rc.initialize = False
-            from mpi4py import MPI
-            comm = MPI.COMM_WORLD
-            mpi4py_is_ok = True
-            assert hvd.size() == comm.Get_size()
-        except:
-            warnings.warn('Unable to import mpi4py. Using multiple threads with n_epoch set to "auto" may lead to undefined behaviors.')
-            from pseudo import Mpi
-            comm = Mpi()
-            mpi4py_is_ok = False
-
     t0 = time.time()
+
+    comm = MPI.COMM_WORLD
+    size = comm.Get_size()
+    rank = comm.Get_rank()
 
     # read data
     print_flush('Reading data...')
@@ -194,7 +169,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         ind_ls = np.arange(n_theta)
         np.random.shuffle(ind_ls)
-        n_tot_per_batch = hvd.size() * minibatch_size
+        n_tot_per_batch = size * minibatch_size
         if n_theta % n_tot_per_batch > 0:
             ind_ls = np.concatenate(ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch])
         ind_ls = split_tasks(ind_ls, n_tot_per_batch)
@@ -332,9 +307,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             for i_batch in range(len(ind_ls)):
 
                 t00 = time.time()
-                this_ind_batch = ind_ls[i_batch]
+                this_ind_batch = ind_ls[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
                 this_prj_batch = prj[this_ind_batch]
                 grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_prj_batch)
+                this_grads = np.array(grads)
+                grads = np.zeros_like(this_grads)
+                comm.Allreduce(this_grads, grads)
+                grads = grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
 
@@ -352,7 +331,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                         boolean = obj_delta > 1e-15
                     mask = mask * boolean
 
-                print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, hvd.rank()))
+                print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
 
             if n_epochs == 'auto':
                 pass
@@ -361,7 +340,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             i_epoch = i_epoch + 1
 
             print_flush(
-                'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, hvd.rank(),
+                'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
                                                                     calculate_loss(obj_delta, obj_beta, this_ind_batch, this_prj_batch),
                                                                     time.time() - t0))
         dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
