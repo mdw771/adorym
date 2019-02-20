@@ -75,13 +75,12 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                               'fixed'.
     """
 
-    def calculate_loss(obj_delta, obj_beta, i_batch):
+    def calculate_loss(obj_delta, obj_beta, this_ind_batch, this_prj_batch):
 
         obj_stack = np.stack([obj_delta, obj_beta], axis=3)
-        this_prj_batch = prj[ind_ls[i_batch]]
         obj_rot_batch = []
         for i in range(minibatch_size):
-            obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[ind_ls[i_batch][i]],
+            obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[this_ind_batch[i]],
                                                 'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta)))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = np.stack(obj_rot_batch)
@@ -333,7 +332,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             for i_batch in range(len(ind_ls)):
 
                 t00 = time.time()
-                grads = loss_grad(obj_delta, obj_beta, i_batch)
+                this_ind_batch = ind_ls[i_batch]
+                this_prj_batch = prj[this_ind_batch]
+                grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_prj_batch)
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
 
@@ -361,7 +362,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
             print_flush(
                 'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, hvd.rank(),
-                                                                    calculate_loss(obj_delta, obj_beta, i_batch),
+                                                                    calculate_loss(obj_delta, obj_beta, this_ind_batch, this_prj_batch),
                                                                     time.time() - t0))
         dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                             dtype='float32', overwrite=True)
