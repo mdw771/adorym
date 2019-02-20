@@ -81,7 +81,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         this_prj_batch = prj[ind_ls[i_batch]]
         obj_rot_batch = []
         for i in range(minibatch_size):
-            obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[ind_ls[i_batch]],
+            obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[ind_ls[i_batch][i]],
                                                 'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta)))
         # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = np.stack(obj_rot_batch)
@@ -198,8 +198,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         n_tot_per_batch = hvd.size() * minibatch_size
         if n_theta % n_tot_per_batch > 0:
             ind_ls = np.concatenate(ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch])
-            ind_ls = split_tasks(ind_ls, n_tot_per_batch)
-            ind_ls = [np.sort(x) for x in ind_ls]
+        ind_ls = split_tasks(ind_ls, n_tot_per_batch)
+        ind_ls = [np.sort(x) for x in ind_ls]
         print(len(ind_ls), n_theta % n_tot_per_batch)
 
         dim_y, dim_x = prj.shape[-2:]
