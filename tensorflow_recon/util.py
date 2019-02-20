@@ -447,7 +447,10 @@ def apply_rotation(obj, coord_old, src_folder):
     obj_channel_ls = np.split(obj, s[3], 3)
     obj_rot_channel_ls = []
     for channel in obj_channel_ls:
-        obj_chan_new_val = channel.flatten()[np.ravel_multi_index(coord_old, s[:-1])]
+        channel_flat = channel.flatten()
+        ind = coord_old[0] * (s[1] * s[2]) + coord_old[1] * s[2] + coord_old[2]
+        ind = ind.astype('int')
+        obj_chan_new_val = channel_flat[ind]
         obj_rot_channel_ls.append(np.reshape(obj_chan_new_val, s[:-1]))
     obj_rot = np.stack(obj_rot_channel_ls, axis=3)
     return obj_rot
