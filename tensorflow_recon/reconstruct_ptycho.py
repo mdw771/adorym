@@ -20,7 +20,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
-                  'batch_size': 1,
+                  'batch_size': 50,
                   'n_batch_per_update': 1,
                   'output_folder': 'test',
                   'cpu_only': True,
@@ -220,8 +220,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-# params = params_adhesin
-params = params_2d_cell
+params = params_adhesin
+# params = params_2d_cell
 
 
 reconstruct_ptychography(fname=params['fname'],

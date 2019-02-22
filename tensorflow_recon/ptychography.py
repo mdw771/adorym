@@ -30,8 +30,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         obj_stack = np.stack([obj_delta, obj_beta], axis=3)
         obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
-                                 'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta))
-        probe_pos_batch_ls = split_tasks(probe_pos, n_dp_batch)
+                                 'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+        probe_pos_batch_ls = []
         exiting_ls = []
         i_dp = 0
         while i_dp < minibatch_size:
@@ -59,7 +59,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             subobj_ls = []
-            for j, pos in enumerate(pos_batch):
+            for j in range(len(pos_batch)):
+                pos = pos_batch[j]
                 pos = [int(x) for x in pos]
                 pos[0] = pos[0] + pad_arr[0, 0]
                 pos[1] = pos[1] + pad_arr[1, 0]
@@ -144,11 +145,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         # read rotation data
         try:
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta),
+            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
         except:
-            save_rotation_lookup([dim_y, dim_x, dim_x], n_theta)
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta),
+            save_rotation_lookup(this_obj_size, n_theta)
+            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
 
         if minibatch_size is None:
@@ -231,7 +232,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         print_flush('Optimizer started.')
 
         n_spots = n_theta * n_pos
-        n_tot_per_batch = minibatch_size * size()
+        n_tot_per_batch = minibatch_size * size
         n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
 
         cont = True
@@ -243,8 +244,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             ind_list_rand = []
             print_flush('Allocating jobs over threads...')
             # Make a list of all thetas and spot positions
-            theta_ls = range(n_theta)
-            theta_ls = np.random.shuffle(theta_ls)
+            theta_ls = np.arange(n_theta)
+            np.random.shuffle(theta_ls)
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
@@ -268,7 +269,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 this_pos_batch = probe_pos[this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1]]
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
-                grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_pos_batch, this_prj_batch)
+                grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
                 this_grads = np.array(grads)
                 grads = np.zeros_like(this_grads)
                 comm.Allreduce(this_grads, grads)
