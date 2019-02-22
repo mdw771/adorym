@@ -249,7 +249,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % n_tot_per_batch)],
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % minibatch_size)],
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
                 if i == 0:
@@ -258,7 +258,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
-            ind_list_rand = [np.sort(x, axis=0) for x in ind_list_rand]
 
             for i_batch in range(n_batch):
 
@@ -269,8 +268,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                 this_ind_batch = ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch[rank * minibatch_size, 0]
-                this_prj_batch = prj[this_i_theta, this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1]]
-                this_pos_batch = probe_pos[this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1]]
+                this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+
+                this_prj_batch = prj[this_i_theta, this_ind_rank]
+                this_pos_batch = probe_pos[this_ind_rank]
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
                 grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
@@ -294,7 +295,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             print_flush(
                 'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
-                                                                    calculate_loss(obj_delta, obj_beta, this_ind_batch,
+                                                                    calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
                                                                                    this_prj_batch),
                                                                     time.time() - t0))
         dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
