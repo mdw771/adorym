@@ -249,7 +249,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % minibatch_size)],
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % n_tot_per_batch)],
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
                 if i == 0:
@@ -263,6 +263,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             for i_batch in range(n_batch):
 
                 t00 = time.time()
+                if len(ind_list_rand[i_batch]) < n_tot_per_batch:
+                    n_supp = n_tot_per_batch - np.array(ind_list_rand[i_batch]).shape
+                    ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
+
                 this_ind_batch = ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch[rank * minibatch_size, 0]
                 this_prj_batch = prj[this_i_theta, this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1]]
