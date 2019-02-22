@@ -9,8 +9,8 @@ import warnings
 from util import *
 from misc import *
 import matplotlib.pyplot as plt
-plt.switch_backend('agg')
 
+plt.switch_backend('agg')
 
 PI = 3.1415927
 
@@ -82,33 +82,34 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         for i in range(minibatch_size):
             obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[this_ind_batch[i]],
                                                 'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta)))
-        # obj_rot = apply_rotation(obj, coord_ls[rand_proj], 'arrsize_64_64_64_ntheta_500')
         obj_rot_batch = np.stack(obj_rot_batch)
 
         exiting_batch = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
-                                                probe_real, probe_imag, energy_ev,
-                                                psize_cm * ds_level, free_prop_cm=free_prop_cm, obj_batch_shape=[minibatch_size, *obj_size],
+                                                         probe_real, probe_imag, energy_ev,
+                                                         psize_cm * ds_level, free_prop_cm=free_prop_cm,
+                                                         obj_batch_shape=[minibatch_size, *obj_size],
                                                          kernel=h)
         loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
         if alpha_d is None:
-            reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(obj_delta)
+            reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(
+                obj_delta)
         else:
             if gamma == 0:
                 reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(np.abs(obj_beta))
             else:
-                reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(np.abs(obj_beta)) + gamma * total_variation_3d(obj_delta)
+                reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(
+                    np.abs(obj_beta)) + gamma * total_variation_3d(obj_delta)
         loss = loss + reg_term
 
         return loss
-
-    t0 = time.time()
 
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
 
     # read data
+    t0 = time.time()
     print_flush('Reading data...')
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
@@ -179,12 +180,14 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         dim_y, dim_x = prj.shape[-2:]
         comm.Barrier()
 
-        # # read rotation data
+        # read rotation data
         try:
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta), n_theta)
+            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta),
+                                              n_theta)
         except:
             save_rotation_lookup([dim_y, dim_x, dim_x], n_theta)
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta), n_theta)
+            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta),
+                                              n_theta)
 
         if minibatch_size is None:
             minibatch_size = n_theta
@@ -193,16 +196,19 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             n_epochs_mask_release = np.inf
 
         try:
-            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'), range(prj_0.shape[1]), 5)
+            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'),
+                                            range(prj_0.shape[1]), 5)
         except:
             try:
                 mask = dxchange.read_tiff(os.path.join(save_path, 'fin_sup_mask', 'mask.tiff'))
             except:
-                obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'), range(prj_0.shape[1]), 5)
+                obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'),
+                                                  range(prj_0.shape[1]), 5)
                 obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
                 mask = np.zeros_like(obj_pr)
                 mask[obj_pr > 1e-5] = 1
-                dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32', overwrite=True)
+                dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32',
+                                          overwrite=True)
         if ds_level > 1:
             mask = mask[::ds_level, ::ds_level, ::ds_level]
         dim_z = mask.shape[-1]
@@ -213,8 +219,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         np.random.seed(seed)
         comm.Barrier()
 
-        # initializer_flag = True
-        np.random.seed(int(time.time()))
         if initializer_flag == False:
             if initial_guess is None:
                 print_flush('Initializing with Gaussian random.')
@@ -254,8 +258,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             else:
                 # probe_mag = np.ones([dim_y, dim_x])
                 # probe_phase = np.zeros([dim_y, dim_x])
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_size[2])) if free_prop_cm is not None else (psize_cm * obj_size[2])
-                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev, psize_cm * 1.e7)
+                back_prop_cm = (free_prop_cm + (psize_cm * obj_size[2])) if free_prop_cm is not None else (
+                psize_cm * obj_size[2])
+                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
+                                                        psize_cm * 1.e7)
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
             if pupil_function is not None:
@@ -317,7 +323,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
 
-                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                dxchange.write_tiff(obj_delta,
+                                    fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                     dtype='float32', overwrite=True)
                 # finite support
                 obj_delta = obj_delta * mask
@@ -341,7 +348,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
             print_flush(
                 'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
-                                                                    calculate_loss(obj_delta, obj_beta, this_ind_batch, this_prj_batch),
+                                                                    calculate_loss(obj_delta, obj_beta, this_ind_batch,
+                                                                                   this_prj_batch),
                                                                     time.time() - t0))
         dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                             dtype='float32', overwrite=True)
@@ -349,4 +357,3 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                             overwrite=True)
 
         print_flush('Current iteration finished.')
-
