@@ -148,7 +148,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
         except:
-            save_rotation_lookup(this_obj_size, n_theta)
+            if rank == 0:
+                print('Saving rotation coordinates...')
+                save_rotation_lookup(this_obj_size, n_theta)
+            comm.Barrier()
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
 
