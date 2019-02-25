@@ -1,5 +1,4 @@
 import autograd.numpy as np
-import tensorflow as tf
 from scipy.interpolate import RegularGridInterpolator
 
 from constants import *
