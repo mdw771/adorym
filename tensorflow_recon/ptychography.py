@@ -42,19 +42,19 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         pad_arr = np.array([[0, 0], [0, 0]])
         if probe_pos[:, 0].min() - probe_size_half[0] < 0:
             pad_len = probe_size_half[0] - probe_pos[:, 0].min()
-            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='edge')
+            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[0, 0] = pad_len
         if probe_pos[:, 0].max() + probe_size_half[0] > this_obj_size[0]:
             pad_len = probe_pos[:, 0].max() + probe_size_half[0] - this_obj_size[0]
-            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='edge')
+            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[0, 1] = pad_len
         if probe_pos[:, 1].min() - probe_size_half[1] < 0:
             pad_len = probe_size_half[1] - probe_pos[:, 1].min()
-            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='edge')
+            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
             pad_arr[1, 0] = pad_len
         if probe_pos[:, 1].max() + probe_size_half[1] > this_obj_size[1]:
             pad_len = probe_pos[:, 1].max() + probe_size_half[0] - this_obj_size[1]
-            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='edge')
+            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
             pad_arr[1, 1] = pad_len
 
         for k, pos_batch in enumerate(probe_pos_batch_ls):

@@ -39,7 +39,7 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'finite_support_mask': None,
                   'forward_algorithm': 'fresnel',
                   'object_type': 'normal',
-                  'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
+                  'probe_pos': [(y, x) for y in np.linspace(0, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)]}
 
 params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
                     'theta_st': 0,
