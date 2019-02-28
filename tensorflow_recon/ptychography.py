@@ -70,6 +70,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 subobj_ls.append(subobj)
 
             subobj_ls = np.stack(subobj_ls)
+            print(subobj_ls.shape, k, rank)
             exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
                                                        obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
@@ -266,7 +267,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                 t00 = time.time()
                 if len(ind_list_rand[i_batch]) < n_tot_per_batch:
-                    n_supp = n_tot_per_batch - np.array(ind_list_rand[i_batch]).shape
+                    n_supp = n_tot_per_batch - len(ind_list_rand[i_batch])
                     ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
 
                 this_ind_batch = ind_list_rand[i_batch]
@@ -277,17 +278,20 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 this_pos_batch = probe_pos[this_ind_rank]
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
+                comm.Barrier()
                 grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
                 this_grads = np.array(grads)
                 grads = np.zeros_like(this_grads)
+                comm.Barrier()
                 comm.Allreduce(this_grads, grads)
                 grads = grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
-
-                dxchange.write_tiff(obj_delta,
-                                    fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                    dtype='float32', overwrite=True)
+                if rank == 0:
+                    dxchange.write_tiff(obj_delta,
+                                        fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                comm.Barrier()
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
 
             if n_epochs == 'auto':
@@ -301,9 +305,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                     calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
                                                                                    this_prj_batch),
                                                                     time.time() - t0))
-        dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                            dtype='float32', overwrite=True)
-        dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
-                            overwrite=True)
-
-        print_flush('Current iteration finished.')
+        if rank == 0:
+            dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                dtype='float32', overwrite=True)
+            dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                overwrite=True)
+            print_flush('Current iteration finished.')
+        comm.Barrier()
