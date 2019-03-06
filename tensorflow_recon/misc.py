@@ -73,5 +73,4 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None):
         line = '{:<20}{}\n'.format(var_name, str(locals_dict[var_name]))
         f.write(line)
     f.close()
-
     return

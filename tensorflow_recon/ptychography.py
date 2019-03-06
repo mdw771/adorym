@@ -70,7 +70,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 subobj_ls.append(subobj)
 
             subobj_ls = np.stack(subobj_ls)
-            print(subobj_ls.shape, k, rank)
             exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
                                                        obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
@@ -234,6 +233,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         loss_grad = grad(calculate_loss, [0, 1])
 
         print_flush('Optimizer started.')
+        create_summary(output_folder, locals(), preset='ptycho')
 
         n_spots = n_theta * n_pos
         n_tot_per_batch = minibatch_size * size
@@ -305,10 +305,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                     calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
                                                                                    this_prj_batch),
                                                                     time.time() - t0))
-        if rank == 0:
-            dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                dtype='float32', overwrite=True)
-            dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+            if rank == 0:
+                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                    dtype='float32', overwrite=True)
+                dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
                                 overwrite=True)
             print_flush('Current iteration finished.')
         comm.Barrier()
