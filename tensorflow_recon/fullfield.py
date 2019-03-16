@@ -304,7 +304,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         loss_grad = grad(calculate_loss, [0, 1])
 
         print_flush('Optimizer started.')
-        create_summary(output_folder, locals(), preset='fullfield')
+        if rank == 0:
+            create_summary(output_folder, locals(), preset='fullfield')
 
         cont = True
         i_epoch = 0

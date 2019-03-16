@@ -233,7 +233,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         loss_grad = grad(calculate_loss, [0, 1])
 
         print_flush('Optimizer started.')
-        create_summary(output_folder, locals(), preset='ptycho')
+        if rank == 0:
+            create_summary(output_folder, locals(), preset='ptycho')
 
         n_spots = n_theta * n_pos
         n_tot_per_batch = minibatch_size * size
