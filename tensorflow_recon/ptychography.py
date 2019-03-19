@@ -288,6 +288,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 grads = grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
+                obj_delta = np.clip(obj_delta, 0, None)
+                obj_beta = np.clip(obj_beta, 0, None)
                 if rank == 0:
                     dxchange.write_tiff(obj_delta,
                                         fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
