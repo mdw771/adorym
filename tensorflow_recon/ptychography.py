@@ -247,6 +247,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             t0 = time.time()
             spots_ls = range(n_spots)
             ind_list_rand = []
+            t00 = time.time()
             print_flush('Allocating jobs over threads...')
             # Make a list of all thetas and spot positions
             theta_ls = np.arange(n_theta)
@@ -263,6 +264,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
+            print_flush('Allocation done in {} s.'.format(time.time() - t00))
 
             for i_batch in range(n_batch):
 
