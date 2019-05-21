@@ -85,7 +85,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
     # read data
     t0 = time.time()
-    print_flush('Reading data...')
+    print_flush('Reading data...', designate_rank=0, this_rank=rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
     n_theta = prj.shape[0]
@@ -96,8 +96,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         prj_theta_ind = prj_theta_ind[::theta_downsample]
         n_theta = len(theta)
     original_shape = [n_theta, *prj.shape[1:]]
-    print_flush('Data reading: {} s'.format(time.time() - t0))
-    print_flush('Data shape: {}'.format(original_shape))
+    print_flush('Data reading: {} s'.format(time.time() - t0), designate_rank=0, this_rank=rank)
+    print_flush('Data shape: {}'.format(original_shape), designate_rank=0, this_rank=rank)
     comm.Barrier()
 
     not_first_level = False
@@ -120,7 +120,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     multiscale_level, cpu_only)
         if abs(PI - theta_end) < 1e-3:
             output_folder += '_180'
-    print_flush('Output folder is {}'.format(output_folder))
+    print_flush('Output folder is {}'.format(output_folder), designate_rank=0, this_rank=rank)
 
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
@@ -128,7 +128,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     for ds_level in range(multiscale_level - 1, -1, -1):
 
         ds_level = 2 ** ds_level
-        print_flush('Multiscale downsampling level: {}'.format(ds_level))
+        print_flush('Multiscale downsampling level: {}'.format(ds_level), designate_rank=0, this_rank=rank)
         comm.Barrier()
 
         n_pos = len(probe_pos)
@@ -149,7 +149,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                               n_theta)
         except:
             if rank == 0:
-                print('Saving rotation coordinates...')
+                print_flush('Saving rotation coordinates...', designate_rank=0, this_rank=rank)
                 save_rotation_lookup(this_obj_size, n_theta)
             comm.Barrier()
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -164,35 +164,48 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         np.random.seed(seed)
         comm.Barrier()
 
-        if not_first_level == False:
-            if initial_guess is None:
-                print_flush('Initializing with Gaussian random.')
-                obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
+        if rank == 0:
+            if not_first_level == False:
+                if initial_guess is None:
+                    print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank)
+                    obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
+                    obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
+                    obj_delta[obj_delta < 0] = 0
+                    obj_beta[obj_beta < 0] = 0
+                else:
+                    print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank)
+                    sys.stdout.flush()
+                    obj_delta = initial_guess[0]
+                    obj_beta = initial_guess[1]
+            else:
+                print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank)
+                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_delta = upsample_2x(obj_delta)
+                obj_beta = upsample_2x(obj_beta)
+                obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
+                obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
                 obj_delta[obj_delta < 0] = 0
                 obj_beta[obj_beta < 0] = 0
-            else:
-                print_flush('Using supplied initial guess.')
-                sys.stdout.flush()
-                obj_delta = initial_guess[0]
-                obj_beta = initial_guess[1]
-        else:
-            print_flush('Initializing with Gaussian random.')
-            obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_delta = upsample_2x(obj_delta)
-            obj_beta = upsample_2x(obj_beta)
-            obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-            obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
-            obj_delta[obj_delta < 0] = 0
-            obj_beta[obj_beta < 0] = 0
-        if object_type == 'phase_only':
-            obj_beta[...] = 0
-        elif object_type == 'absorption_only':
-            obj_delta[...] = 0
-        # ====================================================
+            if object_type == 'phase_only':
+                obj_beta[...] = 0
+            elif object_type == 'absorption_only':
+                obj_delta[...] = 0
+            np.save('init_delta_temp.npy', obj_delta)
+            np.save('init_beta_temp.npy', obj_beta)
+        comm.Barrier()
+        if rank != 0:
+            obj_delta = np.zeros(this_obj_size)
+            obj_beta = np.zeros(this_obj_size)
+            obj_delta[:, :, :] = np.load('init_delta_temp.npy')
+            obj_beta[:, :, :] = np.load('init_beta_temp.npy')
+        comm.Barrier()
+        if rank == 0:
+            os.remove('init_delta_temp.npy')
+            os.remove('init_beta_temp.npy')
+        comm.Barrier()
 
-        print_flush('Initialzing probe...')
+        print_flush('Initialzing probe...', designate_rank=0)
         if probe_type == 'gaussian':
             probe_mag_sigma = kwargs['probe_mag_sigma']
             probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -232,7 +245,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         loss_grad = grad(calculate_loss, [0, 1])
 
-        print_flush('Optimizer started.')
+        print_flush('Optimizer started.', designate_rank=0, this_rank=rank)
         if rank == 0:
             create_summary(output_folder, locals(), preset='ptycho')
 
@@ -248,7 +261,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             spots_ls = range(n_spots)
             ind_list_rand = []
             t00 = time.time()
-            print_flush('Allocating jobs over threads...')
+            print_flush('Allocating jobs over threads...', designate_rank=0, this_rank=rank)
             # Make a list of all thetas and spot positions
             theta_ls = np.arange(n_theta)
             np.random.shuffle(theta_ls)
@@ -264,7 +277,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
-            print_flush('Allocation done in {} s.'.format(time.time() - t00))
+            print_flush('Allocation done in {} s.'.format(time.time() - t00), designate_rank=0, this_rank=rank)
 
             for i_batch in range(n_batch):
 
@@ -304,16 +317,23 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 if i_epoch == n_epochs - 1: cont = False
             i_epoch = i_epoch + 1
+            
+            #if i_epoch == 1:
+            #    dxchange.write_tiff(obj_delta, os.path.join(output_folder, 'debug', 'rank_{}'.format(rank)), dtype='float32')
 
+            this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
+                                                                                   this_prj_batch)
+            average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
-                                                                    calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
-                                                                                   this_prj_batch),
+                                                                    this_loss,
                                                                     time.time() - t0))
+            #print_flush(    
+            #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
             if rank == 0:
                 dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                     dtype='float32', overwrite=True)
                 dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
                                 overwrite=True)
-            print_flush('Current iteration finished.')
+            print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()

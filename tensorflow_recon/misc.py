@@ -58,7 +58,7 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'object_type']
 
 
-def create_summary(save_path, locals_dict, var_list=None, preset=None):
+def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=True):
 
     if preset == 'ptycho':
         var_list = SUMMARY_PRESET_PTYCHO
@@ -69,8 +69,12 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None):
     if not os.path.exists(save_path):
         os.makedirs(save_path)
     f = open(os.path.join(save_path, 'summary.txt'), 'w')
+    print('============== PARAMETERS ==============')
     for var_name in var_list:
         line = '{:<20}{}\n'.format(var_name, str(locals_dict[var_name]))
+        if verbose:
+            print(line)
         f.write(line)
+    print('========================================')
     f.close()
     return

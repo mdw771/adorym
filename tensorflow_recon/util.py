@@ -690,9 +690,15 @@ def upsample_2x(arr):
     return out_arr
 
 
-def print_flush(a):
-    print(a)
+def print_flush(a, designate_rank=None, this_rank=None):
+
+    if designate_rank is not None:
+        if this_rank == designate_rank:
+            print(a)
+    else:
+        print(a)
     sys.stdout.flush()
+    return
 
 
 def real_imag_to_mag_phase(realpart, imagpart):
