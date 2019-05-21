@@ -24,7 +24,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
-                             forward_algorithm='fresnel',
+                             forward_algorithm='fresnel', dynamic_dropping=True, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', **kwargs):
     def calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch):
 
@@ -249,13 +249,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         if rank == 0:
             create_summary(output_folder, locals(), preset='ptycho')
 
-        n_spots = n_theta * n_pos
-        n_tot_per_batch = minibatch_size * size
-        n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
-
         cont = True
         i_epoch = 0
         while cont:
+            n_pos = len(probe_pos)
+            n_spots = n_theta * n_pos
+            n_tot_per_batch = minibatch_size * size
+            n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
+
             m, v = (None, None)
             t0 = time.time()
             spots_ls = range(n_spots)
@@ -316,13 +317,34 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pass
             else:
                 if i_epoch == n_epochs - 1: cont = False
+
+            if dynamic_dropping:
+                print_flush('Dynamic dropping...', 0, rank)
+                this_loss_table = np.zeros(n_pos)
+                loss_table = np.zeros(n_pos)
+                fill_start = 0
+                ind_list = np.arange(n_pos)
+                if n_pos % size != 0:
+                    ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
+                while fill_start < n_pos:
+                    this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
+                    this_prj_batch = prj[0, this_ind_rank]
+                    this_pos_batch = probe_pos[this_ind_rank]
+                    this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
+                    loss_table[fill_start + rank] = this_loss
+                    fill_start += size
+                comm.Allreduce(this_loss_table, loss_table)
+                loss_table = loss_table[:n_pos]
+                drop_ls = np.where(loss_table < dropping_threshold)[0]
+                np.delete(probe_pos, drop_ls, axis=0)
+                print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
+
             i_epoch = i_epoch + 1
             
             #if i_epoch == 1:
             #    dxchange.write_tiff(obj_delta, os.path.join(output_folder, 'debug', 'rank_{}'.format(rank)), dtype='float32')
 
-            this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch,
-                                                                                   this_prj_batch)
+            this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
             average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
