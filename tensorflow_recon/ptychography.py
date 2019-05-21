@@ -82,6 +82,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
+    t_zero = time.time()
 
     # read data
     t0 = time.time()
@@ -347,9 +348,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
             average_loss = 0
             print_flush(
-                'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
+                'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     this_loss,
-                                                                    time.time() - t0))
+                                                                    time.time() - t0, time.time() - t_zero))
             #print_flush(    
             #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
             if rank == 0:

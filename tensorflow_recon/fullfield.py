@@ -107,10 +107,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     comm = MPI.COMM_WORLD
     size = comm.Get_size()
     rank = comm.Get_rank()
+    t_zero = time.time()
 
     # read data
     t0 = time.time()
-    print_flush('Reading data...')
+    print_flush('Reading data...', 0, rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj_0 = f['exchange/data'][...].astype('complex64')
     theta = -np.linspace(theta_st, theta_end, prj_0.shape[0], dtype='float32')
@@ -123,8 +124,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         n_theta = len(theta)
     original_shape = prj_0.shape
     comm.Barrier()
-    print_flush('Data reading: {} s'.format(time.time() - t0))
-    print_flush('Data shape: {}'.format(original_shape))
+    print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
+    print_flush('Data shape: {}'.format(original_shape), 0, rank)
     comm.Barrier()
 
     initializer_flag = False
@@ -158,7 +159,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     for ds_level in range(multiscale_level - 1, -1, -1):
 
         ds_level = 2 ** ds_level
-        print_flush('Multiscale downsampling level: {}'.format(ds_level))
+        print_flush('Multiscale downsampling level: {}'.format(ds_level), 0, rank)
         comm.Barrier()
 
         # downsample data
@@ -221,18 +222,18 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         if initializer_flag == False:
             if initial_guess is None:
-                print_flush('Initializing with Gaussian random.')
+                print_flush('Initializing with Gaussian random.', 0, rank)
                 obj_delta = np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=1e-7) * mask
                 obj_beta = np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=1e-8) * mask
                 obj_delta[obj_delta < 0] = 0
                 obj_beta[obj_beta < 0] = 0
             else:
-                print_flush('Using supplied initial guess.')
+                print_flush('Using supplied initial guess.', 0, rank)
                 sys.stdout.flush()
                 obj_delta = initial_guess[0]
                 obj_beta = initial_guess[1]
         else:
-            print_flush('Initializing with Gaussian random.')
+            print_flush('Initializing with Gaussian random.', 0, rank)
             obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
             obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
             obj_delta = upsample_2x(obj_delta)
@@ -303,7 +304,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         loss_grad = grad(calculate_loss, [0, 1])
 
-        print_flush('Optimizer started.')
+        print_flush('Optimizer started.', 0, rank)
         if rank == 0:
             create_summary(output_folder, locals(), preset='fullfield')
 
@@ -349,13 +350,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             i_epoch = i_epoch + 1
 
             print_flush(
-                'Epoch {} (rank {}); loss = {}; time = {} s'.format(i_epoch, rank,
+                'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {}.'.format(i_epoch, rank,
                                                                     calculate_loss(obj_delta, obj_beta, this_ind_batch,
                                                                                    this_prj_batch),
-                                                                    time.time() - t0))
+                                                                    time.time() - t0, time.time() - t_zero))
         dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                             dtype='float32', overwrite=True)
         dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
                             overwrite=True)
 
-        print_flush('Current iteration finished.')
+        print_flush('Current iteration finished.', 0, rank)
