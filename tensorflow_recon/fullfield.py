@@ -23,7 +23,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
                           pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True,
-                          object_type='normal', **kwargs):
+                          object_type='normal', fresnel_approx=False, **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -300,7 +300,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
         delta_nm = voxel_nm[-1]
-        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x])
+        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x], fresnel_approx=fresnel_approx)
 
         loss_grad = grad(calculate_loss, [0, 1])
 

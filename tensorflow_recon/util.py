@@ -153,7 +153,7 @@ def gen_mesh(max, shape):
     return res
 
 
-def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape):
+def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=False):
     """Get Fresnel propagation kernel for TF algorithm.
 
     Parameters:
@@ -168,7 +168,10 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     v_max = 1. / (2. * voxel_nm[1])
     u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
     # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
-    H = np.exp(1j * k * dist_nm) * np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+    if fresnel_approx:
+        H = np.exp(1j * k * dist_nm) * np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+    else:
+        H = np.exp(-1j * 2 * PI * dist_nm / lmbda_nm * np.sqrt(1 - lmbda_nm ** 2 * (u ** 2 + v ** 2)))
 
     return H
 
@@ -299,7 +302,7 @@ def exp_j(a):
     return np.cos(a) + 1j * np.sin(a)
 
 
-def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, free_prop_cm=None, obj_batch_shape=None, kernel=None):
+def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm, free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=False):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -317,7 +320,7 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
     if kernel is not None:
         h = kernel
     else:
-        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape)
+        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
     k = 2. * PI * delta_nm / lmbda_nm
 
     for i in range(n_slice):
