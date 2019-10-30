@@ -1,3 +1,5 @@
+import numpy
+print('Numpy is {}'.format(numpy.__file__))
 import autograd.numpy as np
 from autograd import grad
 from mpi4py import MPI
