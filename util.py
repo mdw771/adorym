@@ -70,8 +70,8 @@ class Simulator(object):
 
     def read_grid(self, save_path='data/sav/grid'):
         try:
-            self.grid_delta = np.load(os.path.join(save_path, 'grid_delta.npy'))
-            self.grid_beta = np.load(os.path.join(save_path, 'grid_beta.npy'))
+            self.grid_delta = np.load(os.path.join(save_path, 'grid_delta.npy'), allow_pickle=True)
+            self.grid_beta = np.load(os.path.join(save_path, 'grid_beta.npy'), allow_pickle=True)
         except:
             raise ValueError('Failed to read grid.')
 
@@ -419,7 +419,7 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
 def read_origin_coords(src_folder, index):
 
-    coords = np.load(os.path.join(src_folder, '{:04}.npy'.format(index)))
+    coords = np.load(os.path.join(src_folder, '{:04}.npy'.format(index)), allow_pickle=True)
     return coords
 
 
@@ -436,7 +436,7 @@ def apply_rotation(obj, coord_old, src_folder):
     coord_vec_ls = []
     for i in range(3):
         f = os.path.join(src_folder, 'coord{}_vec.npy'.format(i))
-        coord_vec_ls.append(np.load(f))
+        coord_vec_ls.append(np.load(f, allow_pickle=True))
     s = obj.shape
     coord0_vec, coord1_vec, coord2_vec = coord_vec_ls
 

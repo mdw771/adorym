@@ -178,7 +178,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             ind_ls = np.concatenate(ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch])
         ind_ls = split_tasks(ind_ls, n_tot_per_batch)
         ind_ls = [np.sort(x) for x in ind_ls]
-        print(len(ind_ls), n_theta % n_tot_per_batch)
 
         dim_y, dim_x = prj.shape[-2:]
         comm.Barrier()
