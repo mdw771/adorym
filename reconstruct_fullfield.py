@@ -27,10 +27,10 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'minibatch_size': 10,
                   'theta_downsample': None,
                   'n_epochs_mask_release': 200,
-                  'shrink_cycle': 9999,
+                  'shrink_cycle': None,
                   'free_prop_cm': None,
                   'n_batch_per_update': 1,
-                  'output_folder': 'awesome',
+                  'output_folder': 'test',
                   'cpu_only': True,
                   'save_path': 'adhesin',
                   'phantom_path': 'adhesin/phantom',
@@ -41,6 +41,7 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'initial_guess': None,
                   'probe_type': 'plane',
                   'forward_algorithm': 'fresnel',
+                  'fresnel_approx': True,
                   'kwargs': {}}
 
 params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
@@ -71,6 +72,7 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'initial_guess': None,
                'probe_type': 'plane',
                'forward_algorithm': 'fresnel',
+               'fresnel_approx': True,
                'kwargs': {}}
 
 params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180.h5',
@@ -264,7 +266,7 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_cone
+params = params_adhesin
 # init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 # init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]

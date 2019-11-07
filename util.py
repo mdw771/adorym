@@ -169,9 +169,11 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=False):
     u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
     # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
     if fresnel_approx:
-        H = np.exp(1j * k * dist_nm) * np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+        H = np.exp(1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
     else:
-        H = np.exp(-1j * 2 * PI * dist_nm / lmbda_nm * np.sqrt(1 - lmbda_nm ** 2 * (u ** 2 + v ** 2)))
+        quad = 1 - lmbda_nm ** 2 * (u**2 + v**2)
+        quad_inner = np.clip(quad, a_min=0, a_max=None)
+        H = np.exp(-1j * 2 * PI * dist_nm / lmbda_nm * np.sqrt(quad_inner))
 
     return H
 

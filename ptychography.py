@@ -26,6 +26,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                              forward_algorithm='fresnel', dynamic_dropping=True, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, **kwargs):
+
     def calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch):
 
         obj_stack = np.stack([obj_delta, obj_beta], axis=3)
@@ -262,6 +263,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             t0 = time.time()
             spots_ls = range(n_spots)
             ind_list_rand = []
+
             t00 = time.time()
             print_flush('Allocating jobs over threads...', designate_rank=0, this_rank=rank)
             # Make a list of all thetas and spot positions
@@ -270,6 +272,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
+                    # Append randomly selected diffraction spots if necessary, so that a rank won't be given
+                    # spots from different angles in one batch.
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % minibatch_size)],
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
@@ -279,6 +283,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
+            # ind_list_rand is in the format of [((5, 0), (5, 1), ...), ((17, 0), (17, 1), ..., (...))]
+            #                                    |___________________|   |_____|
+            #                       a batch for all ranks  _|               |_ (i_theta, i_spot)
+            #                    (minibatch_size * n_ranks)
             print_flush('Allocation done in {} s.'.format(time.time() - t00), designate_rank=0, this_rank=rank)
 
             for i_batch in range(n_batch):
