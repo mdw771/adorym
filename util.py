@@ -169,7 +169,7 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=False):
     u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
     # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
     if fresnel_approx:
-        H = np.exp(1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
+        H = np.exp(-1j * PI * lmbda_nm * dist_nm * (u**2 + v**2)) # NOTE: may need to inverse sign
     else:
         quad = 1 - lmbda_nm ** 2 * (u**2 + v**2)
         quad_inner = np.clip(quad, a_min=0, a_max=None)
@@ -207,50 +207,6 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
         H = np.fft.fftshift(np.fft.fft2(h)) * voxel_nm[0] * voxel_nm[1]
 
     return H
-
-
-def get_kernel_spherical(dist_nm, lmbda_nm, r_nm, theta_max, phi_max, probe_shape):
-
-    k_theta = PI / theta_max * (np.arange(probe_shape[0]) - float(probe_shape[0] - 1) / 2)
-    k_phi = PI / phi_max * (np.arange(probe_shape[1]) - float(probe_shape[1] - 1) / 2)
-    k_theta = k_theta.astype(np.complex64)
-    k_phi = k_phi.astype(np.complex64)
-    k_phi, k_theta = tf.meshgrid(k_phi, k_theta)
-    k = 2 * PI / lmbda_nm
-    H = tf.exp(-1j / (2 * k) * (k_theta ** 2 + k_phi ** 2) * tf.cast(1. / (r_nm + dist_nm) - 1. / r_nm, tf.complex64))
-    return H
-
-
-def rescale_image(arr, m, original_shape):
-    """
-    :param arr: 3D image array [NHW]
-    :param m:
-    :param original_shape:
-    :return:
-    """
-    n_batch = arr.shape[0]
-    arr_shape = tf.cast(arr.shape[-2:], tf.float32)
-    y_newlen = arr_shape[0] / m
-    x_newlen = arr_shape[1] / m
-    # tf.linspace shouldn't be used since it does not support gradient
-    y = tf.range(0, arr_shape[0], 1, dtype=tf.float32)
-    y = y / m + (original_shape[1] - y_newlen) / 2.
-    x = tf.range(0, arr_shape[1], 1, dtype=tf.float32)
-    x = x / m + (original_shape[2] - x_newlen) / 2.
-    y = tf.clip_by_value(y, 0, arr_shape[0])
-    x = tf.clip_by_value(x, 0, arr_shape[1])
-    x_resample, y_resample = tf.meshgrid(x, y, indexing='ij')
-    warp = tf.transpose(tf.stack([x_resample, y_resample]))
-    # warp = tf.transpose(tf.stack([tf.reshape(y_resample, (np.prod(original_shape), )), tf.reshape(x_resample, (np.prod(original_shape), ))]))
-    # warp = tf.cast(warp, tf.int32)
-    # arr = arr * tf.reshape(warp[:, 0], original_shape)
-    # arr = tf.gather_nd(arr, warp)
-    warp = tf.expand_dims(warp, 0)
-    warp = tf.tile(warp, [n_batch, 1, 1, 1])
-    arr = tf.contrib.resampler.resampler(tf.expand_dims(arr, -1), warp)
-    arr = tf.reshape(arr, original_shape)
-
-    return arr
 
 
 def preprocess(dat, blur=None, normalize_bg=False):
@@ -406,9 +362,12 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
     if not os.path.exists(dest_folder):
         os.mkdir(dest_folder)
+    # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
+    # voxel in the object at that angle.
     for i, arr in enumerate(coord_old_ls):
         np.save(os.path.join(dest_folder, '{:04}'.format(i)), arr)
 
+    # coord_vec's are coordinates list of current object (ordered, e.g. (0, 0, 0), (0, 0, 1), ...)
     coord1_vec = coord1_vec + image_center[1]
     coord1_vec = np.tile(coord1_vec, array_size[0])
     coord2_vec = coord2_vec + image_center[2]
@@ -448,7 +407,6 @@ def apply_rotation(obj, coord_old, src_folder):
     coord_old = np.stack([coord0_vec, coord1_old, coord2_old], axis=1).transpose()
     # print(sess.run(coord_old))
 
-
     obj_channel_ls = np.split(obj, s[3], 3)
     obj_rot_channel_ls = []
     for channel in obj_channel_ls:
@@ -461,88 +419,72 @@ def apply_rotation(obj, coord_old, src_folder):
     return obj_rot
 
 
-def rotate_image_tensor(image, angle, mode='black'):
+def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
     """
-    Rotates a 3D tensor (HWD), which represents an image by given radian angle.
-
-    New image has the same size as the input image.
-
-    mode controls what happens to border pixels.
-    mode = 'black' results in black bars (value 0 in unknown areas)
-    mode = 'white' results in value 255 in unknown areas
-    mode = 'ones' results in value 1 in unknown areas
-    mode = 'repeat' keeps repeating the closest pixel known
+    Get rotated subblocks centering this_pos_batch directly from HDF5.
+    :return: [n_pos, y, x, z, 2]
     """
-    s = image.get_shape().as_list()
-    assert len(s) == 3, "Input needs to be 3D."
-    assert (mode == 'repeat') or (mode == 'black') or (mode == 'white') or (mode == 'ones'), "Unknown boundary mode."
-    image_center = [np.floor(x/2) for x in s]
+    whole_object_size = dset.shape[:-1]
+    block_stack = []
+    for this_y, this_x in this_pos_batch:
+        coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
+        coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+        coord2_vec = np.arange(whole_object_size[-1])
+        array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
 
-    # Coordinates of new image
-    coord1 = tf.range(s[0])
-    coord2 = tf.range(s[1])
+        coord2_vec = np.tile(coord2_vec, array_size[1])
+        coord1_vec = np.repeat(coord1_vec, array_size[2])
 
-    # Create vectors of those coordinates in order to vectorize the image
-    coord1_vec = tf.tile(coord1, [s[1]])
+        # Flattened sub-block indices in current object frame
+        ind_new = coord1_vec * whole_object_size[1] + coord2_vec
 
-    coord2_vec_unordered = tf.tile(coord2, [s[0]])
-    coord2_vec_unordered = tf.reshape(coord2_vec_unordered, [s[0], s[1]])
-    coord2_vec = tf.reshape(tf.transpose(coord2_vec_unordered, [1, 0]), [-1])
+        # Flattened sub-block indices in original object frame
+        ind_old_1 = coord_old[:, 0][ind_new].astype(int)
+        ind_old_2 = coord_old[:, 1][ind_new].astype(int)
+        ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
-    # center coordinates since rotation center is supposed to be in the image center
-    coord1_vec_centered = coord1_vec - image_center[0]
-    coord2_vec_centered = coord2_vec - image_center[1]
+        # Take values from original object in HDF5
+        this_block = []
+        for i0 in coord0_vec:
+            this_layer = []
+            for channel in range(dset.shape[-1]):
+                layer_old = dset[i0, :, :, channel]
+                layer_old = layer_old.flatten()
+                layer_new = layer_old[ind_old]
+                layer_new = np.reshape(layer_new, [array_size[1], array_size[2]])
+                this_layer.append(layer_new)
+            this_layer = np.stack(this_layer, axis=2)
+            this_block.append(this_layer)
+        this_block = np.stack(this_block, axis=0)
+        block_stack.append(this_block)
+    block_stack = np.stack(block_stack, axis=0)
+    return block_stack
 
-    coord_new_centered = tf.cast(tf.pack([coord1_vec_centered, coord2_vec_centered]), tf.float32)
 
-    # Perform backward transformation of the image coordinates
-    rot_mat_inv = tf.dynamic_stitch([[0], [1], [2], [3]], [tf.cos(angle), tf.sin(angle), -tf.sin(angle), tf.cos(angle)])
-    rot_mat_inv = tf.reshape(rot_mat_inv, shape=[2, 2])
-    coord_old_centered = tf.matmul(rot_mat_inv, coord_new_centered)
+def pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half):
+    """
+    Pad the object with 0 if any of the probes' extents go beyond the object boundary.
+    :return: padded object and padding lengths.
+    """
+    pad_arr = np.array([[0, 0], [0, 0]])
+    if probe_pos[:, 0].min() - probe_size_half[0] < 0:
+        pad_len = probe_size_half[0] - probe_pos[:, 0].min()
+        obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
+        pad_arr[0, 0] = pad_len
+    if probe_pos[:, 0].max() + probe_size_half[0] > this_obj_size[0]:
+        pad_len = probe_pos[:, 0].max() + probe_size_half[0] - this_obj_size[0]
+        obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+        pad_arr[0, 1] = pad_len
+    if probe_pos[:, 1].min() - probe_size_half[1] < 0:
+        pad_len = probe_size_half[1] - probe_pos[:, 1].min()
+        obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
+        pad_arr[1, 0] = pad_len
+    if probe_pos[:, 1].max() + probe_size_half[1] > this_obj_size[1]:
+        pad_len = probe_pos[:, 1].max() + probe_size_half[0] - this_obj_size[1]
+        obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
+        pad_arr[1, 1] = pad_len
 
-    # Find nearest neighbor in old image
-    coord1_old_nn = tf.cast(tf.round(coord_old_centered[0, :] + image_center[0]), tf.int32)
-    coord2_old_nn = tf.cast(tf.round(coord_old_centered[1, :] + image_center[1]), tf.int32)
-
-    # Clip values to stay inside image coordinates
-    if mode == 'repeat':
-        coord_old1_clipped = tf.minimum(tf.maximum(coord1_old_nn, 0), s[0]-1)
-        coord_old2_clipped = tf.minimum(tf.maximum(coord2_old_nn, 0), s[1]-1)
-    else:
-        outside_ind1 = tf.logical_or(tf.greater(coord1_old_nn, s[0]-1), tf.less(coord1_old_nn, 0))
-        outside_ind2 = tf.logical_or(tf.greater(coord2_old_nn, s[1]-1), tf.less(coord2_old_nn, 0))
-        outside_ind = tf.logical_or(outside_ind1, outside_ind2)
-
-        coord_old1_clipped = tf.boolean_mask(coord1_old_nn, tf.logical_not(outside_ind))
-        coord_old2_clipped = tf.boolean_mask(coord2_old_nn, tf.logical_not(outside_ind))
-
-        coord1_vec = tf.boolean_mask(coord1_vec, tf.logical_not(outside_ind))
-        coord2_vec = tf.boolean_mask(coord2_vec, tf.logical_not(outside_ind))
-
-    coord_old_clipped = tf.cast(tf.transpose(tf.pack([coord_old1_clipped, coord_old2_clipped]), [1, 0]), tf.int32)
-
-    # Coordinates of the new image
-    coord_new = tf.transpose(tf.cast(tf.pack([coord1_vec, coord2_vec]), tf.int32), [1, 0])
-
-    image_channel_list = tf.split(2, s[2], image)
-
-    image_rotated_channel_list = list()
-    for image_channel in image_channel_list:
-        image_chan_new_values = tf.gather_nd(tf.squeeze(image_channel), coord_old_clipped)
-
-        if (mode == 'black') or (mode == 'repeat'):
-            background_color = 0
-        elif mode == 'ones':
-            background_color = 1
-        elif mode == 'white':
-            background_color = 255
-
-        image_rotated_channel_list.append(tf.sparse_to_dense(coord_new, [s[0], s[1]], image_chan_new_values,
-                                                             background_color, validate_indices=False))
-
-    image_rotated = tf.transpose(tf.pack(image_rotated_channel_list), [1, 2, 0])
-
-    return image_rotated
+    return obj_rot, pad_arr
 
 
 def total_variation_3d(arr):
