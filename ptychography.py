@@ -365,9 +365,6 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
 
     def calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch):
 
-        obj_stack = np.stack([obj_delta, obj_beta], axis=3)
-        obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
-                                 'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
         probe_pos_batch_ls = []
         exiting_ls = []
         i_dp = 0
@@ -375,44 +372,17 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
             probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
             i_dp += n_dp_batch
 
-        # pad if needed
-        pad_arr = np.array([[0, 0], [0, 0]])
-        if probe_pos[:, 0].min() - probe_size_half[0] < 0:
-            pad_len = probe_size_half[0] - probe_pos[:, 0].min()
-            obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
-            pad_arr[0, 0] = pad_len
-        if probe_pos[:, 0].max() + probe_size_half[0] > this_obj_size[0]:
-            pad_len = probe_pos[:, 0].max() + probe_size_half[0] - this_obj_size[0]
-            obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
-            pad_arr[0, 1] = pad_len
-        if probe_pos[:, 1].min() - probe_size_half[1] < 0:
-            pad_len = probe_size_half[1] - probe_pos[:, 1].min()
-            obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
-            pad_arr[1, 0] = pad_len
-        if probe_pos[:, 1].max() + probe_size_half[1] > this_obj_size[1]:
-            pad_len = probe_pos[:, 1].max() + probe_size_half[0] - this_obj_size[1]
-            obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
-            pad_arr[1, 1] = pad_len
-
+        pos_ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
-            subobj_ls = []
-            for j in range(len(pos_batch)):
-                pos = pos_batch[j]
-                pos = [int(x) for x in pos]
-                pos[0] = pos[0] + pad_arr[0, 0]
-                pos[1] = pos[1] + pad_arr[1, 0]
-                subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
-                         pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
-                         :, :]
-                subobj_ls.append(subobj)
-
-            subobj_ls = np.stack(subobj_ls)
-            exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
+            subobj_ls_delta = obj_delta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+            subobj_ls_beta = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+            exiting = multislice_propagate_batch_numpy(subobj_ls_delta, subobj_ls_beta, probe_real,
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
                                                        obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
             exiting_ls.append(exiting)
         exiting_ls = np.concatenate(exiting_ls, 0)
         loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
+        print('loss', loss)
 
         return loss
 
@@ -535,6 +505,10 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
                 obj_delta_init[...] = 0
             dset[:, :, :, 0] = obj_delta_init
             dset[:, :, :, 1] = obj_beta_init
+        # obj_delta = np.zeros_like(obj_delta_init)
+        # obj_delta[...] = obj_delta_init
+        # obj_beta = np.zeros_like(obj_beta_init)
+        # obj_beta[...] = obj_beta_init
         comm.Barrier()
 
         print_flush('Initialzing probe...', designate_rank=0)
@@ -638,24 +612,30 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
                 comm.Barrier()
 
                 # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
-                obj_delta, obj_beta = get_rotated_subblocks(dset, this_pos_batch, coord_ls, probe_size_half)
+                obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                obj_delta = np.array(obj[:, :, :, :, 0])
+                obj_beta = np.array(obj[:, :, :, :, 1])
+                print('obj shape', obj.shape)
 
                 grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
-                this_grads = np.array(grads)
-                grads = np.zeros_like(this_grads)
-                comm.Barrier()
-                comm.Allreduce(this_grads, grads)
-                grads = grads / size
+                print('grads[0] shape', grads[0].shape)
+                print('grads[0] max', grads[0].max())
+                grads = np.array(grads) / size
+                if rank == 0: dxchange.write_tiff(grads[0], os.path.join(output_folder, 'current', 'grad.tiff'), dtype='float32', overwrite=True)
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
-                if rank == 0:
-                    dxchange.write_tiff(obj_delta,
-                                        fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
+                obj_delta = obj_delta - obj[:, :, :, :, 0]
+                obj_beta = obj_beta - obj[:, :, :, :, 1]
+                write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta], probe_size_half)
                 comm.Barrier()
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
+
+                if rank == 0:
+                    dxchange.write_tiff(dset[:, :, :, 0],
+                                        fname=os.path.join(output_folder, 'current/delta'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
 
             if n_epochs == 'auto':
                 pass
@@ -694,9 +674,9 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
             #print_flush(
             #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
             if rank == 0:
-                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                dxchange.write_tiff(dset[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                     dtype='float32', overwrite=True)
-                dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                dxchange.write_tiff(dset[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
                                 overwrite=True)
             print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()

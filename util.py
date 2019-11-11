@@ -461,6 +461,39 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
     return block_stack
 
 
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half):
+    """
+    Write data back in the HDF5.
+    """
+    whole_object_size = dset.shape[:-1]
+    for i_batch, (this_y, this_x) in enumerate(this_pos_batch):
+        coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
+        coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+        coord2_vec = np.arange(whole_object_size[-1])
+        array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
+
+        coord2_vec = np.tile(coord2_vec, array_size[1])
+        coord1_vec = np.repeat(coord1_vec, array_size[2])
+
+        # Flattened sub-block indices in current object frame
+        ind_new = coord1_vec * whole_object_size[1] + coord2_vec
+
+        # Flattened sub-block indices in original object frame
+        ind_old_1 = coord_old[:, 0][ind_new].astype(int)
+        ind_old_2 = coord_old[:, 1][ind_new].astype(int)
+        ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
+
+        # Take values from original object in HDF5
+        for i, i0 in enumerate(coord0_vec):
+            this_layer = np.zeros(whole_object_size[1] * whole_object_size[2])
+            this_layer[ind_old] += obj_delta[i_batch, i, :, :].flatten()
+            dset[i0, :, :, 0] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2]])
+            this_layer = np.zeros(whole_object_size[1] * whole_object_size[2])
+            this_layer[ind_old] += obj_beta[i_batch, i, :, :].flatten()
+            dset[i0, :, :, 1] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2]])
+    return
+
+
 def pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
