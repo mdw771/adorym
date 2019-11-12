@@ -446,6 +446,7 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
         # Take values from original object in HDF5
         this_block = []
         for i0 in coord0_vec:
+            i0 = np.clip(i0, 0, whole_object_size[0] - 1)
             this_layer = []
             for channel in range(dset.shape[-1]):
                 layer_old = dset[i0, :, :, channel]
@@ -485,6 +486,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
 
         # Take values from original object in HDF5
         for i, i0 in enumerate(coord0_vec):
+            i0 = np.clip(i0, 0, whole_object_size[0] - 1)
             this_layer = np.zeros(whole_object_size[1] * whole_object_size[2])
             this_layer[ind_old] += obj_delta[i_batch, i, :, :].flatten()
             dset[i0, :, :, 0] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2]])
