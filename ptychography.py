@@ -351,7 +351,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
 
-def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_fname='intermediate_obj.h5', theta_st=0, theta_end=PI, theta_downsample=None,
+def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, theta_downsample=None,
                                   n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                                   alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                                   output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
@@ -451,9 +451,13 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
         dim_y, dim_x = prj_shape[-2:]
         comm.Barrier()
 
-        # Create parallel HDF5
-        f_obj = h5py.File(os.path.join(output_folder, hdf5_fname), 'w', driver='mpio', comm=comm)
-        dset = f_obj.create_dataset('obj', shape=(*this_obj_size, 2), dtype='float32')
+        # Create parallel npy
+        if rank == 0:
+            np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
+        comm.Barrier()
+
+        # Create memmap pointer on each rank
+        dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
 
         # read rotation data
         try:

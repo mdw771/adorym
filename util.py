@@ -421,7 +421,7 @@ def apply_rotation(obj, coord_old, src_folder):
 
 def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
     """
-    Get rotated subblocks centering this_pos_batch directly from HDF5.
+    Get rotated subblocks centering this_pos_batch directly from npy.
     :return: [n_pos, y, x, z, 2]
     """
     whole_object_size = dset.shape[:-1]
@@ -430,6 +430,7 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
         coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
         coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
         coord2_vec = np.arange(whole_object_size[-1])
+        coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
 
         coord2_vec = np.tile(coord2_vec, array_size[1])
@@ -441,22 +442,15 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
         # Flattened sub-block indices in original object frame
         ind_old_1 = coord_old[:, 0][ind_new].astype(int)
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
-        ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
-        # Take values from original object in HDF5
-        this_block = []
-        for i0 in coord0_vec:
-            i0 = np.clip(i0, 0, whole_object_size[0] - 1)
-            this_layer = []
-            for channel in range(dset.shape[-1]):
-                layer_old = dset[i0, :, :, channel]
-                layer_old = layer_old.flatten()
-                layer_new = layer_old[ind_old]
-                layer_new = np.reshape(layer_new, [array_size[1], array_size[2]])
-                this_layer.append(layer_new)
-            this_layer = np.stack(this_layer, axis=2)
-            this_block.append(this_layer)
-        this_block = np.stack(this_block, axis=0)
+        # Take values from original object in npy
+        this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                          ind_old_1, ind_old_2, :]
+        this_block = np.reshape(this_block, [this_block.shape[0], probe_size_half[1] * 2, whole_object_size[2], 2])
+        if coord0_vec[0] < 0:
+            this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0], [0, 0]], mode='edge')
+        if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
+            this_block = np.pad(this_block, [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0], [0, 0]], mode='edge')
         block_stack.append(this_block)
     block_stack = np.stack(block_stack, axis=0)
     return block_stack
@@ -464,13 +458,14 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
 
 def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half):
     """
-    Write data back in the HDF5.
+    Write data back in the npy.
     """
     whole_object_size = dset.shape[:-1]
     for i_batch, (this_y, this_x) in enumerate(this_pos_batch):
         coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
         coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
         coord2_vec = np.arange(whole_object_size[-1])
+        coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
 
         coord2_vec = np.tile(coord2_vec, array_size[1])
@@ -484,15 +479,16 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
         ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
-        # Take values from original object in HDF5
-        for i, i0 in enumerate(coord0_vec):
-            i0 = np.clip(i0, 0, whole_object_size[0] - 1)
-            this_layer = np.zeros(whole_object_size[1] * whole_object_size[2])
-            this_layer[ind_old] += obj_delta[i_batch, i, :, :].flatten()
-            dset[i0, :, :, 0] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2]])
-            this_layer = np.zeros(whole_object_size[1] * whole_object_size[2])
-            this_layer[ind_old] += obj_beta[i_batch, i, :, :].flatten()
-            dset[i0, :, :, 1] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2]])
+        obj_crop_top = max([0, -coord0_vec[0]])
+        obj_crop_bot = min([obj_delta.shape[0]-(coord0_vec[-1] + 1 - whole_object_size[0]),
+                            obj_delta.shape[0]])
+
+        new_shape = [min([whole_object_size[0], coord0_vec[-1] + 1]) - max([0, coord0_vec[0]]),
+                     len(ind_old_1)]
+        dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+             ind_old_1, ind_old_2, 0] += np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, :, :], new_shape)
+        dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+             ind_old_1, ind_old_2, 1] += np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, :, :], new_shape)
     return
 
 
