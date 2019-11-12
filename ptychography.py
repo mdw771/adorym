@@ -615,15 +615,13 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
                 obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
                 obj_delta = np.array(obj[:, :, :, :, 0])
                 obj_beta = np.array(obj[:, :, :, :, 1])
-                print('obj shape', obj.shape)
 
                 grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
-                print('grads[0] shape', grads[0].shape)
-                print('grads[0] max', grads[0].max())
                 grads = np.array(grads) / size
-                if rank == 0: dxchange.write_tiff(grads[0], os.path.join(output_folder, 'current', 'grad.tiff'), dtype='float32', overwrite=True)
-                (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                  grads, i_batch, m, v, step_size=learning_rate)
+                # if rank == 0: dxchange.write_tiff(grads[0], os.path.join(output_folder, 'current', 'grad.tiff'), dtype='float32', overwrite=True)
+                (obj_delta, obj_beta), _, _ = apply_gradient_adam(np.array([obj_delta, obj_beta]),
+                                                                  grads, 0, None, None, step_size=learning_rate)
+                # (obj_delta, obj_beta) = apply_gradient_gd(np.array([obj_delta, obj_beta]), grads, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
                 obj_delta = obj_delta - obj[:, :, :, :, 0]
@@ -634,7 +632,7 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, hdf5_f
 
                 if rank == 0:
                     dxchange.write_tiff(dset[:, :, :, 0],
-                                        fname=os.path.join(output_folder, 'current/delta'.format(ds_level)),
+                                        fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
                                         dtype='float32', overwrite=True)
 
             if n_epochs == 'auto':

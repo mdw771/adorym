@@ -755,3 +755,10 @@ def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, 
     vhat = v / (1 - b2 ** (i_batch + 1))
     x = x - step_size * mhat / (np.sqrt(vhat) + eps)
     return x, m, v
+
+
+def apply_gradient_gd(x, g, step_size=0.001):
+
+    g = np.array(g)
+    x = x - step_size * g
+    return x
