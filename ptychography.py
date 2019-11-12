@@ -644,26 +644,26 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
             else:
                 if i_epoch == n_epochs - 1: cont = False
 
-            if dynamic_dropping:
-                print_flush('Dynamic dropping...', 0, rank)
-                this_loss_table = np.zeros(n_pos)
-                loss_table = np.zeros(n_pos)
-                fill_start = 0
-                ind_list = np.arange(n_pos)
-                if n_pos % size != 0:
-                    ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
-                while fill_start < n_pos:
-                    this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
-                    this_prj_batch = prj[0, this_ind_rank]
-                    this_pos_batch = probe_pos[this_ind_rank]
-                    this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
-                    loss_table[fill_start + rank] = this_loss
-                    fill_start += size
-                comm.Allreduce(this_loss_table, loss_table)
-                loss_table = loss_table[:n_pos]
-                drop_ls = np.where(loss_table < dropping_threshold)[0]
-                np.delete(probe_pos, drop_ls, axis=0)
-                print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
+            # if dynamic_dropping:
+            #     print_flush('Dynamic dropping...', 0, rank)
+            #     this_loss_table = np.zeros(n_pos)
+            #     loss_table = np.zeros(n_pos)
+            #     fill_start = 0
+            #     ind_list = np.arange(n_pos)
+            #     if n_pos % size != 0:
+            #         ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
+            #     while fill_start < n_pos:
+            #         this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
+            #         this_prj_batch = prj[0, this_ind_rank]
+            #         this_pos_batch = probe_pos[this_ind_rank]
+            #         this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
+            #         loss_table[fill_start + rank] = this_loss
+            #         fill_start += size
+            #     comm.Allreduce(this_loss_table, loss_table)
+            #     loss_table = loss_table[:n_pos]
+            #     drop_ls = np.where(loss_table < dropping_threshold)[0]
+            #     np.delete(probe_pos, drop_ls, axis=0)
+            #     print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
 
             i_epoch = i_epoch + 1
 
