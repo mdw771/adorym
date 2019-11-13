@@ -27,7 +27,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, **kwargs):
 
-    def calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch):
+    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch):
 
         obj_stack = np.stack([obj_delta, obj_beta], axis=3)
         obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
@@ -61,6 +61,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             exiting_ls.append(exiting)
         exiting_ls = np.concatenate(exiting_ls, 0)
         loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
+        print(loss)
 
         return loss
 
@@ -208,10 +209,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_delta.shape[2])) if free_prop_cm is not None else (
-                psize_cm * obj_delta.shape[2])
-                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
-                                                        psize_cm * 1.e7, noise=True)
+                print_flush('Estimating probe from measured data...', 0, rank)
+                probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
             if pupil_function is not None:
@@ -229,7 +228,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
-        loss_grad = grad(calculate_loss, [0, 1])
+        if probe_type != 'optimizable':
+            loss_grad = grad(calculate_loss, [0, 1])
+        else:
+            loss_grad = grad(calculate_loss, [0, 1, 2, 3])
 
         print_flush('Optimizer started.', designate_rank=0, this_rank=rank)
         if rank == 0:
@@ -243,7 +245,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             n_tot_per_batch = minibatch_size * size
             n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
 
-            m, v = (None, None)
+            m, v, m_p, v_p = (None, None, None, None)
             t0 = time.time()
             spots_ls = range(n_spots)
             ind_list_rand = []
@@ -289,16 +291,28 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
                 comm.Barrier()
-                grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
-                this_grads = np.array(grads)
-                grads = np.zeros_like(this_grads)
+                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch)
+                this_obj_grads = np.array(grads[:2])
+                obj_grads = np.zeros_like(this_obj_grads)
                 comm.Barrier()
-                comm.Allreduce(this_grads, grads)
-                grads = grads / size
+                comm.Allreduce(this_obj_grads, obj_grads)
+                obj_grads = obj_grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                  grads, i_batch, m, v, step_size=learning_rate)
+                                                                  obj_grads, i_batch, m, v, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
+                if object_type == 'absorption_only': obj_delta[...] = 0
+                if object_type == 'phase_only': obj_beta[...] = 0
+
+                if probe_type == 'optimizable':
+                    this_probe_grads = np.array(grads[2:4])
+                    probe_grads = np.zeros_like(this_probe_grads)
+                    comm.Barrier()
+                    comm.Allreduce(this_probe_grads, probe_grads)
+                    probe_grads = probe_grads / size
+                    (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
+                                                                      probe_grads, i_epoch, m_p, v_p, step_size=probe_learning_rate)
+
                 if rank == 0:
                     dxchange.write_tiff(obj_delta,
                                         fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
@@ -311,34 +325,33 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 if i_epoch == n_epochs - 1: cont = False
 
-            if dynamic_dropping:
-                print_flush('Dynamic dropping...', 0, rank)
-                this_loss_table = np.zeros(n_pos)
-                loss_table = np.zeros(n_pos)
-                fill_start = 0
-                ind_list = np.arange(n_pos)
-                if n_pos % size != 0:
-                    ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
-                while fill_start < n_pos:
-                    this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
-                    this_prj_batch = prj[0, this_ind_rank]
-                    this_pos_batch = probe_pos[this_ind_rank]
-                    this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
-                    loss_table[fill_start + rank] = this_loss
-                    fill_start += size
-                comm.Allreduce(this_loss_table, loss_table)
-                loss_table = loss_table[:n_pos]
-                drop_ls = np.where(loss_table < dropping_threshold)[0]
-                np.delete(probe_pos, drop_ls, axis=0)
-                print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
+            # if dynamic_dropping:
+            #     print_flush('Dynamic dropping...', 0, rank)
+            #     this_loss_table = np.zeros(n_pos)
+            #     loss_table = np.zeros(n_pos)
+            #     fill_start = 0
+            #     ind_list = np.arange(n_pos)
+            #     if n_pos % size != 0:
+            #         ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
+            #     while fill_start < n_pos:
+            #         this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
+            #         this_prj_batch = prj[0, this_ind_rank]
+            #         this_pos_batch = probe_pos[this_ind_rank]
+            #         this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
+            #         loss_table[fill_start + rank] = this_loss
+            #         fill_start += size
+            #     comm.Allreduce(this_loss_table, loss_table)
+            #     loss_table = loss_table[:n_pos]
+            #     drop_ls = np.where(loss_table < dropping_threshold)[0]
+            #     np.delete(probe_pos, drop_ls, axis=0)
+            #     print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
 
             i_epoch = i_epoch + 1
 
-            this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
+            # this_loss = calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch)
             average_loss = 0
             print_flush(
-                'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
-                                                                    this_loss,
+                'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     time.time() - t0, time.time() - t_zero))
             #print_flush(    
             #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
@@ -346,6 +359,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                     dtype='float32', overwrite=True)
                 dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                overwrite=True)
+                dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2), fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
+                                    dtype='float32', overwrite=True)
+                dxchange.write_tiff(np.arctan2(probe_imag, probe_real), fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)), dtype='float32',
                                 overwrite=True)
             print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()
@@ -380,6 +397,7 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
                                                        obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
             exiting_ls.append(exiting)
+            pos_ind += len(pos_batch)
         exiting_ls = np.concatenate(exiting_ls, 0)
         loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
         print('loss', loss)
@@ -655,6 +673,8 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                 obj_beta = np.clip(obj_beta, 0, None)
                 obj_delta = obj_delta - obj[:, :, :, :, 0]
                 obj_beta = obj_beta - obj[:, :, :, :, 1]
+                if object_type == 'absorption_only': obj_delta[...] = 0
+                if object_type == 'phase_only': obj_beta[...] = 0
                 write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta], probe_size_half)
                 comm.Barrier()
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
@@ -704,6 +724,10 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                 dxchange.write_tiff(dset[:, :, :, 0], fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                     dtype='float32', overwrite=True)
                 dxchange.write_tiff(dset[:, :, :, 1], fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                overwrite=True)
+                dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2), fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
+                                    dtype='float32', overwrite=True)
+                dxchange.write_tiff(np.arctan2(probe_imag, probe_real), fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)), dtype='float32',
                                 overwrite=True)
             print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()

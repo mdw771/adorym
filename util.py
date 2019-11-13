@@ -465,11 +465,13 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
         coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
         coord2_vec = np.arange(whole_object_size[-1])
+        coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
         coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
 
         coord2_vec = np.tile(coord2_vec, array_size[1])
         coord1_vec = np.repeat(coord1_vec, array_size[2])
+        coord1_clip_mask = np.repeat(coord1_clip_mask, array_size[2])
 
         # Flattened sub-block indices in current object frame
         ind_new = coord1_vec * whole_object_size[2] + coord2_vec
@@ -480,15 +482,21 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
         obj_crop_top = max([0, -coord0_vec[0]])
-        obj_crop_bot = min([obj_delta.shape[1]-(coord0_vec[-1] + 1 - whole_object_size[0]),
+        obj_crop_bot = min([obj_delta.shape[1] - (coord0_vec[-1] + 1 - whole_object_size[0]),
                             obj_delta.shape[1]])
-        print(obj_crop_top, obj_crop_bot)
-        new_shape = [min([whole_object_size[0], coord0_vec[-1] + 1]) - max([0, coord0_vec[0]]),
-                     len(ind_old_1)]
+        obj_crop_left = max([0, -(this_x - probe_size_half[1])])
+        obj_crop_right = min([obj_delta.shape[1] - (this_x + probe_size_half[1] - whole_object_size[0]),
+                            obj_delta.shape[1]])
+
+        new_shape = [obj_crop_bot - obj_crop_top,
+                     len(ind_old_1[coord1_clip_mask])]
+
         dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-             ind_old_1, ind_old_2, 0] += np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, :, :], new_shape)
+             ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 0] += \
+                 np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
         dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-             ind_old_1, ind_old_2, 1] += np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, :, :], new_shape)
+             ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 1] += \
+                 np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
     return
 
 
