@@ -133,7 +133,7 @@ params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
                     'psize_cm': 1.e-7,
                     'minibatch_size': 1,
                     'n_batch_per_update': 1,
-                    'output_folder': 'n1e9_ref',
+                    'output_folder': 'test',
                     'cpu_only': True,
                     'save_path': 'cell/ptychography',
                     'phantom_path': 'cell/phantom',
@@ -145,13 +145,13 @@ params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
                     'initial_guess': None,
                     'n_dp_batch': 20,
                     'probe_type': 'gaussian',
-                    'probe_options': {'probe_mag_sigma': 6,
-                                      'probe_phase_sigma': 6,
-                                      'probe_phase_max': 0.5},
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
                     'probe_pos': [(y, x) for y in np.arange(33) * 10 for x in np.arange(34) * 10],
-                    'finite_support_mask': None
+                    'finite_support_mask': None,
+                    'probe_mag_sigma': 6,
+                    'probe_phase_sigma': 6,
+                    'probe_phase_max': 0.5,
                     }
 
 params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
@@ -225,7 +225,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_adhesin
+params = params_2d_cell
 # params = params_2d_cell
 
 

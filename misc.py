@@ -19,7 +19,9 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'fname',
                          'probe_mag_sigma',
                          'probe_phase_sigma',
-                         'probe_phase_max']
+                         'probe_phase_max',
+                         'probe_learning_rate',
+                         'probe_learning_rate_init']
 
 SUMMARY_PRESET_PP = ['obj_size',
                      'output_folder',
@@ -71,10 +73,13 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
     f = open(os.path.join(save_path, 'summary.txt'), 'w')
     print('============== PARAMETERS ==============')
     for var_name in var_list:
-        line = '{:<20}{}\n'.format(var_name, str(locals_dict[var_name]))
-        if verbose:
-            print(line)
-        f.write(line)
+        try:
+            line = '{:<20}{}\n'.format(var_name, str(locals_dict[var_name]))
+            if verbose:
+                print(line)
+            f.write(line)
+        except:
+            pass
     print('========================================')
     f.close()
     return

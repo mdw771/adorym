@@ -211,7 +211,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 back_prop_cm = (free_prop_cm + (psize_cm * obj_delta.shape[2])) if free_prop_cm is not None else (
                 psize_cm * obj_delta.shape[2])
                 probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
-                                                        psize_cm * 1.e7)
+                                                        psize_cm * 1.e7, noise=True)
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
             if pupil_function is not None:
@@ -358,12 +358,12 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                                   energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
                                   phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
                                   multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
-                                  dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
+                                  dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3, probe_learning_rate_init=1e-4,
                                   pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                                   forward_algorithm='fresnel', dynamic_dropping=True, dropping_threshold=8e-5,
                                   n_dp_batch=20, object_type='normal', fresnel_approx=False, **kwargs):
 
-    def calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch):
+    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_pos_batch, this_prj_batch):
 
         probe_pos_batch_ls = []
         exiting_ls = []
@@ -453,6 +453,10 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
 
         # Create parallel npy
         if rank == 0:
+            try:
+                os.makedirs(os.path.join(output_folder))
+            except:
+                print('Target folder {} exists.'.format(output_folder))
             np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
         comm.Barrier()
 
@@ -532,12 +536,10 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                 probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_delta.shape[2])) if free_prop_cm is not None else (
-                psize_cm * obj_delta.shape[2])
-                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
-                                                        psize_cm * 1.e7)
+                probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
+                dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2), os.path.join(output_folder, 'current', 'probe_init_mag'), dtype='float32', overwrite=True)
             if pupil_function is not None:
                 probe_real = probe_real * pupil_function
                 probe_imag = probe_imag * pupil_function
@@ -553,7 +555,10 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
-        loss_grad = grad(calculate_loss, [0, 1])
+        if probe_type != 'optimizable':
+            loss_grad = grad(calculate_loss, [0, 1])
+        else:
+            loss_grad = grad(calculate_loss, [0, 1, 2, 3])
 
         print_flush('Optimizer started.', designate_rank=0, this_rank=rank)
         if rank == 0:
@@ -620,11 +625,31 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                 obj_delta = np.array(obj[:, :, :, :, 0])
                 obj_beta = np.array(obj[:, :, :, :, 1])
 
-                grads = loss_grad(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
-                grads = np.array(grads) / size
+                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, this_pos_batch, this_prj_batch)
+                grads = list(grads)
+
                 # if rank == 0: dxchange.write_tiff(grads[0], os.path.join(output_folder, 'current', 'grad.tiff'), dtype='float32', overwrite=True)
+
+                # Apply gradients to object functions
                 (obj_delta, obj_beta), _, _ = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                  grads, 0, None, None, step_size=learning_rate)
+                                                                  np.array(grads[0:2]) / size, 0, None, None, step_size=learning_rate)
+                # Apply gradients to probe function (if specified)
+                if probe_type == 'optimizable':
+
+                    if i_epoch > 0 or i_batch > n_batch * 0.3:
+
+                        (probe_real, probe_imag), _, _ = apply_gradient_adam(np.array([probe_real, probe_imag]),
+                                                                          np.array(grads[2:4]), 0, None, None,
+                                                                          step_size=probe_learning_rate)
+                    else:
+                        print_flush('It is now batch #{}; I will start updating probe after #{}.'.format(i_batch, int(n_batch * 0.3)), 0, rank)
+                        (probe_real, probe_imag), _, _ = apply_gradient_adam(np.array([probe_real, probe_imag]),
+                                                                          np.array(grads[2:4]), 0, None, None,
+                                                                          step_size=1e-4)
+                    if rank == 0:
+                        dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
+                                            fname=os.path.join(output_folder, 'current/probemag_{}'.format(i_batch)),
+                                            dtype='float32', overwrite=True)
                 # (obj_delta, obj_beta) = apply_gradient_gd(np.array([obj_delta, obj_beta]), grads, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
@@ -667,7 +692,7 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
 
             i_epoch = i_epoch + 1
 
-            this_loss = calculate_loss(obj_delta, obj_beta, this_i_theta, this_pos_batch, this_prj_batch)
+            this_loss = calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_pos_batch, this_prj_batch)
             average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
