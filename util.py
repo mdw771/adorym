@@ -472,7 +472,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         coord1_vec = np.repeat(coord1_vec, array_size[2])
 
         # Flattened sub-block indices in current object frame
-        ind_new = coord1_vec * whole_object_size[1] + coord2_vec
+        ind_new = coord1_vec * whole_object_size[2] + coord2_vec
 
         # Flattened sub-block indices in original object frame
         ind_old_1 = coord_old[:, 0][ind_new].astype(int)
@@ -480,9 +480,9 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
         obj_crop_top = max([0, -coord0_vec[0]])
-        obj_crop_bot = min([obj_delta.shape[0]-(coord0_vec[-1] + 1 - whole_object_size[0]),
-                            obj_delta.shape[0]])
-
+        obj_crop_bot = min([obj_delta.shape[1]-(coord0_vec[-1] + 1 - whole_object_size[0]),
+                            obj_delta.shape[1]])
+        print(obj_crop_top, obj_crop_bot)
         new_shape = [min([whole_object_size[0], coord0_vec[-1] + 1]) - max([0, coord0_vec[0]]),
                      len(ind_old_1)]
         dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
