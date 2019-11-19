@@ -21,7 +21,8 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_phase_sigma',
                          'probe_phase_max',
                          'probe_learning_rate',
-                         'probe_learning_rate_init']
+                         'probe_learning_rate_init',
+                         'probe_type']
 
 SUMMARY_PRESET_PP = ['obj_size',
                      'output_folder',

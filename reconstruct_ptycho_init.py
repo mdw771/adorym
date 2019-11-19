@@ -1,32 +1,73 @@
 from ptychography import reconstruct_ptychography, reconstruct_ptychography_hdf5
 import numpy as np
 import dxchange
+import h5py
+import os
 
 init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/delta_ds_1.tiff')
 init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/beta_ds_1.tiff')
 init = [init_delta, init_beta]
 
-params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
+# params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
+#                   'theta_st': 0,
+#                   'theta_end': 2 * np.pi,
+#                   'theta_downsample': None,
+#                   'n_epochs': 10,
+#                   'obj_size': (64, 64, 64),
+#                   'alpha_d': 0,
+#                   'alpha_b': 0,
+#                   'gamma': 0,
+#                   'probe_size': (18, 18),
+#                   # 'learning_rate': 1e-7,
+#                   'learning_rate': 1e-9,
+#                   'center': 32,
+#                   'energy_ev': 800,
+#                   'psize_cm': 0.67e-7,
+#                   'minibatch_size': 23,
+#                   'n_batch_per_update': 1,
+#                   'output_folder': 'test',
+#                   'cpu_only': True,
+#                   'save_path': 'adhesin_ptycho',
+#                   'multiscale_level': 1,
+#                   'n_epoch_final_pass': None,
+#                   'save_intermediate': True,
+#                   'full_intermediate': True,
+#                   'initial_guess': None,
+#                   'n_dp_batch': 529,
+#                   'fresnel_approx': True,
+#                   'probe_type': 'gaussian',
+#                   'probe_learning_rate': 1e-3,
+#                   'probe_learning_rate_init': 1e-2,
+#                   'finite_support_mask': None,
+#                   'forward_algorithm': 'fresnel',
+#                   'object_type': 'normal',
+#                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)],
+#                   'probe_mag_sigma': 10,
+#                   'probe_phase_sigma': 10,
+#                   'probe_phase_max': 0.5,
+#                   }
+
+params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_st': 0,
-                  'theta_end': 2 * np.pi,
+                  'theta_end': 0,
+                  'n_theta': 1,
                   'theta_downsample': None,
-                  'n_epochs': 10,
-                  'obj_size': (64, 64, 64),
+                  'n_epochs': 500,
+                  'obj_size': (64, 64, 1),
                   'alpha_d': 0,
                   'alpha_b': 0,
                   'gamma': 0,
-                  'probe_size': (18, 18),
+                  'probe_size': (72, 72),
                   # 'learning_rate': 1e-7,
                   'learning_rate': 1e-9,
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
-                  'minibatch_size': 23,
+                  'minibatch_size': 23*23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test',
+                  'output_folder': 'test_9_init',
                   'cpu_only': True,
-                  'save_path': 'adhesin_ptycho',
-                  'phantom_path': 'adhesin_ptycho/phantom',
+                  'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
                   'n_epoch_final_pass': None,
                   'save_intermediate': True,
@@ -34,15 +75,15 @@ params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'initial_guess': None,
                   'n_dp_batch': 529,
                   'fresnel_approx': True,
-                  'probe_type': 'gaussian',
+                  'probe_type': 'optimizable',
                   'probe_learning_rate': 1e-3,
-                  'probe_learning_rate_init': 1e-2,
+                  'probe_learning_rate_init': 1e-3,
                   'finite_support_mask': None,
                   'forward_algorithm': 'fresnel',
                   'object_type': 'normal',
                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)],
-                  'probe_mag_sigma': 10,
-                  'probe_phase_sigma': 10,
+                  'probe_mag_sigma': 6,
+                  'probe_phase_sigma': 6,
                   'probe_phase_max': 0.5,
                   }
 
@@ -65,7 +106,6 @@ params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
                     'output_folder': 'test',
                     'cpu_only': True,
                     'save_path': 'cone_256_filled_ptycho',
-                    'phantom_path': 'cone_256_filled_ptycho/phantom',
                     'multiscale_level': 1,
                     'n_epoch_final_pass': None,
                     'save_intermediate': True,
@@ -226,8 +266,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_2d_cell
 # params = params_2d_cell
+params = params_adhesin_2
 
 
 # reconstruct_ptychography(fname=params['fname'],
@@ -311,4 +351,30 @@ params = params_2d_cell
 #                               fresnel_approx=params['fresnel_approx'],
 #                               **params['probe_options'])
 
-reconstruct_ptychography(**params)
+# reconstruct_ptychography(**params)
+
+f = h5py.File(os.path.join(params['save_path'], params['fname']))
+n_theta_original = f['exchange/data'].shape[0]
+i_theta_ls = np.arange(n_theta_original)
+theta_ls = np.linspace(0, 2 * np.pi, n_theta_original)
+
+theta_dual_ls = np.stack([i_theta_ls, theta_ls]).transpose()
+
+for i, (i_theta, theta) in enumerate(theta_dual_ls[::10]):
+
+    i_theta = int(i_theta)
+    print('Now reconstruction theta ID: {}'.format(i_theta))
+    params['two_d_mode'] = True
+    params['n_theta'] = 1
+    params['theta_st'] = theta
+    if i_theta == 0:
+        params['probe_initial'] = None
+    else:
+        params['probe_initial'] = [dxchange.read_tiff(os.path.join(params['save_path'], params['output_folder'], 'probe_mag_ds_1.tiff')),
+                                   dxchange.read_tiff(os.path.join(params['save_path'], params['output_folder'], 'probe_phase_ds_1.tiff'))]
+    reconstruct_ptychography(**params)
+    os.rename(os.path.join(params['save_path'], params['output_folder'], 'delta_ds_1.tiff'),
+              os.path.join(params['save_path'], params['output_folder'], 'delta_itheta_{}.tiff'.format(i_theta)))
+    os.rename(os.path.join(params['save_path'], params['output_folder'], 'beta_ds_1.tiff'),
+              os.path.join(params['save_path'], params['output_folder'], 'beta_itheta_{}.tiff'.format(i_theta)))
+

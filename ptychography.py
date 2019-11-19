@@ -15,23 +15,26 @@ plt.switch_backend('agg')
 PI = 3.1415927
 
 
-def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, theta_downsample=None,
+def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
                              n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
                              alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                              output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                              energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
-                             phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
+                             core_parallelization=True, free_prop_cm=None,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
-                             n_dp_batch=20, object_type='normal', fresnel_approx=False, **kwargs):
+                             n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch):
 
         obj_stack = np.stack([obj_delta, obj_beta], axis=3)
-        obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
-                                 'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+        if not two_d_mode:
+            obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
+                                     'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+        else:
+            obj_rot = obj_stack
         probe_pos_batch_ls = []
         exiting_ls = []
         i_dp = 0
@@ -57,7 +60,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             subobj_ls = np.stack(subobj_ls)
             exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
-                                                       obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
+                                                       obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
+                                                       fresnel_approx=fresnel_approx, pure_projection=pure_projection)
             exiting_ls.append(exiting)
         exiting_ls = np.concatenate(exiting_ls, 0)
         loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
@@ -75,7 +79,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
     print_flush('Reading data...', designate_rank=0, this_rank=rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
-    n_theta = prj.shape[0]
+    if n_theta is None:
+        n_theta = prj.shape[0]
+    if two_d_mode:
+        n_theta = 1
     prj_theta_ind = np.arange(n_theta, dtype=int)
     theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
@@ -252,9 +259,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             t00 = time.time()
             print_flush('Allocating jobs over threads...', designate_rank=0, this_rank=rank)
-            # Make a list of all thetas and spot positions
-            theta_ls = np.arange(n_theta)
-            np.random.shuffle(theta_ls)
+            # Make a list of all thetas and spot positions'
+            if not two_d_mode:
+                theta_ls = np.arange(n_theta)
+                np.random.shuffle(theta_ls)
+            else:
+                theta_ls = np.linspace(0, 2 * PI, prj.shape[0])
+                theta_ls = abs(theta_ls - theta_st) < 1e-5
+                i_theta = np.nonzero(theta_ls)[0][0]
+                theta_ls = np.array([i_theta])
+                print(theta_ls)
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
@@ -373,12 +387,12 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                                   alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                                   output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                                   energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
-                                  phantom_path='phantom', core_parallelization=True, free_prop_cm=None,
+                                  core_parallelization=True, free_prop_cm=None,
                                   multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                                   dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3, probe_learning_rate_init=1e-4,
                                   pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                                   forward_algorithm='fresnel', dynamic_dropping=True, dropping_threshold=8e-5,
-                                  n_dp_batch=20, object_type='normal', fresnel_approx=False, **kwargs):
+                                  n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_pos_batch, this_prj_batch):
 
@@ -395,7 +409,8 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
             subobj_ls_beta = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
             exiting = multislice_propagate_batch_numpy(subobj_ls_delta, subobj_ls_beta, probe_real,
                                                        probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
-                                                       obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]])
+                                                       obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
+                                                       fresnel_approx=fresnel_approx, pure_projection=pure_projection)
             exiting_ls.append(exiting)
             pos_ind += len(pos_batch)
         exiting_ls = np.concatenate(exiting_ls, 0)
@@ -554,6 +569,7 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                 probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
+                print_flush('Estimating probe from measured data...', 0, rank)
                 probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
                 probe_real = probe_init.real
                 probe_imag = probe_init.imag
@@ -731,3 +747,5 @@ def reconstruct_ptychography_hdf5(fname, probe_pos, probe_size, obj_size, theta_
                                 overwrite=True)
             print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()
+
+
