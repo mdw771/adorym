@@ -84,6 +84,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_mag_sigma': 6,
                   'probe_phase_sigma': 6,
                   'probe_phase_max': 0.5,
+                  # 'shared_file_object': True
                   }
 
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
@@ -381,4 +382,5 @@ params = params_adhesin_2
 #                               fresnel_approx=params['fresnel_approx'],
 #                               **params['probe_options'])
 
-reconstruct_ptychography_hdf5(**params)
+# reconstruct_ptychography_hdf5(**params)
+reconstruct_ptychography(**params)
