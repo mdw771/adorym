@@ -11,7 +11,7 @@ from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
 from util import *
-from npfuncs import *
+# from npfuncs import *
 
 
 def create_fullfield_data(energy_ev, psize_cm, free_prop_cm, n_theta, phantom_path, save_folder, fname,
@@ -282,7 +282,7 @@ def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_fo
 
 def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
                                          probe_type='gaussian', probe_size=(72, 72), wavefront_initial=None,
-                                         theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, minibatch_size=20, **kwargs):
+                                         theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, minibatch_size=20, fresnel_approx=True, **kwargs):
     """
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
@@ -324,7 +324,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
             grid_beta_ls = np.array(grid_beta_ls)
             exiting = multislice_propagate_batch_numpy(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
                                                        psize_cm, free_prop_cm='inf',
-                                                       obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]])
+                                                       obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]], fresnel_approx=fresnel_approx)
             if probe_circ_mask is not None:
                 exiting = exiting * probe_mask
             if k == 0:

@@ -25,47 +25,74 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
-                             n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False, **kwargs):
+                             n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
+                             shared_file_object=True, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch):
 
-        obj_stack = np.stack([obj_delta, obj_beta], axis=3)
-        if not two_d_mode:
-            obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
-                                     'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+        if not shared_file_object:
+            obj_stack = np.stack([obj_delta, obj_beta], axis=3)
+            if not two_d_mode:
+                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
+                                         'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+            else:
+                obj_rot = obj_stack
+            probe_pos_batch_ls = []
+            exiting_ls = []
+            i_dp = 0
+            while i_dp < minibatch_size:
+                probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
+                i_dp += n_dp_batch
+
+            # Pad if needed
+            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half)
+
+            for k, pos_batch in enumerate(probe_pos_batch_ls):
+                subobj_ls = []
+                for j in range(len(pos_batch)):
+                    pos = pos_batch[j]
+                    pos = [int(x) for x in pos]
+                    pos[0] = pos[0] + pad_arr[0, 0]
+                    pos[1] = pos[1] + pad_arr[1, 0]
+                    subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
+                             pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
+                             :, :]
+                    subobj_ls.append(subobj)
+
+                subobj_ls = np.stack(subobj_ls)
+                exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
+                                                           probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
+                                                           obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
+                                                           fresnel_approx=fresnel_approx, pure_projection=pure_projection)
+                exiting_ls.append(exiting)
+            exiting_ls = np.concatenate(exiting_ls, 0)
+            loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
+            print(loss)
+
         else:
-            obj_rot = obj_stack
-        probe_pos_batch_ls = []
-        exiting_ls = []
-        i_dp = 0
-        while i_dp < minibatch_size:
-            probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
-            i_dp += n_dp_batch
+            probe_pos_batch_ls = []
+            exiting_ls = []
+            i_dp = 0
+            while i_dp < minibatch_size:
+                probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
+                i_dp += n_dp_batch
 
-        # Pad if needed
-        obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half)
-
-        for k, pos_batch in enumerate(probe_pos_batch_ls):
-            subobj_ls = []
-            for j in range(len(pos_batch)):
-                pos = pos_batch[j]
-                pos = [int(x) for x in pos]
-                pos[0] = pos[0] + pad_arr[0, 0]
-                pos[1] = pos[1] + pad_arr[1, 0]
-                subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
-                         pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
-                         :, :]
-                subobj_ls.append(subobj)
-
-            subobj_ls = np.stack(subobj_ls)
-            exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
-                                                       probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
-                                                       obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
-                                                       fresnel_approx=fresnel_approx, pure_projection=pure_projection)
-            exiting_ls.append(exiting)
-        exiting_ls = np.concatenate(exiting_ls, 0)
-        loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-        print(loss)
+            pos_ind = 0
+            for k, pos_batch in enumerate(probe_pos_batch_ls):
+                subobj_ls_delta = obj_delta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+                subobj_ls_beta = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+                exiting = multislice_propagate_batch_numpy(subobj_ls_delta, subobj_ls_beta, probe_real,
+                                                           probe_imag, energy_ev, psize_cm * ds_level, kernel=h,
+                                                           free_prop_cm='inf',
+                                                           obj_batch_shape=[len(pos_batch), *probe_size,
+                                                                            this_obj_size[-1]],
+                                                           fresnel_approx=fresnel_approx,
+                                                           pure_projection=pure_projection)
+                exiting_ls.append(exiting)
+                pos_ind += len(pos_batch)
+            exiting_ls = np.concatenate(exiting_ls, 0)
+            loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
+            print('loss', loss)
 
         return loss
 
@@ -137,6 +164,19 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         dim_y, dim_x = prj_shape[-2:]
         comm.Barrier()
 
+        if shared_file_object:
+            # Create parallel npy
+            if rank == 0:
+                try:
+                    os.makedirs(os.path.join(output_folder))
+                except:
+                    print('Target folder {} exists.'.format(output_folder))
+                np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
+            comm.Barrier()
+
+            # Create memmap pointer on each rank
+            dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
+
         # read rotation data
         try:
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -185,19 +225,25 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 obj_beta[...] = 0
             elif object_type == 'absorption_only':
                 obj_delta[...] = 0
-            np.save('init_delta_temp.npy', obj_delta)
-            np.save('init_beta_temp.npy', obj_beta)
+            if not shared_file_object:
+                np.save('init_delta_temp.npy', obj_delta)
+                np.save('init_beta_temp.npy', obj_beta)
+            else:
+                dset[:, :, :, 0] = obj_delta
+                dset[:, :, :, 1] = obj_beta
         comm.Barrier()
-        if rank != 0:
-            obj_delta = np.zeros(this_obj_size)
-            obj_beta = np.zeros(this_obj_size)
-            obj_delta[:, :, :] = np.load('init_delta_temp.npy')
-            obj_beta[:, :, :] = np.load('init_beta_temp.npy')
-        comm.Barrier()
-        if rank == 0:
-            os.remove('init_delta_temp.npy')
-            os.remove('init_beta_temp.npy')
-        comm.Barrier()
+
+        if not shared_file_object:
+            if rank != 0:
+                obj_delta = np.zeros(this_obj_size)
+                obj_beta = np.zeros(this_obj_size)
+                obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
+                obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
+            comm.Barrier()
+            if rank == 0:
+                os.remove('init_delta_temp.npy')
+                os.remove('init_beta_temp.npy')
+            comm.Barrier()
 
         print_flush('Initialzing probe...', designate_rank=0)
         if probe_type == 'gaussian':
@@ -305,11 +351,23 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
                 comm.Barrier()
+
+                if shared_file_object:
+                    # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
+                    obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    obj_delta = np.array(obj[:, :, :, :, 0])
+                    obj_beta = np.array(obj[:, :, :, :, 1])
+
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch)
-                this_obj_grads = np.array(grads[:2])
-                obj_grads = np.zeros_like(this_obj_grads)
-                comm.Barrier()
-                comm.Allreduce(this_obj_grads, obj_grads)
+                grads = list(grads)
+
+                if shared_file_object:
+                    obj_grads = np.array(grads[:2])
+                else:
+                    this_obj_grads = np.array(grads[:2])
+                    obj_grads = np.zeros_like(this_obj_grads)
+                    comm.Barrier()
+                    comm.Allreduce(this_obj_grads, obj_grads)
                 obj_grads = obj_grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   obj_grads, i_batch, m, v, step_size=learning_rate)
@@ -319,18 +377,31 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if object_type == 'phase_only': obj_beta[...] = 0
 
                 if probe_type == 'optimizable':
-                    this_probe_grads = np.array(grads[2:4])
-                    probe_grads = np.zeros_like(this_probe_grads)
-                    comm.Barrier()
-                    comm.Allreduce(this_probe_grads, probe_grads)
+                    if shared_file_object:
+                        probe_grads = np.array(grads[2:4])
+                    else:
+                        this_probe_grads = np.array(grads[2:4])
+                        probe_grads = np.zeros_like(this_probe_grads)
+                        comm.Barrier()
+                        comm.Allreduce(this_probe_grads, probe_grads)
                     probe_grads = probe_grads / size
                     (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
                                                                       probe_grads, i_epoch, m_p, v_p, step_size=probe_learning_rate)
 
+                if shared_file_object:
+                    write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
+                                            probe_size_half)
+                    comm.Barrier()
+
                 if rank == 0:
-                    dxchange.write_tiff(obj_delta,
-                                        fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
+                    if shared_file_object:
+                        dxchange.write_tiff(dset[:, :, :, 0],
+                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            dtype='float32', overwrite=True)
+                    else:
+                        dxchange.write_tiff(obj_delta,
+                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            dtype='float32', overwrite=True)
                 comm.Barrier()
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
 
@@ -370,14 +441,32 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             #print_flush(    
             #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
             if rank == 0:
-                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                    dtype='float32', overwrite=True)
-                dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
-                                overwrite=True)
-                dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2), fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
-                                    dtype='float32', overwrite=True)
-                dxchange.write_tiff(np.arctan2(probe_imag, probe_real), fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)), dtype='float32',
-                                overwrite=True)
+                if shared_file_object:
+                    dxchange.write_tiff(dset[:, :, :, 0],
+                                        fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(dset[:, :, :, 1],
+                                        fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
+                                        fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(np.arctan2(probe_imag, probe_real),
+                                        fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                else:
+                    dxchange.write_tiff(obj_delta,
+                                        fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(obj_beta,
+                                        fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
+                                        fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(np.arctan2(probe_imag, probe_real),
+                                        fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
             print_flush('Current iteration finished.', designate_rank=0, this_rank=rank)
         comm.Barrier()
 

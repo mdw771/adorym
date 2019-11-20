@@ -51,4 +51,4 @@ probe_pos = [(int(y), int(x)) for y in np.linspace(9, 55, 23) for x in np.linspa
 
 create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
                                      probe_type='gaussian', probe_size=probe_size, theta_st=theta_st, theta_end=theta_end,
-                                     probe_mag_sigma=probe_mag_sigma, probe_phase_sigma=probe_phase_sigma, probe_phase_max=probe_phase_max, probe_circ_mask=None)
+                                     probe_mag_sigma=probe_mag_sigma, probe_phase_sigma=probe_phase_sigma, probe_phase_max=probe_phase_max, probe_circ_mask=None, fresnel_approx=True)
