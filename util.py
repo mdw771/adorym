@@ -247,11 +247,9 @@ def realign_image(arr, shift):
     if np.count_nonzero(np.abs(np.array(shift) - np.round(shift)) < 0.01) == 2:
         temp = np.roll(arr, int(shift[0]), axis=0)
         temp = np.roll(temp, int(shift[1]), axis=1)
-        temp = temp.astype('float32')
     else:
         temp = fourier_shift(np.fft.fftn(arr), shift)
         temp = np.fft.ifftn(temp)
-        temp = np.abs(temp).astype('float32')
     return temp
 
 

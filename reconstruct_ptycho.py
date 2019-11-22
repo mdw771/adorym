@@ -1,4 +1,4 @@
-from ptychography import reconstruct_ptychography, reconstruct_ptychography_hdf5
+from ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
 
@@ -63,7 +63,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test',
+                  'output_folder': 'test_3',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -71,10 +71,10 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'save_intermediate': True,
                   'full_intermediate': True,
                   'initial_guess': None,
-                  'probe_initial': None,
+                  'probe_initial': [dxchange.read_tiff('adhesin_ptycho_2/probe_mag_defocus_10nm.tiff'), dxchange.read_tiff('adhesin_ptycho_2/probe_phase_defocus_10nm.tiff')],
                   'n_dp_batch': 529,
                   'fresnel_approx': True,
-                  'probe_type': 'gaussian',
+                  'probe_type': 'fixed',
                   'probe_learning_rate': 1e-3,
                   'probe_learning_rate_init': 1e-3,
                   'finite_support_mask': None,
@@ -84,6 +84,8 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_mag_sigma': 6,
                   'probe_phase_sigma': 6,
                   'probe_phase_max': 0.5,
+                  'optimize_probe_defocusing': True,
+                  'probe_defocusing_learning_rate': 1e-7
                   # 'shared_file_object': True
                   }
 

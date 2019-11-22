@@ -377,8 +377,10 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
             probe_mask = tomopy.circ_mask(np.ones_like(probe_real)[np.newaxis, :, :], axis=0, ratio=probe_circ_mask)
             probe_mask = gaussian_filter(np.squeeze(probe_mask), 3)
 
-    dxchange.write_tiff(probe_mag, os.path.join(save_folder, 'probe_mag'), dtype='float32', overwrite=True)
-    dxchange.write_tiff(probe_phase, os.path.join(save_folder, 'probe_phase'), dtype='float32', overwrite=True)
+    dxchange.write_tiff(probe_mag, os.path.join(save_folder, 'probe_mag'), dtype='float64', overwrite=True)
+    dxchange.write_tiff(probe_phase, os.path.join(save_folder, 'probe_phase'), dtype='float64', overwrite=True)
+    dxchange.write_tiff(probe_mag, os.path.join(save_folder, 'probe_mag_f32'), dtype='float32', overwrite=True)
+    dxchange.write_tiff(probe_phase, os.path.join(save_folder, 'probe_phase_f32'), dtype='float32', overwrite=True)
 
     for ii, theta in enumerate(theta_ls):
         print('Theta: {}'.format(ii))

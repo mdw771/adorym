@@ -20,7 +20,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                              output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                              energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
-                             core_parallelization=True, free_prop_cm=None,
+                             core_parallelization=True, free_prop_cm=None, optimize_probe_defocusing=False,
+                             probe_defocusing_learning_rate=1e-5,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
@@ -28,7 +29,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
                              shared_file_object=True, **kwargs):
 
-    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch):
+    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
+
+        if optimize_probe_defocusing:
+            h_probe = get_kernel(probe_defocus_mm * 1e6, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
+            probe_complex = probe_real + 1j * probe_imag
+            probe_complex = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(probe_complex)) * h_probe))
+            probe_real = np.real(probe_complex)
+            probe_imag = np.imag(probe_complex)
 
         if not shared_file_object:
             obj_stack = np.stack([obj_delta, obj_beta], axis=3)
@@ -67,7 +75,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 exiting_ls.append(exiting)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print(loss)
+            print(loss._value)
 
         else:
             probe_pos_batch_ls = []
@@ -92,7 +100,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print('loss', loss)
+            print('loss', loss._value)
+
+        # Write convergence data
+        f_conv.write('{},{},{}\n'.format(i_epoch, i_batch, loss._value))
+        f_conv.flush()
 
         return loss
 
@@ -281,10 +293,22 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
-        if probe_type != 'optimizable':
-            loss_grad = grad(calculate_loss, [0, 1])
-        else:
-            loss_grad = grad(calculate_loss, [0, 1, 2, 3])
+        opt_arg_ls = [0, 1]
+        if probe_type == 'optimizable':
+            opt_arg_ls = opt_arg_ls + [2, 3]
+        if optimize_probe_defocusing:
+            opt_arg_ls.append(4)
+        probe_defocus_mm = np.array(0.0)
+
+        loss_grad = grad(calculate_loss, opt_arg_ls)
+
+        # Save convergence data
+        try:
+            os.makedirs(os.path.join(output_folder, 'convergence'))
+        except:
+            pass
+        f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
+        f_conv.write('i_epoch,i_batch,loss\n')
 
         print_flush('Optimizer started.', designate_rank=0, this_rank=rank)
         if rank == 0:
@@ -292,13 +316,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         cont = True
         i_epoch = 0
+        m, v, m_p, v_p, m_pd, v_pd = (None, None, None, None, None, None)
         while cont:
             n_pos = len(probe_pos)
             n_spots = n_theta * n_pos
             n_tot_per_batch = minibatch_size * size
             n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
 
-            m, v, m_p, v_p = (None, None, None, None)
             t0 = time.time()
             spots_ls = range(n_spots)
             ind_list_rand = []
@@ -358,7 +382,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
 
-                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch)
+                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
                 grads = list(grads)
 
                 if shared_file_object:
@@ -381,16 +405,27 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if object_type == 'phase_only': obj_beta[...] = 0
 
                 if probe_type == 'optimizable':
-                    if shared_file_object:
-                        probe_grads = np.array(grads[2:4])
-                    else:
-                        this_probe_grads = np.array(grads[2:4])
-                        probe_grads = np.zeros_like(this_probe_grads)
-                        comm.Barrier()
-                        comm.Allreduce(this_probe_grads, probe_grads)
+                    this_probe_grads = np.array(grads[2:4])
+                    probe_grads = np.zeros_like(this_probe_grads)
+                    comm.Barrier()
+                    comm.Allreduce(this_probe_grads, probe_grads)
                     probe_grads = probe_grads / size
                     (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
                                                                           probe_grads, i_epoch, m_p, v_p, step_size=probe_learning_rate)
+
+                if optimize_probe_defocusing:
+                    this_pd_grad = np.array(grads[len(opt_arg_ls) - 1])
+                    print(this_pd_grad)
+                    pd_grads = np.array(0.0)
+                    comm.Barrier()
+                    comm.Allreduce(this_pd_grad, pd_grads)
+                    pd_grads = pd_grads / size
+                    print(this_pd_grad, pd_grads)
+                    probe_defocus_mm, m_pd, v_pd = apply_gradient_adam(probe_defocus_mm,
+                                                                       pd_grads, 0, None, None,
+                                                                       step_size=probe_defocusing_learning_rate)
+                    # probe_defocus_mm = probe_defocus_mm - probe_defocusing_learning_rate * pd_grads
+                    print_flush('Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank)
 
                 if shared_file_object:
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
