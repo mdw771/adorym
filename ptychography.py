@@ -75,7 +75,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 exiting_ls.append(exiting)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print(loss._value)
+            print('Loss is ', loss._value)
 
         else:
             probe_pos_batch_ls = []
@@ -100,7 +100,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print('loss', loss._value)
+            print('Loss is ', loss._value)
 
         # Write convergence data
         f_conv.write('{},{},{}\n'.format(i_epoch, i_batch, loss._value))
@@ -184,10 +184,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 except:
                     print('Target folder {} exists.'.format(output_folder))
                 np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
+                np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
+                np.save(os.path.join(output_folder, 'intermediate_v.npy'), np.zeros([*this_obj_size, 2]))
             comm.Barrier()
 
             # Create memmap pointer on each rank
             dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
+            dset_m = np.load(os.path.join(output_folder, 'intermediate_m.npy'), mmap_mode='r+', allow_pickle=True)
+            dset_v = np.load(os.path.join(output_folder, 'intermediate_v.npy'), mmap_mode='r+', allow_pickle=True)
 
         # read rotation data
         try:
@@ -243,6 +247,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 dset[:, :, :, 0] = obj_delta
                 dset[:, :, :, 1] = obj_beta
+                dset_m[...] = 0
+                dset_v[...] = 0
         comm.Barrier()
 
         if not shared_file_object:
@@ -338,7 +344,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 theta_ls = abs(theta_ls - theta_st) < 1e-5
                 i_theta = np.nonzero(theta_ls)[0][0]
                 theta_ls = np.array([i_theta])
-                print(theta_ls)
+
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
@@ -381,6 +387,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
+                    m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
+                    m_0 = np.copy(m)
+                    v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
+                    v_0 = np.copy(v)
 
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
                 grads = list(grads)
@@ -398,7 +410,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                       obj_grads, i_batch, m, v, step_size=learning_rate)
                 else:
                     (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                      obj_grads, 0, None, None, step_size=learning_rate)
+                                                                      obj_grads, i_batch // n_tot_per_batch, m, v, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
                 if object_type == 'absorption_only': obj_delta[...] = 0
@@ -415,12 +427,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                 if optimize_probe_defocusing:
                     this_pd_grad = np.array(grads[len(opt_arg_ls) - 1])
-                    print(this_pd_grad)
                     pd_grads = np.array(0.0)
                     comm.Barrier()
                     comm.Allreduce(this_pd_grad, pd_grads)
                     pd_grads = pd_grads / size
-                    print(this_pd_grad, pd_grads)
                     probe_defocus_mm, m_pd, v_pd = apply_gradient_adam(probe_defocus_mm,
                                                                        pd_grads, 0, None, None,
                                                                        step_size=probe_defocusing_learning_rate)
@@ -430,8 +440,19 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if shared_file_object:
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
                     obj_beta = obj_beta - obj[:, :, :, :, 1]
+                    obj_delta = obj_delta / size
+                    obj_beta = obj_beta / size
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
                                             probe_size_half)
+                    m = m - m_0
+                    m /= size
+                    write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
+                                            probe_size_half)
+                    v = v - v_0
+                    v /= size
+                    write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
+                                            probe_size_half)
+
                     comm.Barrier()
 
                 if rank == 0:
