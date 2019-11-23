@@ -17,7 +17,7 @@ PI = 3.1415927
 
 def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
                              n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
-                             alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
+                             alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                              output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                              energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
                              core_parallelization=True, free_prop_cm=None, optimize_probe_defocusing=False,
@@ -75,7 +75,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 exiting_ls.append(exiting)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print('Loss is ', loss._value)
 
         else:
             probe_pos_batch_ls = []
@@ -100,10 +99,18 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-            print('Loss is ', loss._value)
+        print('Loss is ', loss._value)
+
+        # Regularization
+        if alpha_d not in [None, 0]:
+            loss = loss + alpha_d * np.mean(np.abs(obj_delta))
+        if alpha_b not in [None, 0]:
+            loss = loss + alpha_b * np.mean(np.abs(obj_beta))
+        if gamma not in [None, 0]:
+            loss = loss + gamma * total_variation_3d(obj_delta)
 
         # Write convergence data
-        f_conv.write('{},{},{}\n'.format(i_epoch, i_batch, loss._value))
+        f_conv.write('{},{},{},'.format(i_epoch, i_batch, loss._value))
         f_conv.flush()
 
         return loss
@@ -314,7 +321,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         except:
             pass
         f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
-        f_conv.write('i_epoch,i_batch,loss\n')
+        f_conv.write('i_epoch,i_batch,loss,time\n')
 
         print_flush('Optimizer started.', designate_rank=0, this_rank=rank)
         if rank == 0:
@@ -469,6 +476,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                             dtype='float32', overwrite=True)
                 comm.Barrier()
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
+                f_conv.write('{}\n'.format(time.time() - t_zero))
+                f_conv.flush()
 
             if n_epochs == 'auto':
                 pass

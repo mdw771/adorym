@@ -1,6 +1,16 @@
 from ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
+import datetime
+
+timestr = str(datetime.datetime.today())
+timestr = timestr[:timestr.find('.')]
+for i in [':', '-', ' ']:
+    if i == ' ':
+        timestr = timestr.replace(i, '_')
+    else:
+        timestr = timestr.replace(i, '')
+
 
 init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/delta_ds_1.tiff')
 init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/beta_ds_1.tiff')
@@ -63,7 +73,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_adam',
+                  'output_folder': 'test',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -100,13 +110,13 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'alpha_b': 0,
                     'gamma': 0,
                     'probe_size': (72, 72),
-                    'learning_rate': 1e-8,
+                    'learning_rate': 1e-7,
                     'center': 128,
                     'energy_ev': 5000,
                     'psize_cm': 1.e-7,
                     'minibatch_size': 23,
                     'n_batch_per_update': 1,
-                    'output_folder': 'test',
+                    'output_folder': 'theta_' + timestr,
                     'cpu_only': True,
                     'save_path': 'cone_256_foam_ptycho',
                     'multiscale_level': 1,
@@ -114,7 +124,7 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'save_intermediate': True,
                     'full_intermediate': True,
                     'initial_guess': None,
-                    'n_dp_batch': 20,
+                    'n_dp_batch': 23,
                     'probe_type': 'gaussian',
                     'forward_algorithm': 'fresnel',
                     'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
@@ -122,6 +132,7 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'probe_mag_sigma': 6,
                     'probe_phase_sigma': 6,
                     'probe_phase_max': 0.5,
+                    'shared_file_object': False
                     }
 
 # params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',

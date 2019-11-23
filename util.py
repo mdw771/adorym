@@ -772,11 +772,6 @@ def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, 
     v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
     mhat = m / (1 - b1 ** (i_batch + 1))  # Bias correction.
     vhat = v / (1 - b2 ** (i_batch + 1))
-    print('m', np.mean(mhat))
-    print('v', np.mean(vhat))
-    print('m/v', np.mean(mhat / (np.sqrt(vhat) + eps)))
-    print('m/v max', np.max(mhat / (np.sqrt(vhat) + eps)))
-    print('m/v min', np.min(mhat / (np.sqrt(vhat) + eps)))
     x = x - step_size * mhat / (np.sqrt(vhat) + eps)
     return x, m, v
 
