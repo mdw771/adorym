@@ -103,9 +103,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         # Regularization
         if alpha_d not in [None, 0]:
-            loss = loss + alpha_d * np.mean(np.abs(obj_delta))
+            loss = loss + alpha_d * weight_l1 * np.mean(np.abs(obj_delta))
         if alpha_b not in [None, 0]:
-            loss = loss + alpha_b * np.mean(np.abs(obj_beta))
+            loss = loss + alpha_b * weight_l1 * np.mean(np.abs(obj_beta))
         if gamma not in [None, 0]:
             loss = loss + gamma * total_variation_3d(obj_delta)
 
@@ -400,6 +400,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
                     v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
                     v_0 = np.copy(v)
+
+                # Update weight for reweighted L1
+                if shared_file_object:
+                    weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
+                else:
+                    if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
 
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
                 grads = list(grads)
