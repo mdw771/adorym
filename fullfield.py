@@ -21,11 +21,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           alpha=1e-7, alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
                           output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
                           energy_ev=5000, psize_cm=1e-7, n_epochs_mask_release=None, cpu_only=False, save_path='.',
-                          phantom_path='phantom', shrink_cycle=20, core_parallelization=True, free_prop_cm=None,
+                          shrink_cycle=10, core_parallelization=True, free_prop_cm=None,
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
                           pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True,
-                          object_type='normal', fresnel_approx=True, **kwargs):
+                          object_type='normal', fresnel_approx=True, shared_file_object=False, **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -53,7 +53,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     :param cpu_only: Whether to disable GPU.
     :param save_path: The location of finite support mask, the prefix of output_folder and
                       other metadata.
-    :param phantom_path: The location of phantom objects (for test version only).
     :param shrink_cycle: Shrink-wrap is executed per every this number of epochs.
     :param core_parallelization: Whether to use Horovod for parallelized computation within
                                  this function.
@@ -93,16 +92,33 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                          kernel=h, fresnel_approx=fresnel_approx)
         loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
-        if alpha_d is None:
-            reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(
-                obj_delta)
-        else:
-            if gamma == 0:
-                reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(np.abs(obj_beta))
-            else:
-                reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(
-                    np.abs(obj_beta)) + gamma * total_variation_3d(obj_delta)
-        loss = loss + reg_term
+        reg_term = 0
+        if alpha_d not in [None, 0]:
+            reg_term = reg_term + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
+            loss = loss + reg_term
+        if alpha_b not in [None, 0]:
+            reg_term = reg_term + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
+            loss = loss + reg_term
+        if gamma not in [None, 0]:
+            reg_term = reg_term + gamma * total_variation_3d(obj_delta)
+            loss = loss + reg_term
+
+        print(loss, reg_term)
+
+        # if alpha_d is None:
+        #     reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(
+        #         obj_delta)
+        # else:
+        #     if gamma == 0:
+        #         reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(np.abs(obj_beta))
+        #     else:
+        #         reg_term = alpha_d * np.sum(np.abs(obj_delta)) + alpha_b * np.sum(
+        #             np.abs(obj_beta)) + gamma * total_variation_3d(obj_delta)
+        # loss = loss + reg_term
+
+        # Write convergence data
+        f_conv.write('{},{},{},'.format(i_epoch, i_batch, loss._value))
+        f_conv.flush()
 
         return loss
 
@@ -129,8 +145,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
     print_flush('Data shape: {}'.format(original_shape), 0, rank)
     comm.Barrier()
-
-    initializer_flag = False
 
     if output_folder is None:
         output_folder = 'recon_360_minibatch_{}_' \
@@ -160,6 +174,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
     for ds_level in range(multiscale_level - 1, -1, -1):
 
+        initializer_flag = False if ds_level == range(multiscale_level - 1, -1, -1)[0] else True
+
         ds_level = 2 ** ds_level
         print_flush('Multiscale downsampling level: {}'.format(ds_level), 0, rank)
         comm.Barrier()
@@ -175,12 +191,33 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         np.random.shuffle(ind_ls)
         n_tot_per_batch = size * minibatch_size
         if n_theta % n_tot_per_batch > 0:
-            ind_ls = np.concatenate(ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch])
+            ind_ls = np.concatenate([ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch]])
         ind_ls = split_tasks(ind_ls, n_tot_per_batch)
         ind_ls = [np.sort(x) for x in ind_ls]
 
         dim_y, dim_x = prj.shape[-2:]
+        this_obj_size = [dim_y, dim_x, dim_x]
         comm.Barrier()
+
+        if shared_file_object:
+            # Create parallel npy
+            if rank == 0:
+                try:
+                    os.makedirs(os.path.join(output_folder))
+                except:
+                    print('Target folder {} exists.'.format(output_folder))
+                np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
+                np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
+                np.save(os.path.join(output_folder, 'intermediate_v.npy'), np.zeros([*this_obj_size, 2]))
+            comm.Barrier()
+
+            # Create memmap pointer on each rank
+            dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
+            dset_m = np.load(os.path.join(output_folder, 'intermediate_m.npy'), mmap_mode='r+', allow_pickle=True)
+            dset_v = np.load(os.path.join(output_folder, 'intermediate_v.npy'), mmap_mode='r+', allow_pickle=True)
+
+            # Get block allocation
+            n_blocks_y, n_blocks_x, n_blocks, block_size = get_block_division(this_obj_size, size)
 
         # read rotation data
         try:
@@ -199,7 +236,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         try:
             mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'),
-                                            range(prj_0.shape[1]), 5)
+                                            range(prj_0.shape[1]))
         except:
             try:
                 mask = dxchange.read_tiff(os.path.join(save_path, 'fin_sup_mask', 'mask.tiff'))
@@ -234,7 +271,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 obj_delta = initial_guess[0]
                 obj_beta = initial_guess[1]
         else:
-            print_flush('Initializing with Gaussian random.', 0, rank)
+            print_flush('Initializing previous pass outcomes.', 0, rank)
             obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
             obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
             obj_delta = upsample_2x(obj_delta)
@@ -305,6 +342,14 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
         loss_grad = grad(calculate_loss, [0, 1])
 
+        # Save convergence data
+        try:
+            os.makedirs(os.path.join(output_folder, 'convergence'))
+        except:
+            pass
+        f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
+        f_conv.write('i_epoch,i_batch,loss,time\n')
+
         print_flush('Optimizer started.', 0, rank)
         if rank == 0:
             create_summary(output_folder, locals(), preset='fullfield')
@@ -319,17 +364,23 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 t00 = time.time()
                 this_ind_batch = ind_ls[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
                 this_prj_batch = prj[this_ind_batch]
+
+                # Update weight for reweighted L1
+                if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
+
                 grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_prj_batch)
                 this_grads = np.array(grads)
                 grads = np.zeros_like(this_grads)
                 comm.Allreduce(this_grads, grads)
+                # grads = comm.allreduce(this_grads)
                 grads = grads / size
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
 
-                dxchange.write_tiff(obj_delta,
-                                    fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                    dtype='float32', overwrite=True)
+                if rank == 0:
+                    dxchange.write_tiff(obj_delta,
+                                        fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
                 # finite support
                 obj_delta = obj_delta * mask
                 obj_beta = obj_beta * mask
@@ -344,6 +395,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
 
+                f_conv.write('{}\n'.format(time.time() - t_zero))
+                f_conv.flush()
+
             if n_epochs == 'auto':
                 pass
             else:
@@ -355,9 +409,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                                     calculate_loss(obj_delta, obj_beta, this_ind_batch,
                                                                                    this_prj_batch),
                                                                     time.time() - t0, time.time() - t_zero))
-        dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                            dtype='float32', overwrite=True)
-        dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
-                            overwrite=True)
+        if rank == 0:
+            dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                dtype='float32', overwrite=True)
+            dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                overwrite=True)
 
         print_flush('Current iteration finished.', 0, rank)

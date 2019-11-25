@@ -10,6 +10,26 @@ from simulation import *
 
 PI = 3.1415927
 
+
+params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
+                  'theta_st': 0,
+                  'theta_end': 2 * np.pi,
+                  'n_theta': 500,
+                  'energy_ev': 800,
+                  'psize_cm': 0.67e-7,
+                  'batch_size': 1,
+                  'free_prop_cm': None,
+                  'n_batch_per_update': 1,
+                  'save_folder': 'adhesin',
+                  'phantom_path': 'adhesin/phantom',
+                  'probe_type': 'plane',
+                  'dist_to_source_cm': None,
+                  'det_psize_cm': None,
+                  'theta_max': None,
+                  'phi_max': None,
+                  'probe_options': {}
+                  }
+
 params_cone_point = {'fname': 'data_cone_256_1nm_1um.h5',
                      'theta_st': 0,
                      'theta_end': 2 * PI,
@@ -25,7 +45,7 @@ params_cone_point = {'fname': 'data_cone_256_1nm_1um.h5',
                      'det_psize_cm': 3e-7,
                      'theta_max': PI / 15,
                      'phi_max': PI / 15,
-                     'probe_options': None
+                     'probe_options': {}
                      }
 
 params_cone_512 = {'fname': 'data_cone_512_1nm_1um.h5',

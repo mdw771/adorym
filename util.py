@@ -4,6 +4,7 @@ import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 import warnings
+from math import ceil, floor
 try:
     import sys
     from scipy.ndimage import gaussian_filter
@@ -781,3 +782,28 @@ def apply_gradient_gd(x, g, step_size=0.001):
     g = np.array(g)
     x = x - step_size * g
     return x
+
+
+def get_block_division(original_grid_shape, n_ranks):
+    # Must satisfy:
+    # 1. n_block_x * n_block_y = n_ranks
+    # 2. block_size[0] * n_block_y = original_grid_shape[0]
+    # 3. block_size[1] * n_block_x = original_grid_shape[1]
+    # 4. At most 1 block per rank
+    n_blocks_y = int(np.round(np.sqrt(original_grid_shape[0] / original_grid_shape[1] * n_ranks)))
+    n_blocks_x = int(np.round(np.sqrt(original_grid_shape[1] / original_grid_shape[0] * n_ranks)))
+    n_blocks = n_blocks_x * n_blocks_y
+    block_size = ceil(max([original_grid_shape[0] / n_blocks_y, original_grid_shape[1] / n_blocks_x]))
+
+    while n_blocks > n_ranks:
+        if n_blocks_y * block_size - original_grid_shape[0] > n_blocks_x * block_size - original_grid_shape[1]:
+            n_blocks_y -= 1
+        else:
+            n_blocks_x -= 1
+        n_blocks = n_blocks_x * n_blocks_y
+    # Reiterate for adjusted block arrangement.
+    block_size = ceil(max([original_grid_shape[0] / n_blocks_y, original_grid_shape[1] / n_blocks_x]))
+    return n_blocks_y, n_blocks_x, n_blocks, block_size
+
+# if __name__ == '__main__':
+#     print(get_block_division([1200, 1200], 4))

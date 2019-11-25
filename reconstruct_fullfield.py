@@ -1,6 +1,8 @@
 from fullfield import reconstruct_fullfield
 import numpy as np
 from constants import *
+import dxchange
+import os
 
 # init_delta_adhesin = np.zeros([64, 64, 64])
 # init_delta_adhesin[...] = 8e-7
@@ -24,7 +26,7 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
-                  'minibatch_size': 10,
+                  'minibatch_size': 1,
                   'theta_downsample': None,
                   'n_epochs_mask_release': 200,
                   'shrink_cycle': None,
@@ -48,28 +50,30 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'theta_st': 0,
                'theta_end': 2 * np.pi,
                'n_epochs': 10,
-               'alpha_d': 1.5e-8,
-               'alpha_b': 1.5e-9,
+               'alpha_d': 1.5e-8 * 1.7e7,
+               'alpha_b': 1.5e-9 * 1.7e7,
                'gamma': 1e-11,
                'learning_rate': 1e-7,
                'center': 128,
                'energy_ev': 5000,
                'psize_cm': 1.e-7,
-               'minibatch_size': 10,
+               'minibatch_size': 1,
                'theta_downsample': None,
-               'n_epochs_mask_release': 10,
+               'n_epochs_mask_release': 999,
                'shrink_cycle': None,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 10,
-               'output_folder': None,
+               'output_folder': 'test_direct_start',
                'cpu_only': True,
-               'save_path': 'cone_256_filled',
-               'phantom_path': 'cone_256_filled/phantom',
-               'multiscale_level': 3,
+               'save_path': 'cone_256_foam',
+               'phantom_path': 'cone_256_foam/phantom',
+               'multiscale_level': 1,
+               # 'multiscale_level': 1,
                'n_epoch_final_pass': 6,
                'save_intermediate': True,
                'full_intermediate': True,
                'initial_guess': None,
+               # 'initial_guess': [dxchange.read_tiff('cone_256_foam/test/delta_ds_2.tiff'), dxchange.read_tiff('cone_256_foam/test/beta_ds_2.tiff')],
                'probe_type': 'plane',
                'forward_algorithm': 'fresnel',
                'fresnel_approx': True,
@@ -266,7 +270,7 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_adhesin
+params = params_cone
 # init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 # init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]

@@ -103,9 +103,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         # Regularization
         if alpha_d not in [None, 0]:
-            loss = loss + alpha_d * weight_l1 * np.mean(np.abs(obj_delta))
+            loss = loss + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
         if alpha_b not in [None, 0]:
-            loss = loss + alpha_b * weight_l1 * np.mean(np.abs(obj_beta))
+            loss = loss + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
         if gamma not in [None, 0]:
             loss = loss + gamma * total_variation_3d(obj_delta)
 

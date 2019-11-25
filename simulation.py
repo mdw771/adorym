@@ -282,7 +282,7 @@ def create_ptychography_data(energy_ev, psize_cm, n_theta, phantom_path, save_fo
 
 def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
                                          probe_type='gaussian', probe_size=(72, 72), wavefront_initial=None,
-                                         theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, minibatch_size=20, fresnel_approx=True, **kwargs):
+                                         theta_st=0, theta_end=2*PI, probe_circ_mask=0.9, minibatch_size=23, fresnel_approx=True, **kwargs):
     """
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
