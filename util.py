@@ -536,6 +536,7 @@ def total_variation_3d(arr):
     res = np.sum(np.abs(np.roll(arr, 1, axis=0) - arr))
     res = res + np.sum(np.abs(np.roll(arr, 1, axis=1) - arr))
     res = res + np.sum(np.abs(np.roll(arr, 1, axis=2) - arr))
+    res /= arr.size
     return res
 
 
