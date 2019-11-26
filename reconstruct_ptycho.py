@@ -2,6 +2,8 @@ from ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
 import datetime
+import argparse
+import os
 
 timestr = str(datetime.datetime.today())
 timestr = timestr[:timestr.find('.')]
@@ -11,49 +13,23 @@ for i in [':', '-', ' ']:
     else:
         timestr = timestr.replace(i, '')
 
-
-init_delta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/delta_ds_1.tiff')
-init_beta = dxchange.read_tiff('cone_256_filled_ptycho/n2e5/xrmlite_iter2/beta_ds_1.tiff')
-init = [init_delta, init_beta]
-
-# params_adhesin = {'fname': 'data_adhesin_64_1nm_1um.h5',
-#                   'theta_st': 0,
-#                   'theta_end': 2 * np.pi,
-#                   'theta_downsample': None,
-#                   'n_epochs': 10,
-#                   'obj_size': (64, 64, 64),
-#                   'alpha_d': 0,
-#                   'alpha_b': 0,
-#                   'gamma': 0,
-#                   'probe_size': (18, 18),
-#                   # 'learning_rate': 1e-7,
-#                   'learning_rate': 1e-9,
-#                   'center': 32,
-#                   'energy_ev': 800,
-#                   'psize_cm': 0.67e-7,
-#                   'minibatch_size': 23,
-#                   'n_batch_per_update': 1,
-#                   'output_folder': 'test',
-#                   'cpu_only': True,
-#                   'save_path': 'adhesin_ptycho',
-#                   'multiscale_level': 1,
-#                   'n_epoch_final_pass': None,
-#                   'save_intermediate': True,
-#                   'full_intermediate': True,
-#                   'initial_guess': None,
-#                   'n_dp_batch': 529,
-#                   'fresnel_approx': True,
-#                   'probe_type': 'gaussian',
-#                   'probe_learning_rate': 1e-3,
-#                   'probe_learning_rate_init': 1e-2,
-#                   'finite_support_mask': None,
-#                   'forward_algorithm': 'fresnel',
-#                   'object_type': 'normal',
-#                   'probe_pos': [(y, x) for y in np.linspace(9, 55, 23, dtype=int) for x in np.linspace(9, 55, 23, dtype=int)],
-#                   'probe_mag_sigma': 10,
-#                   'probe_phase_sigma': 10,
-#                   'probe_phase_max': 0.5,
-#                   }
+parser = argparse.ArgumentParser()
+parser.add_argument('--epoch', default='None')
+parser.add_argument('--save_path', default='cone_256_foam_ptycho')
+parser.add_argument('--output_folder', default='test')
+args = parser.parse_args()
+epoch = args.epoch
+if epoch == 'None':
+    epoch = 0
+    init = None
+else:
+    epoch = int(epoch)
+    if epoch == 0:
+        init = None
+    else:
+        init_delta = dxchange.read_tiff(os.path.join(args.save_path, args.output_folder, 'epoch_{}/delta_ds_1.tiff'.format(epoch - 1)))
+        init_beta = dxchange.read_tiff(os.path.join(args.save_path, args.output_folder, 'epoch_{}/beta_ds_1.tiff'.format(epoch - 1)))
+        init = [init_delta, init_beta]
 
 
 params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
@@ -104,11 +80,11 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'theta_st': 0,
                     'theta_end': 2 * np.pi,
                     'theta_downsample': None,
-                    'n_epochs': 5,
+                    'n_epochs': 1,
                     'obj_size': (256, 256, 256),
-                    'alpha_d': 0,
-                    'alpha_b': 0,
-                    'gamma': 0,
+                    'alpha_d': 1e-9 * 1.7e7,
+                    'alpha_b': 1e-10 * 1.7e7,
+                    'gamma': 1e-9,
                     'probe_size': (72, 72),
                     'learning_rate': 1e-7,
                     'center': 128,
@@ -116,14 +92,15 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'psize_cm': 1.e-7,
                     'minibatch_size': 23,
                     'n_batch_per_update': 1,
-                    'output_folder': 'theta_' + timestr,
+                    # 'output_folder': 'theta_' + timestr,
+                    'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
                     'cpu_only': True,
-                    'save_path': 'cone_256_foam_ptycho',
+                    'save_path': args.save_path,
                     'multiscale_level': 1,
                     'n_epoch_final_pass': None,
                     'save_intermediate': True,
                     'full_intermediate': True,
-                    'initial_guess': None,
+                    'initial_guess': init,
                     'n_dp_batch': 23,
                     'probe_type': 'gaussian',
                     'forward_algorithm': 'fresnel',
@@ -310,8 +287,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_adhesin_2
-# params = params_cone_marc
+# params = params_adhesin_2
+params = params_cone_marc
 # params = params_2d_cell
 
 

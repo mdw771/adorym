@@ -366,7 +366,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 this_prj_batch = prj[this_ind_batch]
 
                 # Update weight for reweighted L1
-                if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
+                if i_batch % 10 == 0 and i_epoch >= 1:
+                    weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
+                else:
+                    weight_l1 = np.ones_like(obj_delta)
 
                 grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_prj_batch)
                 this_grads = np.array(grads)
@@ -404,11 +407,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 if i_epoch == n_epochs - 1: cont = False
             i_epoch = i_epoch + 1
 
-            print_flush(
-                'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {}.'.format(i_epoch, rank,
-                                                                    calculate_loss(obj_delta, obj_beta, this_ind_batch,
-                                                                                   this_prj_batch),
-                                                                    time.time() - t0, time.time() - t_zero))
+            # print_flush(
+            #     'Epoch {} (rank {}); loss = {}; Delta-t = {} s; current time = {}.'.format(i_epoch, rank,
+            #                                                         calculate_loss(obj_delta, obj_beta, this_ind_batch,
+            #                                                                        this_prj_batch),
+            #                                                         time.time() - t0, time.time() - t_zero))
         if rank == 0:
             dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                 dtype='float32', overwrite=True)
