@@ -328,11 +328,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         comm.Barrier()
 
         if not shared_file_object:
-            if rank != 0:
-                obj_delta = np.zeros(this_obj_size)
-                obj_beta = np.zeros(this_obj_size)
-                obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
-                obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
+            obj_delta = np.zeros(this_obj_size)
+            obj_beta = np.zeros(this_obj_size)
+            obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
+            obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
             comm.Barrier()
             if rank == 0:
                 os.remove('init_delta_temp.npy')

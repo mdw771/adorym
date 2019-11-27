@@ -259,11 +259,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         if not shared_file_object:
-            if rank != 0:
-                obj_delta = np.zeros(this_obj_size)
-                obj_beta = np.zeros(this_obj_size)
-                obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
-                obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
+            obj_delta = np.zeros(this_obj_size)
+            obj_beta = np.zeros(this_obj_size)
+            obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
+            obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
             comm.Barrier()
             if rank == 0:
                 os.remove('init_delta_temp.npy')
@@ -417,7 +416,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_grads = np.zeros_like(this_obj_grads)
                     comm.Barrier()
                     comm.Allreduce(this_obj_grads, obj_grads)
-                    print(this_obj_grads.shape, obj_grads.shape)
                 obj_grads = obj_grads / size
                 if not shared_file_object:
                     (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
