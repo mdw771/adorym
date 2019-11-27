@@ -469,10 +469,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     for i_pos in this_ind_batch:
                         i_pos = i_pos[1]
                         line_st, line_end, px_st, px_end = probe_pos[i_pos]
-                        line_st -= safe_zone_width
-                        line_end += safe_zone_width
-                        px_st -= safe_zone_width
-                        px_end += safe_zone_width
                         line_st_0 = max([0, line_st])
                         line_end_0 = min([dim_y, line_end])
                         px_st_0 = max([0, px_st])
@@ -522,6 +518,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
                 if shared_file_object:
                     grads = grads[:, :, safe_zone_width:safe_zone_width+block_size, safe_zone_width:safe_zone_width+block_size, :]
+                    obj_delta = obj_delta[:, safe_zone_width:obj_delta.shape[1] - safe_zone_width,
+                                             safe_zone_width:obj_delta.shape[2] - safe_zone_width, :]
+                    obj_beta = obj_beta[:, safe_zone_width:obj_beta.shape[1] - safe_zone_width,
+                                           safe_zone_width:obj_beta.shape[2] - safe_zone_width, :]
 
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
@@ -542,6 +542,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                                 probe_size_half, monochannel=True)
 
                 if shared_file_object:
+                    obj = obj[:, safe_zone_width:obj.shape[1] - safe_zone_width,
+                                 safe_zone_width:obj.shape[2] - safe_zone_width, :, :]
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
                     obj_beta = obj_beta - obj[:, :, :, :, 1]
                     obj_delta = obj_delta / size
