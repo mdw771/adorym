@@ -24,7 +24,8 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_learning_rate_init',
                          'probe_type',
                          'optimize_probe_defocusing',
-                         'probe_defocusing_learning_rate']
+                         'probe_defocusing_learning_rate',
+                         'shared_file_object']
 
 SUMMARY_PRESET_PP = ['obj_size',
                      'output_folder',
@@ -60,7 +61,8 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'psize_cm',
                      'energy_ev',
                      'fname',
-                     'object_type']
+                     'object_type',
+                     'shared_file_object']
 
 
 def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=True):

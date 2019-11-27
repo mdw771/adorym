@@ -19,8 +19,8 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
                   'n_epochs': 5,
-                  'alpha_d': 1.e-9,
-                  'alpha_b': 1.e-10,
+                  'alpha_d': 1.e-9 * 64 ** 3,
+                  'alpha_b': 1.e-10 * 64 ** 3,
                   'gamma': 0,
                   'learning_rate': 1e-7,
                   'center': 32,
@@ -44,6 +44,7 @@ params_adhesin = {'fname': 'data_adhesin_360_soft.h5',
                   'probe_type': 'plane',
                   'forward_algorithm': 'fresnel',
                   'fresnel_approx': True,
+                  'shared_file_object': True,
                   'kwargs': {}}
 
 params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
@@ -270,7 +271,8 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-params = params_cone
+# params = params_cone
+params = params_adhesin
 # init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 # init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]

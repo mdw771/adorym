@@ -78,19 +78,31 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
     def calculate_loss(obj_delta, obj_beta, this_ind_batch, this_prj_batch):
 
-        obj_stack = np.stack([obj_delta, obj_beta], axis=3)
-        obj_rot_batch = []
-        for i in range(minibatch_size):
-            obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[this_ind_batch[i]],
-                                                'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta)))
-        obj_rot_batch = np.stack(obj_rot_batch)
+        if not shared_file_object:
+            obj_stack = np.stack([obj_delta, obj_beta], axis=3)
+            obj_rot_batch = []
+            for i in range(minibatch_size):
+                obj_rot_batch.append(apply_rotation(obj_stack, coord_ls[this_ind_batch[i]],
+                                                    'arrsize_{}_{}_{}_ntheta_{}'.format(dim_y, dim_x, dim_x, n_theta)))
+            obj_rot_batch = np.stack(obj_rot_batch)
 
-        exiting_batch = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
-                                                         probe_real, probe_imag, energy_ev,
-                                                         psize_cm * ds_level, free_prop_cm=free_prop_cm,
-                                                         obj_batch_shape=[minibatch_size, *obj_size],
-                                                         kernel=h, fresnel_approx=fresnel_approx)
-        loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
+            exiting_batch = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
+                                                             probe_real, probe_imag, energy_ev,
+                                                             psize_cm * ds_level, free_prop_cm=free_prop_cm,
+                                                             obj_batch_shape=[minibatch_size, *obj_size],
+                                                             kernel=h, fresnel_approx=fresnel_approx)
+            loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
+
+        else:
+            exiting_batch = multislice_propagate_batch_numpy(obj_delta, obj_beta,
+                                                             probe_real, probe_imag, energy_ev,
+                                                             psize_cm * ds_level, free_prop_cm=free_prop_cm,
+                                                             obj_batch_shape=obj_delta.shape,
+                                                             kernel=h, fresnel_approx=fresnel_approx)
+            exiting_batch = exiting_batch[:,
+                                          safe_zone_width:exiting_batch.shape[1] - safe_zone_width,
+                                          safe_zone_width:exiting_batch.shape[2] - safe_zone_width]
+            loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
         reg_term = 0
         if alpha_d not in [None, 0]:
@@ -180,6 +192,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         print_flush('Multiscale downsampling level: {}'.format(ds_level), 0, rank)
         comm.Barrier()
 
+        # Physical metadata
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
+        lmbda_nm = 1240. / energy_ev
+        delta_nm = voxel_nm[-1]
+
         # downsample data
         prj = np.copy(prj_0)
         if ds_level > 1:
@@ -218,6 +235,15 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
             # Get block allocation
             n_blocks_y, n_blocks_x, n_blocks, block_size = get_block_division(this_obj_size, size)
+            probe_pos = []
+            # probe_pos is a list of tuples of (line_st, line_end, px_st, ps_end).
+            for i_pos in range(n_blocks):
+                probe_pos.append(get_block_range(i_pos, n_blocks_x, block_size)[:4])
+            probe_pos = np.array(probe_pos)
+            if free_prop_cm not in [0, None]:
+                safe_zone_width = ceil(4.0 * np.sqrt((delta_nm * dim_x + free_prop_cm * 1e7) * lmbda_nm) / (voxel_nm[0]))
+            else:
+                safe_zone_width = ceil(4.0 * np.sqrt((delta_nm * dim_x) * lmbda_nm) / (voxel_nm[0]))
 
         # read rotation data
         try:
@@ -234,23 +260,28 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         if n_epochs_mask_release is None:
             n_epochs_mask_release = np.inf
 
-        try:
-            mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'),
-                                            range(prj_0.shape[1]))
-        except:
+        if (not shared_file_object) or (shared_file_object and rank == 0):
             try:
-                mask = dxchange.read_tiff(os.path.join(save_path, 'fin_sup_mask', 'mask.tiff'))
+                mask = dxchange.read_tiff_stack(os.path.join(save_path, 'fin_sup_mask', 'mask_00000.tiff'),
+                                                range(prj_0.shape[1]))
             except:
-                obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'),
-                                                  range(prj_0.shape[1]), 5)
-                obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
-                mask = np.zeros_like(obj_pr)
-                mask[obj_pr > 1e-5] = 1
-                dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32',
-                                          overwrite=True)
-        if ds_level > 1:
-            mask = mask[::ds_level, ::ds_level, ::ds_level]
-        dim_z = mask.shape[-1]
+                try:
+                    mask = dxchange.read_tiff(os.path.join(save_path, 'fin_sup_mask', 'mask.tiff'))
+                except:
+                    obj_pr = dxchange.read_tiff_stack(os.path.join(save_path, 'paganin_obj/recon_00000.tiff'),
+                                                      range(prj_0.shape[1]), 5)
+                    obj_pr = gaussian_filter(np.abs(obj_pr), sigma=3, mode='constant')
+                    mask = np.zeros_like(obj_pr)
+                    mask[obj_pr > 1e-5] = 1
+                    dxchange.write_tiff_stack(mask, os.path.join(save_path, 'fin_sup_mask/mask'), dtype='float32',
+                                              overwrite=True)
+            if ds_level > 1:
+                mask = mask[::ds_level, ::ds_level, ::ds_level]
+            if shared_file_object:
+                np.save(os.path.join(output_folder, 'intermediate_mask.npy'), mask)
+
+        if shared_file_object:
+            dset_mask = np.load(os.path.join(output_folder, 'intermediate_mask.npy'), mmap_mode='r+', allow_pickle=True)
 
         # unify random seed for all threads
         comm.Barrier()
@@ -258,87 +289,119 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         np.random.seed(seed)
         comm.Barrier()
 
-        if initializer_flag == False:
-            if initial_guess is None:
-                print_flush('Initializing with Gaussian random.', 0, rank)
-                obj_delta = np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=1e-7) * mask
-                obj_beta = np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=1e-8) * mask
+        if rank == 0:
+            if initializer_flag == False:
+                if initial_guess is None:
+                    print_flush('Initializing with Gaussian random.', 0, rank)
+                    obj_delta = np.random.normal(size=[dim_y, dim_x, dim_x], loc=8.7e-7, scale=1e-7) * mask
+                    obj_beta = np.random.normal(size=[dim_y, dim_x, dim_x], loc=5.1e-8, scale=1e-8) * mask
+                    obj_delta[obj_delta < 0] = 0
+                    obj_beta[obj_beta < 0] = 0
+                else:
+                    print_flush('Using supplied initial guess.', 0, rank)
+                    sys.stdout.flush()
+                    obj_delta = initial_guess[0]
+                    obj_beta = initial_guess[1]
+            else:
+                print_flush('Initializing previous pass outcomes.', 0, rank)
+                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_delta = upsample_2x(obj_delta)
+                obj_beta = upsample_2x(obj_beta)
+                obj_delta += np.random.normal(size=[dim_y, dim_x, dim_x], loc=8.7e-7, scale=1e-7) * mask
+                obj_beta += np.random.normal(size=[dim_y, dim_x, dim_x], loc=5.1e-8, scale=1e-8) * mask
                 obj_delta[obj_delta < 0] = 0
                 obj_beta[obj_beta < 0] = 0
+            obj_size = obj_delta.shape
+            if object_type == 'phase_only':
+                obj_beta[...] = 0
+            elif object_type == 'absorption_only':
+                obj_delta[...] = 0
+            if not shared_file_object:
+                np.save('init_delta_temp.npy', obj_delta)
+                np.save('init_beta_temp.npy', obj_beta)
             else:
-                print_flush('Using supplied initial guess.', 0, rank)
-                sys.stdout.flush()
-                obj_delta = initial_guess[0]
-                obj_beta = initial_guess[1]
-        else:
-            print_flush('Initializing previous pass outcomes.', 0, rank)
-            obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_delta = upsample_2x(obj_delta)
-            obj_beta = upsample_2x(obj_beta)
-            obj_delta += np.random.normal(size=[dim_y, dim_x, dim_z], loc=8.7e-7, scale=1e-7) * mask
-            obj_beta += np.random.normal(size=[dim_y, dim_x, dim_z], loc=5.1e-8, scale=1e-8) * mask
-            obj_delta[obj_delta < 0] = 0
-            obj_beta[obj_beta < 0] = 0
-        obj_size = obj_delta.shape
-        if object_type == 'phase_only':
-            obj_beta[...] = 0
-        elif object_type == 'absorption_only':
-            obj_delta[...] = 0
-        # ====================================================
+                dset[:, :, :, 0] = obj_delta
+                dset[:, :, :, 1] = obj_beta
+                dset_m[...] = 0
+                dset_v[...] = 0
+        comm.Barrier()
 
-        if probe_type == 'plane':
-            probe_real = np.ones([dim_y, dim_x])
-            probe_imag = np.zeros([dim_y, dim_x])
-        elif probe_type == 'optimizable':
-            if probe_initial is not None:
+        if not shared_file_object:
+            if rank != 0:
+                obj_delta = np.zeros(this_obj_size)
+                obj_beta = np.zeros(this_obj_size)
+                obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
+                obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
+            comm.Barrier()
+            if rank == 0:
+                os.remove('init_delta_temp.npy')
+                os.remove('init_beta_temp.npy')
+            comm.Barrier()
+
+        print_flush('Initialzing probe...', 0, rank)
+        if not shared_file_object:
+            if probe_type == 'plane':
+                probe_real = np.ones([dim_y, dim_x])
+                probe_imag = np.zeros([dim_y, dim_x])
+            elif probe_type == 'optimizable':
+                if probe_initial is not None:
+                    probe_mag, probe_phase = probe_initial
+                    probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+                else:
+                    # probe_mag = np.ones([dim_y, dim_x])
+                    # probe_phase = np.zeros([dim_y, dim_x])
+                    back_prop_cm = (free_prop_cm + (psize_cm * obj_size[2])) if free_prop_cm is not None else (
+                    psize_cm * obj_size[2])
+                    probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
+                                                            psize_cm * 1.e7)
+                    probe_real = probe_init.real
+                    probe_imag = probe_init.imag
+                if pupil_function is not None:
+                    probe_real = probe_real * pupil_function
+                    probe_imag = probe_imag * pupil_function
+            elif probe_type == 'fixed':
                 probe_mag, probe_phase = probe_initial
                 probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+            elif probe_type == 'point':
+                # this should be in spherical coordinates
+                probe_real = np.ones([dim_y, dim_x])
+                probe_imag = np.zeros([dim_y, dim_x])
+            elif probe_type == 'gaussian':
+                probe_mag_sigma = kwargs['probe_mag_sigma']
+                probe_phase_sigma = kwargs['probe_phase_sigma']
+                probe_phase_max = kwargs['probe_phase_max']
+                py = np.arange(obj_size[0]) - (obj_size[0] - 1.) / 2
+                px = np.arange(obj_size[1]) - (obj_size[1] - 1.) / 2
+                pxx, pyy = np.meshgrid(px, py)
+                probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
+                probe_phase = probe_phase_max * np.exp(
+                    -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
+                probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
             else:
-                # probe_mag = np.ones([dim_y, dim_x])
-                # probe_phase = np.zeros([dim_y, dim_x])
-                back_prop_cm = (free_prop_cm + (psize_cm * obj_size[2])) if free_prop_cm is not None else (
-                psize_cm * obj_size[2])
-                probe_init = create_probe_initial_guess(os.path.join(save_path, fname), back_prop_cm * 1.e7, energy_ev,
-                                                        psize_cm * 1.e7)
-                probe_real = probe_init.real
-                probe_imag = probe_init.imag
-            if pupil_function is not None:
-                probe_real = probe_real * pupil_function
-                probe_imag = probe_imag * pupil_function
-        elif probe_type == 'fixed':
-            probe_mag, probe_phase = probe_initial
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-        elif probe_type == 'point':
-            # this should be in spherical coordinates
-            probe_real = np.ones([dim_y, dim_x])
-            probe_imag = np.zeros([dim_y, dim_x])
-        elif probe_type == 'gaussian':
-            probe_mag_sigma = kwargs['probe_mag_sigma']
-            probe_phase_sigma = kwargs['probe_phase_sigma']
-            probe_phase_max = kwargs['probe_phase_max']
-            py = np.arange(obj_size[0]) - (obj_size[0] - 1.) / 2
-            px = np.arange(obj_size[1]) - (obj_size[1] - 1.) / 2
-            pxx, pyy = np.meshgrid(px, py)
-            probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
-            probe_phase = probe_phase_max * np.exp(
-                -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+                raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
         else:
-            raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
+            if probe_type == 'plane':
+                probe_real = np.ones([block_size + 2 * safe_zone_width] * 2)
+                probe_imag = np.zeros([block_size + 2 * safe_zone_width] * 2)
+            else:
+                raise ValueError('probe_type other than plane is not yet supported with shared file object.')
 
         # =============finite support===================
-        obj_delta = obj_delta * mask
-        obj_beta = obj_beta * mask
-        obj_delta = np.clip(obj_delta, 0, None)
-        obj_beta = np.clip(obj_beta, 0, None)
+        if not shared_file_object:
+            obj_delta = obj_delta * mask
+            obj_beta = obj_beta * mask
+            obj_delta = np.clip(obj_delta, 0, None)
+            obj_beta = np.clip(obj_beta, 0, None)
         # ==============================================
 
         # generate Fresnel kernel
-        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
-        lmbda_nm = 1240. / energy_ev
-        delta_nm = voxel_nm[-1]
-        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x], fresnel_approx=fresnel_approx)
+        if not shared_file_object:
+            h = get_kernel(delta_nm, lmbda_nm, voxel_nm, [dim_y, dim_y, dim_x], fresnel_approx=fresnel_approx)
+        else:
+            h = get_kernel(delta_nm, lmbda_nm, voxel_nm, [block_size + safe_zone_width * 2,
+                                                          block_size + safe_zone_width * 2,
+                                                          dim_x], fresnel_approx=fresnel_approx)
 
         loss_grad = grad(calculate_loss, [0, 1])
 
@@ -357,13 +420,93 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         cont = True
         i_epoch = 0
         while cont:
+            if shared_file_object:
+                # Do a ptychography-like allocation.
+                n_pos = len(probe_pos)
+                n_spots = n_theta * n_pos
+                n_tot_per_batch = minibatch_size * size
+                n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
+                spots_ls = range(n_spots)
+                ind_list_rand = []
+
+                theta_ls = np.arange(n_theta)
+                np.random.shuffle(theta_ls)
+
+                for i, i_theta in enumerate(theta_ls):
+                    spots_ls = range(n_pos)
+                    if n_pos % minibatch_size != 0:
+                        # Append randomly selected diffraction spots if necessary, so that a rank won't be given
+                        # spots from different angles in one batch.
+                        spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % minibatch_size)],
+                                                                        minibatch_size - (n_pos % minibatch_size),
+                                                                        replace=False))
+                    if i == 0:
+                        ind_list_rand = np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()
+                    else:
+                        ind_list_rand = np.concatenate(
+                            [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()],
+                            axis=0)
+                ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
+                probe_size_half = block_size // 2 + safe_zone_width
+
             m, v = (None, None)
             t0 = time.time()
             for i_batch in range(len(ind_ls)):
 
                 t00 = time.time()
-                this_ind_batch = ind_ls[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
-                this_prj_batch = prj[this_ind_batch]
+                if not shared_file_object:
+                    this_ind_batch = ind_ls[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
+                    this_prj_batch = prj[this_ind_batch]
+                else:
+                    if len(ind_list_rand[i_batch]) < n_tot_per_batch:
+                        n_supp = n_tot_per_batch - len(ind_list_rand[i_batch])
+                        ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
+
+                    this_ind_batch = ind_list_rand[i_batch]
+                    this_i_theta = this_ind_batch[rank * minibatch_size, 0]
+                    this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+
+                    this_prj_batch = []
+                    for i_pos in this_ind_batch:
+                        i_pos = i_pos[1]
+                        line_st, line_end, px_st, px_end = probe_pos[i_pos]
+                        line_st -= safe_zone_width
+                        line_end += safe_zone_width
+                        px_st -= safe_zone_width
+                        px_end += safe_zone_width
+                        line_st_0 = max([0, line_st])
+                        line_end_0 = min([dim_y, line_end])
+                        px_st_0 = max([0, px_st])
+                        px_end_0 = min([dim_x, px_end])
+                        patch = prj[this_i_theta, line_st_0:line_end_0, px_st_0:px_end_0]
+                        if line_st < 0:
+                            patch = np.pad(patch, [[-line_st, 0], [0, 0]], mode='constant')
+                        if line_end > dim_y:
+                            patch = np.pad(patch, [[0, line_end - dim_y], [0, 0]], mode='constant')
+                        if px_st < 0:
+                            patch = np.pad(patch, [[0, 0], [-px_st, 0]], mode='constant')
+                        if px_end > dim_x:
+                            patch = np.pad(patch, [[0, 0], [0, px_end - dim_x]], mode='constant')
+                        this_prj_batch.append(patch)
+                    this_prj_batch = np.array(this_prj_batch)
+                    this_pos_batch = probe_pos[this_ind_rank]
+                    this_pos_batch_safe = this_pos_batch + np.array([-safe_zone_width, safe_zone_width, -safe_zone_width, safe_zone_width])
+                    if ds_level > 1:
+                        this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
+                    comm.Barrier()
+
+                    # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
+                    obj = get_rotated_subblocks(dset, this_pos_batch_safe, coord_ls[this_i_theta], None)
+                    obj_delta = np.array(obj[:, :, :, :, 0])
+                    obj_beta = np.array(obj[:, :, :, :, 1])
+                    m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], None)
+                    m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
+                    m_0 = np.copy(m)
+                    v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], None)
+                    v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
+                    v_0 = np.copy(v)
+                    mask = get_rotated_subblocks(dset_mask, this_pos_batch, coord_ls[this_i_theta], None, monochannel=True)
+                    mask_0 = np.copy(mask)
 
                 # Update weight for reweighted L1
                 if i_batch % 10 == 0 and i_epoch >= 1:
@@ -377,13 +520,13 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 comm.Allreduce(this_grads, grads)
                 # grads = comm.allreduce(this_grads)
                 grads = grads / size
+
+                if shared_file_object:
+                    grads = grads[:, :, safe_zone_width:safe_zone_width+block_size, safe_zone_width:safe_zone_width+block_size, :]
+
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                   grads, i_batch, m, v, step_size=learning_rate)
 
-                if rank == 0:
-                    dxchange.write_tiff(obj_delta,
-                                        fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
                 # finite support
                 obj_delta = obj_delta * mask
                 obj_beta = obj_beta * mask
@@ -395,6 +538,38 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     if i_epoch >= shrink_cycle:
                         boolean = obj_delta > 1e-15
                     mask = mask * boolean
+                    if shared_file_object:
+                        write_subblocks_to_file(dset, this_pos_batch, mask, None, coord_ls[this_i_theta],
+                                                probe_size_half, monochannel=True)
+
+                if shared_file_object:
+                    obj_delta = obj_delta - obj[:, :, :, :, 0]
+                    obj_beta = obj_beta - obj[:, :, :, :, 1]
+                    obj_delta = obj_delta / size
+                    obj_beta = obj_beta / size
+                    write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
+                                            probe_size_half)
+                    m = m - m_0
+                    m /= size
+                    write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
+                                            probe_size_half)
+                    v = v - v_0
+                    v /= size
+                    write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
+                                            probe_size_half)
+
+                if rank == 0:
+                    if shared_file_object:
+                        dxchange.write_tiff(dset[:, :, :, 0],
+                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            dtype='float32', overwrite=True)
+                        dxchange.write_tiff(dset[:, :, :, 0],
+                                            fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
+                                            dtype='float32', overwrite=True)
+                    else:
+                        dxchange.write_tiff(obj_delta,
+                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            dtype='float32', overwrite=True)
 
                 print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
 
@@ -412,10 +587,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             #                                                         calculate_loss(obj_delta, obj_beta, this_ind_batch,
             #                                                                        this_prj_batch),
             #                                                         time.time() - t0, time.time() - t_zero))
-        if rank == 0:
-            dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                dtype='float32', overwrite=True)
-            dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
-                                overwrite=True)
+            if rank == 0:
+                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                    dtype='float32', overwrite=True)
+                dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                    overwrite=True)
 
         print_flush('Current iteration finished.', 0, rank)

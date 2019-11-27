@@ -420,16 +420,26 @@ def apply_rotation(obj, coord_old, src_folder):
     return obj_rot
 
 
-def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
+def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, monochannel=False):
     """
     Get rotated subblocks centering this_pos_batch directly from npy.
     :return: [n_pos, y, x, z, 2]
     """
-    whole_object_size = dset.shape[:-1]
+    whole_object_size = dset.shape[:3]
     block_stack = []
-    for this_y, this_x in this_pos_batch:
-        coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
-        coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+    for coords in this_pos_batch:
+        if len(coords) == 2:
+            # For the case of ptychography
+            this_y, this_x = coords
+            coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
+            coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+            block_shape = [probe_size_half[0] * 2, probe_size_half[1] * 2, whole_object_size[-1]]
+        else:
+            # For the case of full-field
+            line_st, line_end, px_st, px_end = coords
+            coord0_vec = np.arange(line_st, line_end)
+            coord1_vec = np.arange(px_st, px_end)
+            block_shape = [line_end - line_st, px_end - px_st, whole_object_size[-1]]
         coord2_vec = np.arange(whole_object_size[-1])
         coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
@@ -445,26 +455,43 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half):
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
 
         # Take values from original object in npy
-        this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                          ind_old_1, ind_old_2, :]
-        this_block = np.reshape(this_block, [this_block.shape[0], probe_size_half[1] * 2, whole_object_size[2], 2])
-        if coord0_vec[0] < 0:
-            this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0], [0, 0]], mode='edge')
-        if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
-            this_block = np.pad(this_block, [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0], [0, 0]], mode='edge')
+        if not monochannel:
+            this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                              ind_old_1, ind_old_2, :]
+            this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2], 2])
+            if coord0_vec[0] < 0:
+                this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0], [0, 0]], mode='edge')
+            if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
+                this_block = np.pad(this_block, [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0], [0, 0]], mode='edge')
+        else:
+            this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                         ind_old_1, ind_old_2]
+            this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2]])
+            if coord0_vec[0] < 0:
+                this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0]], mode='edge')
+            if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
+                this_block = np.pad(this_block,
+                                    [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0]],
+                                    mode='edge')
         block_stack.append(this_block)
     block_stack = np.stack(block_stack, axis=0)
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, monochannel=False):
     """
-    Write data back in the npy.
+    Write data back in the npy. If monochannel, give None to obj_beta.
     """
-    whole_object_size = dset.shape[:-1]
-    for i_batch, (this_y, this_x) in enumerate(this_pos_batch):
-        coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
-        coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+    whole_object_size = dset.shape[:3]
+    for i_batch, coords in enumerate(this_pos_batch):
+        if len(coords) == 2:
+            this_y, this_x = coords
+            coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
+            coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+        else:
+            line_st, line_end, px_st, px_end = coords
+            coord0_vec = np.arange(line_st, line_end)
+            coord1_vec = np.arange(px_st, px_end)
         coord2_vec = np.arange(whole_object_size[-1])
         coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
         coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
@@ -485,19 +512,29 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         obj_crop_top = max([0, -coord0_vec[0]])
         obj_crop_bot = min([obj_delta.shape[1] - (coord0_vec[-1] + 1 - whole_object_size[0]),
                             obj_delta.shape[1]])
-        obj_crop_left = max([0, -(this_x - probe_size_half[1])])
-        obj_crop_right = min([obj_delta.shape[1] - (this_x + probe_size_half[1] - whole_object_size[0]),
-                            obj_delta.shape[1]])
+        try:
+            obj_crop_left = max([0, -(this_x - probe_size_half[1])])
+            obj_crop_right = min([obj_delta.shape[1] - (this_x + probe_size_half[1] - whole_object_size[0]),
+                                obj_delta.shape[1]])
+        except:
+            obj_crop_left = max([0, -px_st])
+            obj_crop_right = min([obj_delta.shape[1] - (px_end - whole_object_size[0]),
+                                obj_delta.shape[1]])
 
         new_shape = [obj_crop_bot - obj_crop_top,
                      len(ind_old_1[coord1_clip_mask])]
 
-        dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-             ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 0] += \
-                 np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
-        dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-             ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 1] += \
-                 np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
+        if not monochannel:
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                 ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 0] += \
+                     np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                 ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 1] += \
+                     np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
+        else:
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
+                 ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask]] += \
+                     np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
     return
 
 
@@ -806,5 +843,13 @@ def get_block_division(original_grid_shape, n_ranks):
     block_size = ceil(max([original_grid_shape[0] / n_blocks_y, original_grid_shape[1] / n_blocks_x]))
     return n_blocks_y, n_blocks_x, n_blocks, block_size
 
-# if __name__ == '__main__':
-#     print(get_block_division([1200, 1200], 4))
+
+def get_block_range(i_pos, n_blocks_x, block_size):
+
+    line_st = i_pos // n_blocks_x * block_size
+    line_end = line_st + block_size
+    px_st = i_pos % n_blocks_x * block_size
+    px_end = px_st + block_size
+    center_y = (line_st + line_end) / 2
+    center_x = (px_st + px_end) / 2
+    return line_st, line_end, px_st, px_end, center_y, center_x

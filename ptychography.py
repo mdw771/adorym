@@ -232,8 +232,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 else:
                     print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank)
                     sys.stdout.flush()
-                    obj_delta = initial_guess[0]
-                    obj_beta = initial_guess[1]
+                    obj_delta = np.array(initial_guess[0])
+                    obj_beta = np.array(initial_guess[1])
             else:
                 print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank)
                 obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
@@ -270,7 +270,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 os.remove('init_beta_temp.npy')
             comm.Barrier()
 
-        print_flush('Initialzing probe...', designate_rank=0)
+        print_flush('Initialzing probe...', 0, rank)
         if probe_type == 'gaussian':
             probe_mag_sigma = kwargs['probe_mag_sigma']
             probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -417,6 +417,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_grads = np.zeros_like(this_obj_grads)
                     comm.Barrier()
                     comm.Allreduce(this_obj_grads, obj_grads)
+                    print(this_obj_grads.shape, obj_grads.shape)
                 obj_grads = obj_grads / size
                 if not shared_file_object:
                     (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
