@@ -109,7 +109,8 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'probe_mag_sigma': 6,
                     'probe_phase_sigma': 6,
                     'probe_phase_max': 0.5,
-                    'shared_file_object': False
+                    'shared_file_object': False,
+                    'reweighted_l1': False
                     }
 
 # params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
@@ -287,8 +288,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-params = params_adhesin_2
-# params = params_cone_marc
+# params = params_adhesin_2
+params = params_cone_marc
 # params = params_2d_cell
 
 

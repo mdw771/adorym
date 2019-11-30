@@ -27,7 +27,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
-                             shared_file_object=True, **kwargs):
+                             shared_file_object=True, reweighted_l1=False, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
 
@@ -102,10 +102,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         print('Loss is ', loss._value)
 
         # Regularization
-        if alpha_d not in [None, 0]:
-            loss = loss + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
-        if alpha_b not in [None, 0]:
-            loss = loss + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
+        if reweighted_l1:
+            if alpha_d not in [None, 0]:
+                loss = loss + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
+            if alpha_b not in [None, 0]:
+                loss = loss + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
+        else:
+            if alpha_d not in [None, 0]:
+                loss = loss + alpha_d * np.mean(np.abs(obj_delta))
+            if alpha_b not in [None, 0]:
+                loss = loss + alpha_b * np.mean(np.abs(obj_beta))
         if gamma not in [None, 0]:
             loss = loss + gamma * total_variation_3d(obj_delta)
 
