@@ -564,15 +564,15 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half):
     return obj_rot, pad_arr
 
 
-def total_variation_3d(arr):
+def total_variation_3d(arr, axis_offset=0):
     """
     Calculate total variation of a 3D array.
     :param arr: 3D Tensor.
     :return: Scalar.
     """
-    res = np.sum(np.abs(np.roll(arr, 1, axis=0) - arr))
-    res = res + np.sum(np.abs(np.roll(arr, 1, axis=1) - arr))
-    res = res + np.sum(np.abs(np.roll(arr, 1, axis=2) - arr))
+    res = np.sum(np.abs(np.roll(arr, 1, axis=0 + axis_offset) - arr))
+    res = res + np.sum(np.abs(np.roll(arr, 1, axis=1 + axis_offset) - arr))
+    res = res + np.sum(np.abs(np.roll(arr, 1, axis=2 + axis_offset) - arr))
     res /= arr.size
     return res
 

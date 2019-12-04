@@ -113,7 +113,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if alpha_b not in [None, 0]:
                 loss = loss + alpha_b * np.mean(np.abs(obj_beta))
         if gamma not in [None, 0]:
-            loss = loss + gamma * total_variation_3d(obj_delta)
+            if shared_file_object:
+                loss = loss + gamma * total_variation_3d(obj_delta, axis_offset=1)
+            else:
+                loss = loss + gamma * total_variation_3d(obj_delta, axis_offset=0)
 
         # Write convergence data
         f_conv.write('{},{},{},'.format(i_epoch, i_batch, loss._value))

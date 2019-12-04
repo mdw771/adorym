@@ -64,12 +64,12 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'shrink_cycle': None,
                'free_prop_cm': 1e-4,
                'n_batch_per_update': 10,
-               'output_folder': 'test_reweighted_l1',
+               'output_folder': 'test_shared_file_object',
                'cpu_only': True,
                'save_path': 'cone_256_foam',
                'phantom_path': 'cone_256_foam/phantom',
-               'multiscale_level': 3,
-               # 'multiscale_level': 1,
+               # 'multiscale_level': 3,
+               'multiscale_level': 1,
                'n_epoch_final_pass': 6,
                'save_intermediate': True,
                'full_intermediate': True,
@@ -78,6 +78,8 @@ params_cone = {'fname': 'data_cone_256_1nm_1um.h5',
                'probe_type': 'plane',
                'forward_algorithm': 'fresnel',
                'fresnel_approx': True,
+               'shared_file_object': True,
+               'reweighted_l1': False,
                'kwargs': {}}
 
 params_cone_180 = {'fname': 'data_cone_256_1nm_1um_180.h5',
@@ -271,8 +273,8 @@ params_cone_pp = {'fname': 'data_cone_256_1nm_1um.h5',
                              'theta_max': PI / 15,
                              'phi_max': PI / 15}}
 
-# params = params_cone
-params = params_adhesin
+params = params_cone
+# params = params_adhesin
 # init_delta = np.load('cone_256_filled_pp/phantom/grid_delta.npy')
 # init_beta = np.load('cone_256_filled_pp/phantom/grid_beta.npy')
 # init = [init_delta, init_beta]

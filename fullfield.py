@@ -25,7 +25,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                           multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=5,
                           dynamic_rate=True, probe_type='plane', probe_initial=None, probe_learning_rate=1e-3,
                           pupil_function=None, theta_downsample=None, forward_algorithm='fresnel', random_theta=True,
-                          object_type='normal', fresnel_approx=True, shared_file_object=False, **kwargs):
+                          object_type='normal', fresnel_approx=True, shared_file_object=False, reweighted_l1=False,
+                          **kwargs):
     """
     Reconstruct a beyond depth-of-focus object.
     :param fname: Filename and path of raw data file. Must be in HDF5 format.
@@ -105,14 +106,25 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
         reg_term = 0
-        if alpha_d not in [None, 0]:
-            reg_term = reg_term + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
-            loss = loss + reg_term
-        if alpha_b not in [None, 0]:
-            reg_term = reg_term + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
-            loss = loss + reg_term
+        if reweighted_l1:
+            if alpha_d not in [None, 0]:
+                reg_term = reg_term + alpha_d * np.mean(weight_l1 * np.abs(obj_delta))
+                loss = loss + reg_term
+            if alpha_b not in [None, 0]:
+                reg_term = reg_term + alpha_b * np.mean(weight_l1 * np.abs(obj_beta))
+                loss = loss + reg_term
+        else:
+            if alpha_d not in [None, 0]:
+                reg_term = reg_term + alpha_d * np.mean(np.abs(obj_delta))
+                loss = loss + reg_term
+            if alpha_b not in [None, 0]:
+                reg_term = reg_term + alpha_b * np.mean(np.abs(obj_beta))
+                loss = loss + reg_term
         if gamma not in [None, 0]:
-            reg_term = reg_term + gamma * total_variation_3d(obj_delta)
+            if shared_file_object:
+                reg_term = reg_term + gamma * total_variation_3d(obj_delta, axis_offset=1)
+            else:
+                reg_term = reg_term + gamma * total_variation_3d(obj_delta, axis_offset=0)
             loss = loss + reg_term
 
         print(loss, reg_term)
@@ -235,6 +247,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
             # Get block allocation
             n_blocks_y, n_blocks_x, n_blocks, block_size = get_block_division(this_obj_size, size)
+            print_flush('Number of blocks in y: {}'.format(n_blocks_y), 0, rank)
+            print_flush('Number of blocks in x: {}'.format(n_blocks_x), 0, rank)
+            print_flush('Block size: {}'.format(block_size), 0, rank)
             probe_pos = []
             # probe_pos is a list of tuples of (line_st, line_end, px_st, ps_end).
             for i_pos in range(n_blocks):
@@ -244,6 +259,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 safe_zone_width = ceil(4.0 * np.sqrt((delta_nm * dim_x + free_prop_cm * 1e7) * lmbda_nm) / (voxel_nm[0]))
             else:
                 safe_zone_width = ceil(4.0 * np.sqrt((delta_nm * dim_x) * lmbda_nm) / (voxel_nm[0]))
+            print_flush('safe zone: {}'.format(safe_zone_width), 0, rank)
 
         # read rotation data
         try:
@@ -279,6 +295,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 mask = mask[::ds_level, ::ds_level, ::ds_level]
             if shared_file_object:
                 np.save(os.path.join(output_folder, 'intermediate_mask.npy'), mask)
+        comm.Barrier()
 
         if shared_file_object:
             dset_mask = np.load(os.path.join(output_folder, 'intermediate_mask.npy'), mmap_mode='r+', allow_pickle=True)

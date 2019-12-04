@@ -87,7 +87,7 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'alpha_b': 1e-10 * 1.7e7,
                     'gamma': 1e-9 * 1.7e7,
                     'probe_size': (72, 72),
-                    'learning_rate': 1e-7,
+                    'learning_rate': 5e-7,
                     'center': 128,
                     'energy_ev': 5000,
                     'psize_cm': 1.e-7,
@@ -111,7 +111,7 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'probe_phase_sigma': 6,
                     'probe_phase_max': 0.5,
                     'shared_file_object': False,
-                    'reweighted_l1': False
+                    'reweighted_l1': False if epoch == 0 else True,
                     }
 
 # params_cone_marc = {'fname': 'data_cone_256_1nm_marc.h5',
