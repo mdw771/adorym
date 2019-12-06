@@ -62,7 +62,11 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'energy_ev',
                      'fname',
                      'object_type',
-                     'shared_file_object']
+                     'shared_file_object',
+                     'n_blocks_x',
+                     'n_blocks_y',
+                     'block_size',
+                     'safe_zone_width']
 
 
 def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=True):

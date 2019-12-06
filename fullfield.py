@@ -105,6 +105,11 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                           safe_zone_width:exiting_batch.shape[2] - safe_zone_width]
             loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
+        dxchange.write_tiff(np.squeeze(abs(exiting_batch._value)), 'cone_256_foam/test_shared_file_object/current/exit_{}'.format(rank),
+                            dtype='float32', overwrite=True)
+        dxchange.write_tiff(np.squeeze(abs(this_prj_batch)), 'cone_256_foam/test_shared_file_object/current/prj_{}'.format(rank),
+                            dtype='float32', overwrite=True)
+
         reg_term = 0
         if reweighted_l1:
             if alpha_d not in [None, 0]:
@@ -127,7 +132,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 reg_term = reg_term + gamma * total_variation_3d(obj_delta, axis_offset=0)
             loss = loss + reg_term
 
-        print(loss, reg_term)
+        print('Loss:', loss._value, 'Regularization term:', reg_term._value)
 
         # if alpha_d is None:
         #     reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(
@@ -215,14 +220,6 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             prj = prj[:, ::ds_level, ::ds_level]
             prj = prj.astype('complex64')
         comm.Barrier()
-
-        ind_ls = np.arange(n_theta)
-        np.random.shuffle(ind_ls)
-        n_tot_per_batch = size * minibatch_size
-        if n_theta % n_tot_per_batch > 0:
-            ind_ls = np.concatenate([ind_ls, ind_ls[:n_tot_per_batch - n_theta % n_tot_per_batch]])
-        ind_ls = split_tasks(ind_ls, n_tot_per_batch)
-        ind_ls = [np.sort(x) for x in ind_ls]
 
         dim_y, dim_x = prj.shape[-2:]
         this_obj_size = [dim_y, dim_x, dim_x]
@@ -464,14 +461,22 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                             axis=0)
                 ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
                 probe_size_half = block_size // 2 + safe_zone_width
+            else:
+                ind_list_rand = np.arange(n_theta)
+                np.random.shuffle(ind_list_rand)
+                n_tot_per_batch = size * minibatch_size
+                if n_theta % n_tot_per_batch > 0:
+                    ind_list_rand = np.concatenate([ind_list_rand, ind_list_rand[:n_tot_per_batch - n_theta % n_tot_per_batch]])
+                ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
+                ind_list_rand = [np.sort(x) for x in ind_list_rand]
 
             m, v = (None, None)
             t0 = time.time()
-            for i_batch in range(len(ind_ls)):
+            for i_batch in range(len(ind_list_rand)):
 
                 t00 = time.time()
                 if not shared_file_object:
-                    this_ind_batch = ind_ls[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
+                    this_ind_batch = ind_list_rand[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
                     this_prj_batch = prj[this_ind_batch]
                 else:
                     if len(ind_list_rand[i_batch]) < n_tot_per_batch:
@@ -480,11 +485,10 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
                     this_ind_batch = ind_list_rand[i_batch]
                     this_i_theta = this_ind_batch[rank * minibatch_size, 0]
-                    this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+                    this_ind_rank = this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1]
 
                     this_prj_batch = []
-                    for i_pos in this_ind_batch:
-                        i_pos = i_pos[1]
+                    for i_pos in this_ind_rank:
                         line_st, line_end, px_st, px_end = probe_pos[i_pos]
                         line_st_0 = max([0, line_st])
                         line_end_0 = min([dim_y, line_end])
@@ -503,8 +507,8 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     this_prj_batch = np.array(this_prj_batch)
                     this_pos_batch = probe_pos[this_ind_rank]
                     this_pos_batch_safe = this_pos_batch + np.array([-safe_zone_width, safe_zone_width, -safe_zone_width, safe_zone_width])
-                    if ds_level > 1:
-                        this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
+                    # if ds_level > 1:
+                    #     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
                     comm.Barrier()
 
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
@@ -527,10 +531,12 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     weight_l1 = np.ones_like(obj_delta)
 
                 grads = loss_grad(obj_delta, obj_beta, this_ind_batch, this_prj_batch)
-                this_grads = np.array(grads)
-                grads = np.zeros_like(this_grads)
-                comm.Allreduce(this_grads, grads)
+                if not shared_file_object:
+                    this_grads = np.array(grads)
+                    grads = np.zeros_like(this_grads)
+                    comm.Allreduce(this_grads, grads)
                 # grads = comm.allreduce(this_grads)
+                grads = np.array(grads)
                 grads = grads / size
 
                 if shared_file_object:
@@ -541,7 +547,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                            safe_zone_width:obj_beta.shape[2] - safe_zone_width, :]
 
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                  grads, i_batch, m, v, step_size=learning_rate)
+                                                                  grads, i_batch, None, None, step_size=learning_rate)
 
                 # finite support
                 obj_delta = obj_delta * mask
@@ -578,9 +584,9 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
 
                 if rank == 0:
                     if shared_file_object:
-                        dxchange.write_tiff(dset[:, :, :, 0],
-                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
-                                            dtype='float32', overwrite=True)
+                        # dxchange.write_tiff(dset[:, :, :, 0],
+                        #                     fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                        #                     dtype='float32', overwrite=True)
                         dxchange.write_tiff(dset[:, :, :, 0],
                                             fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
                                             dtype='float32', overwrite=True)
@@ -606,9 +612,17 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             #                                                                        this_prj_batch),
             #                                                         time.time() - t0, time.time() - t_zero))
             if rank == 0:
-                dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                    dtype='float32', overwrite=True)
-                dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
-                                    overwrite=True)
+                if shared_file_object:
+                    dxchange.write_tiff(dset[:, :, :, 0],
+                                        fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(dset[:, :, :, 1],
+                                        fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                else:
+                    dxchange.write_tiff(obj_delta, fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
+                                        dtype='float32', overwrite=True)
+                    dxchange.write_tiff(obj_beta, fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)), dtype='float32',
+                                        overwrite=True)
 
         print_flush('Current iteration finished.', 0, rank)
