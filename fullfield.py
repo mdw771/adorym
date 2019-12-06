@@ -160,7 +160,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
     t0 = time.time()
     print_flush('Reading data...', 0, rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
-    prj_0 = f['exchange/data'][...].astype('complex64')
+    prj_0 = f['exchange/data']
     theta = -np.linspace(theta_st, theta_end, prj_0.shape[0], dtype='float32')
     n_theta = len(theta)
     prj_theta_ind = np.arange(n_theta, dtype=int)
@@ -215,13 +215,14 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         delta_nm = voxel_nm[-1]
 
         # downsample data
-        prj = np.copy(prj_0)
-        if ds_level > 1:
-            prj = prj[:, ::ds_level, ::ds_level]
-            prj = prj.astype('complex64')
-        comm.Barrier()
+        prj = prj_0
+        # prj = np.copy(prj_0)
+        # if ds_level > 1:
+        #     prj = prj[:, ::ds_level, ::ds_level]
+        #     prj = prj.astype('complex64')
+        # comm.Barrier()
 
-        dim_y, dim_x = prj.shape[-2:]
+        dim_y, dim_x = prj.shape[-2] // ds_level, prj.shape[-1] // ds_level
         this_obj_size = [dim_y, dim_x, dim_x]
         comm.Barrier()
 
@@ -477,7 +478,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 t00 = time.time()
                 if not shared_file_object:
                     this_ind_batch = ind_list_rand[i_batch][rank * minibatch_size:(rank + 1) * minibatch_size]
-                    this_prj_batch = prj[this_ind_batch]
+                    this_prj_batch = prj[this_ind_batch, ::ds_level, ::ds_level]
                 else:
                     if len(ind_list_rand[i_batch]) < n_tot_per_batch:
                         n_supp = n_tot_per_batch - len(ind_list_rand[i_batch])
@@ -494,7 +495,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                         line_end_0 = min([dim_y, line_end])
                         px_st_0 = max([0, px_st])
                         px_end_0 = min([dim_x, px_end])
-                        patch = prj[this_i_theta, line_st_0:line_end_0, px_st_0:px_end_0]
+                        patch = prj[this_i_theta, ::ds_level, ::ds_level][line_st_0:line_end_0, px_st_0:px_end_0]
                         if line_st < 0:
                             patch = np.pad(patch, [[-line_st, 0], [0, 0]], mode='constant')
                         if line_end > dim_y:
