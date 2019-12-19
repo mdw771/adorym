@@ -125,7 +125,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         return loss
 
     comm = MPI.COMM_WORLD
-    size = comm.Get_size()
+    n_ranks = comm.Get_size()
     rank = comm.Get_rank()
     t_zero = time.time()
 
@@ -341,7 +341,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         while cont:
             n_pos = len(probe_pos)
             n_spots = n_theta * n_pos
-            n_tot_per_batch = minibatch_size * size
+            n_tot_per_batch = minibatch_size * n_ranks
             n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
 
             t0 = time.time()
@@ -425,7 +425,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_grads = np.zeros_like(this_obj_grads)
                     comm.Barrier()
                     comm.Allreduce(this_obj_grads, obj_grads)
-                obj_grads = obj_grads / size
+                obj_grads = obj_grads / n_ranks
                 if not shared_file_object:
                     (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
                                                                       obj_grads, i_batch, m, v, step_size=learning_rate)
@@ -442,7 +442,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     probe_grads = np.zeros_like(this_probe_grads)
                     comm.Barrier()
                     comm.Allreduce(this_probe_grads, probe_grads)
-                    probe_grads = probe_grads / size
+                    probe_grads = probe_grads / n_ranks
                     (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
                                                                           probe_grads, i_epoch, m_p, v_p, step_size=probe_learning_rate)
 
@@ -451,7 +451,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     pd_grads = np.array(0.0)
                     comm.Barrier()
                     comm.Allreduce(this_pd_grad, pd_grads)
-                    pd_grads = pd_grads / size
+                    pd_grads = pd_grads / n_ranks
                     probe_defocus_mm, m_pd, v_pd = apply_gradient_adam(probe_defocus_mm,
                                                                        pd_grads, 0, None, None,
                                                                        step_size=probe_defocusing_learning_rate)
@@ -461,16 +461,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if shared_file_object:
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
                     obj_beta = obj_beta - obj[:, :, :, :, 1]
-                    obj_delta = obj_delta / size
-                    obj_beta = obj_beta / size
+                    obj_delta = obj_delta / n_ranks
+                    obj_beta = obj_beta / n_ranks
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
                                             probe_size_half)
                     m = m - m_0
-                    m /= size
+                    m /= n_ranks
                     write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
                                             probe_size_half)
                     v = v - v_0
-                    v /= size
+                    v /= n_ranks
                     write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
                                             probe_size_half)
 

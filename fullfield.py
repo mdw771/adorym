@@ -90,7 +90,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             exiting_batch = multislice_propagate_batch_numpy(obj_rot_batch[:, :, :, :, 0], obj_rot_batch[:, :, :, :, 1],
                                                              probe_real, probe_imag, energy_ev,
                                                              psize_cm * ds_level, free_prop_cm=free_prop_cm,
-                                                             obj_batch_shape=[minibatch_size, *obj_size],
+                                                             obj_batch_shape=[minibatch_size, *this_obj_size],
                                                              kernel=h, fresnel_approx=fresnel_approx)
             loss = np.mean((np.abs(exiting_batch) - np.abs(this_prj_batch)) ** 2)
 
@@ -132,7 +132,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 reg_term = reg_term + gamma * total_variation_3d(obj_delta, axis_offset=0)
             loss = loss + reg_term
 
-        print('Loss:', loss._value, 'Regularization term:', reg_term._value)
+        print('Loss:', loss._value, 'Regularization term:', reg_term._value if reg_term != 0 else 0)
 
         # if alpha_d is None:
         #     reg_term = alpha * (np.sum(np.abs(obj_delta)) + np.sum(np.abs(obj_delta))) + gamma * total_variation_3d(
@@ -152,7 +152,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
         return loss
 
     comm = MPI.COMM_WORLD
-    size = comm.Get_size()
+    n_ranks = comm.Get_size()
     rank = comm.Get_rank()
     t_zero = time.time()
 
@@ -244,7 +244,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             dset_v = np.load(os.path.join(output_folder, 'intermediate_v.npy'), mmap_mode='r+', allow_pickle=True)
 
             # Get block allocation
-            n_blocks_y, n_blocks_x, n_blocks, block_size = get_block_division(this_obj_size, size)
+            n_blocks_y, n_blocks_x, n_blocks, block_size = get_block_division(this_obj_size, n_ranks)
             print_flush('Number of blocks in y: {}'.format(n_blocks_y), 0, rank)
             print_flush('Number of blocks in x: {}'.format(n_blocks_x), 0, rank)
             print_flush('Block size: {}'.format(block_size), 0, rank)
@@ -438,7 +438,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 # Do a ptychography-like allocation.
                 n_pos = len(probe_pos)
                 n_spots = n_theta * n_pos
-                n_tot_per_batch = minibatch_size * size
+                n_tot_per_batch = minibatch_size * n_ranks
                 n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
                 spots_ls = range(n_spots)
                 ind_list_rand = []
@@ -465,7 +465,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
             else:
                 ind_list_rand = np.arange(n_theta)
                 np.random.shuffle(ind_list_rand)
-                n_tot_per_batch = size * minibatch_size
+                n_tot_per_batch = n_ranks * minibatch_size
                 if n_theta % n_tot_per_batch > 0:
                     ind_list_rand = np.concatenate([ind_list_rand, ind_list_rand[:n_tot_per_batch - n_theta % n_tot_per_batch]])
                 ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
@@ -523,6 +523,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
                     v_0 = np.copy(v)
                     mask = get_rotated_subblocks(dset_mask, this_pos_batch, coord_ls[this_i_theta], None, monochannel=True)
+
                     mask_0 = np.copy(mask)
 
                 # Update weight for reweighted L1
@@ -538,7 +539,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                     comm.Allreduce(this_grads, grads)
                 # grads = comm.allreduce(this_grads)
                 grads = np.array(grads)
-                grads = grads / size
+                grads = grads / n_ranks
 
                 if shared_file_object:
                     grads = grads[:, :, safe_zone_width:safe_zone_width+block_size, safe_zone_width:safe_zone_width+block_size, :]
@@ -548,7 +549,7 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                                            safe_zone_width:obj_beta.shape[2] - safe_zone_width, :]
 
                 (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                  grads, i_batch, None, None, step_size=learning_rate)
+                                                                  grads, i_batch, m, v, step_size=learning_rate)
 
                 # finite support
                 obj_delta = obj_delta * mask
@@ -557,29 +558,31 @@ def reconstruct_fullfield(fname, theta_st=0, theta_end=PI, n_epochs='auto', crit
                 obj_beta = np.clip(obj_beta, 0, None)
 
                 # shrink wrap
+
                 if shrink_cycle is not None:
-                    if i_epoch >= shrink_cycle:
-                        boolean = obj_delta > 1e-15
-                    mask = mask * boolean
-                    if shared_file_object:
-                        write_subblocks_to_file(dset, this_pos_batch, mask, None, coord_ls[this_i_theta],
-                                                probe_size_half, monochannel=True)
+                    if i_batch % shrink_cycle == 0 and i_batch > 0:
+                        boolean = obj_delta > 1e-12; boolean = boolean.astype('float')
+                        if not shared_file_object:
+                            mask = mask * boolean.astype('float')
+                        if shared_file_object:
+                            write_subblocks_to_file(dset_mask, this_pos_batch, boolean, None, coord_ls[this_i_theta],
+                                                    probe_size_half, mask=True)
 
                 if shared_file_object:
                     obj = obj[:, safe_zone_width:obj.shape[1] - safe_zone_width,
                                  safe_zone_width:obj.shape[2] - safe_zone_width, :, :]
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
                     obj_beta = obj_beta - obj[:, :, :, :, 1]
-                    obj_delta = obj_delta / size
-                    obj_beta = obj_beta / size
+                    obj_delta = obj_delta / n_ranks
+                    obj_beta = obj_beta / n_ranks
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
                                             probe_size_half)
                     m = m - m_0
-                    m /= size
+                    m /= n_ranks
                     write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
                                             probe_size_half)
                     v = v - v_0
-                    v /= size
+                    v /= n_ranks
                     write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
                                             probe_size_half)
 

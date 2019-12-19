@@ -478,7 +478,7 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, mono
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, monochannel=False):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, mask=False):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
@@ -524,7 +524,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         new_shape = [obj_crop_bot - obj_crop_top,
                      len(ind_old_1[coord1_clip_mask])]
 
-        if not monochannel:
+        if not mask:
             dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
                  ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 0] += \
                      np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
@@ -532,9 +532,9 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
                  ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 1] += \
                      np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
         else:
+            temp = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
             dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                 ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask]] += \
-                     np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
+                 ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask]] *= temp
     return
 
 
