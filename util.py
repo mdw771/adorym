@@ -422,7 +422,7 @@ def apply_rotation(obj, coord_old, src_folder):
 
 def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, monochannel=False):
     """
-    Get rotated subblocks centering this_pos_batch directly from npy.
+    Get rotated subblocks centering this_pos_batch directly from hdf5.
     :return: [n_pos, y, x, z, 2]
     """
     whole_object_size = dset.shape[:3]

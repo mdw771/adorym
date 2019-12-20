@@ -193,21 +193,23 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         comm.Barrier()
 
         if shared_file_object:
-            # Create parallel npy
+            # Create parallel h5
+            f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w', driver='mpio', comm=comm)
+            dset = f_obj.create_dataset('obj', shape=(*this_obj_size, 2), dtype='float32')
             if rank == 0:
                 try:
                     os.makedirs(os.path.join(output_folder))
                 except:
                     print('Target folder {} exists.'.format(output_folder))
-                np.save(os.path.join(output_folder, 'intermediate_obj.npy'), np.zeros([*this_obj_size, 2]))
-                np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
-                np.save(os.path.join(output_folder, 'intermediate_v.npy'), np.zeros([*this_obj_size, 2]))
+                dset[...] = np.zeros([*this_obj_size, 2])
+                # np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
+                # np.save(os.path.join(output_folder, 'intermediate_v.npy'), np.zeros([*this_obj_size, 2]))
             comm.Barrier()
 
             # Create memmap pointer on each rank
-            dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
-            dset_m = np.load(os.path.join(output_folder, 'intermediate_m.npy'), mmap_mode='r+', allow_pickle=True)
-            dset_v = np.load(os.path.join(output_folder, 'intermediate_v.npy'), mmap_mode='r+', allow_pickle=True)
+            # dset = np.load(os.path.join(output_folder, 'intermediate_obj.npy'), mmap_mode='r+', allow_pickle=True)
+            # dset_m = np.load(os.path.join(output_folder, 'intermediate_m.npy'), mmap_mode='r+', allow_pickle=True)
+            # dset_v = np.load(os.path.join(output_folder, 'intermediate_v.npy'), mmap_mode='r+', allow_pickle=True)
 
         # read rotation data
         try:
@@ -263,8 +265,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 dset[:, :, :, 0] = obj_delta
                 dset[:, :, :, 1] = obj_beta
-                dset_m[...] = 0
-                dset_v[...] = 0
+                # dset_m[...] = 0
+                # dset_v[...] = 0
         comm.Barrier()
 
         if not shared_file_object:
@@ -402,12 +404,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
-                    m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
-                    m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
-                    m_0 = np.copy(m)
-                    v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
-                    v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
-                    v_0 = np.copy(v)
+                    # m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    # m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
+                    # m_0 = np.copy(m)
+                    # v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    # v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
+                    # v_0 = np.copy(v)
 
                 # Update weight for reweighted L1
                 if shared_file_object:
@@ -431,7 +433,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                       obj_grads, i_batch, m, v, step_size=learning_rate)
                 else:
                     (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                      obj_grads, i_batch // n_tot_per_batch, m, v, step_size=learning_rate)
+                                                                      obj_grads, i_batch // n_tot_per_batch, None, None, step_size=learning_rate)
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
                 if object_type == 'absorption_only': obj_delta[...] = 0
@@ -444,7 +446,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     comm.Allreduce(this_probe_grads, probe_grads)
                     probe_grads = probe_grads / n_ranks
                     (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
-                                                                          probe_grads, i_epoch, m_p, v_p, step_size=probe_learning_rate)
+                                                                          probe_grads, i_epoch, None, None, step_size=probe_learning_rate)
 
                 if optimize_probe_defocusing:
                     this_pd_grad = np.array(grads[len(opt_arg_ls) - 1])
@@ -465,14 +467,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_beta = obj_beta / n_ranks
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
                                             probe_size_half)
-                    m = m - m_0
-                    m /= n_ranks
-                    write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
-                                            probe_size_half)
-                    v = v - v_0
-                    v /= n_ranks
-                    write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
-                                            probe_size_half)
+                    # m = m - m_0
+                    # m /= n_ranks
+                    # write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
+                    #                         probe_size_half)
+                    # v = v - v_0
+                    # v /= n_ranks
+                    # write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
+                    #                         probe_size_half)
 
                     comm.Barrier()
 
