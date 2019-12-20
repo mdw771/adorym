@@ -74,7 +74,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_phase_max': 0.5,
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': False
+                  'shared_file_object': True
                   }
 
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
@@ -289,8 +289,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
                }
 
-# params = params_adhesin_2
-params = params_cone_marc
+params = params_adhesin_2
+# params = params_cone_marc
 # params = params_2d_cell
 
 
