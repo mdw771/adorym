@@ -420,12 +420,11 @@ def apply_rotation(obj, coord_old, src_folder):
     return obj_rot
 
 
-def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, monochannel=False, mode='hdf5'):
+def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, whole_object_size, monochannel=False, mode='hdf5'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
     :return: [n_pos, y, x, z, 2]
     """
-    whole_object_size = dset.shape[:3]
     block_stack = []
     for coords in this_pos_batch:
         if len(coords) == 2:
@@ -455,53 +454,65 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, mono
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
         if mode == 'hdf5':
             ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
-            if not monochannel:
-                n_channels = dset.shape[-1]
-                ind_old_channels = np.zeros(ind_old.size * n_channels, dtype=int)
-                for i_chan in range(n_channels):
-                    ind_old_channels[i_chan::n_channels] = ind_old * n_channels + i_chan
+            # if not monochannel:
+            #     n_channels = dset.shape[-1]
+            #     ind_old_channels = np.zeros(ind_old.size * n_channels, dtype=int)
+            #     for i_chan in range(n_channels):
+            #         ind_old_channels[i_chan::n_channels] = ind_old * n_channels + i_chan
 
-        # Take values from original object in HDF5
         this_block = []
+        # Take data with flattened 2nd and 3rd dimensions
         if mode == 'npy':
             if not monochannel:
                 this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
                                   ind_old_1, ind_old_2, :]
-                this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2], 2])
-                if coord0_vec[0] < 0:
-                    this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0], [0, 0]], mode='edge')
-                if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
-                    this_block = np.pad(this_block, [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0], [0, 0]], mode='edge')
             else:
                 this_block = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
                              ind_old_1, ind_old_2]
-                this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2]])
-                if coord0_vec[0] < 0:
-                    this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0]], mode='edge')
-                if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
-                    this_block = np.pad(this_block,
-                                        [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0]],
-                                        mode='edge')
         elif mode == 'hdf5':
-            for i0 in coord0_vec:
-                if not monochannel:
-                    i0 = np.clip(i0, 0, whole_object_size[0] - 1)
-                    layer_old = dset[i0, :, :, :]
-                    layer_old = layer_old.flatten()
-                    layer_new = layer_old[ind_old_channels]
-                    layer_new = np.reshape(layer_new, [array_size[1], array_size[2], n_channels])
-                this_block.append(layer_new)
-            this_block = np.stack(this_block, axis=0)
+            # H5py only supports taking elements using monotonically increasing indices without repeating.
+            sorted_ind = np.argsort(ind_old)
+            sorted_coords = ind_old[sorted_ind]
+            sorted_coords_unique, unique_pos = np.unique(sorted_coords, return_index=True)
+            if not monochannel:
+                this_block_temp = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :]
+                repeats = np.roll(unique_pos, -1) - unique_pos
+                repeats[-1] += len(ind_old)
+                this_block = np.repeat(this_block_temp, repeats, axis=1)
+                this_block = this_block[:, np.argsort(sorted_ind), :]
+            else:
+                this_block_temp = dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique]
+                repeats = np.roll(unique_pos, -1) - unique_pos
+                repeats[-1] += len(ind_old)
+                this_block = np.repeat(this_block_temp, repeats, axis=1)
+                this_block = this_block[:, np.argsort(sorted_ind)]
+        # Reshape and pad
+        if not monochannel:
+            this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2], 2])
+            if coord0_vec[0] < 0:
+                this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0], [0, 0]], mode='edge')
+            if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
+                this_block = np.pad(this_block,
+                                    [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0], [0, 0]],
+                                    mode='edge')
+        else:
+            this_block = np.reshape(this_block, [this_block.shape[0], block_shape[1], whole_object_size[2]])
+            if coord0_vec[0] < 0:
+                this_block = np.pad(this_block, [[-coord0_vec[0], 0], [0, 0], [0, 0]], mode='edge')
+            if coord0_vec[-1] + 1 - whole_object_size[0] > 0:
+                this_block = np.pad(this_block,
+                                    [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0]],
+                                    mode='edge')
+        # dxchange.write_tiff(this_block[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test/debug/patch', dtype='float32')
         block_stack.append(this_block)
     block_stack = np.stack(block_stack, axis=0)
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, mask=False, mode='hdf5'):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, whole_object_size, mask=False, mode='hdf5'):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
-    whole_object_size = dset.shape[:3]
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             this_y, this_x = coords
@@ -528,11 +539,6 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
         if mode == 'hdf5':
             ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
-            if not mask:
-                n_channels = dset.shape[-1]
-                ind_old_channels = np.zeros(ind_old.size * n_channels, dtype=int)
-                for i_chan in range(n_channels):
-                    ind_old_channels[i_chan::n_channels] = ind_old * n_channels + i_chan
 
         obj_crop_top = max([0, -coord0_vec[0]])
         obj_crop_bot = min([obj_delta.shape[1] - (coord0_vec[-1] + 1 - whole_object_size[0]),
@@ -562,12 +568,28 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
                      ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask]] *= temp
         elif mode == 'hdf5':
+            ind_old_masked = ind_old[coord1_clip_mask]
+            sorted_ind = np.argsort(ind_old_masked)
+            sorted_coords = ind_old_masked[sorted_ind]
+            sorted_coords_unique, unique_pos = np.unique(sorted_coords, return_index=True)
+            repeats = np.roll(unique_pos, -1) - unique_pos
+            repeats[-1] += len(ind_old_masked)
             if not mask:
-                for i, i0 in enumerate(coord0_vec):
-                    if i0 >= 0 and i0 <= whole_object_size[0] - 1:
-                        this_layer = np.zeros(whole_object_size[1] * whole_object_size[2] * n_channels)
-                        this_layer[ind_old_channels] += np.stack([obj_delta[i_batch, i, :, :], obj_beta[i_batch, i, :, :]], axis=-1).flatten()
-                        dset[i0, :, :, :] += np.reshape(this_layer, [whole_object_size[1], whole_object_size[2], n_channels])
+                # Sum elements contributing to the same voxel in the object file
+                ids = np.repeat(range(len(repeats)), repeats)
+                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_delta_red = np.zeros([new_shape[0], len(unique_pos)])
+                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_beta_red = np.zeros([new_shape[0], len(unique_pos)])
+                for i0 in range(new_shape[0]):
+                    increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0])
+                    increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0])
+
+                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
+                    np.stack([increment_delta_red, increment_beta_red], axis=-1)
+            else:
+                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old_masked[sorted_ind]] += \
+                    np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, np.argsort(sorted_ind), :]
     return
 
 

@@ -192,16 +192,21 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         dim_y, dim_x = prj_shape[-2:]
         comm.Barrier()
 
+        if rank == 0:
+            try:
+                os.makedirs(os.path.join(output_folder))
+            except:
+                print('Target folder {} exists.'.format(output_folder))
+
         if shared_file_object:
             # Create parallel h5
-            f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w', driver='mpio', comm=comm)
-            dset = f_obj.create_dataset('obj', shape=(*this_obj_size, 2), dtype='float32')
+            try:
+                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w', driver='mpio', comm=comm)
+            except:
+                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w')
+            dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1] * this_obj_size[2], 2), dtype='float32')
             if rank == 0:
-                try:
-                    os.makedirs(os.path.join(output_folder))
-                except:
-                    print('Target folder {} exists.'.format(output_folder))
-                dset[...] = np.zeros([*this_obj_size, 2])
+                dset[...] = np.zeros([this_obj_size[0], this_obj_size[1] * this_obj_size[2], 2])
                 # np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
                 # np.save(os.path.join(output_folder, 'intermediate_v.npy'), np.zeros([*this_obj_size, 2]))
             comm.Barrier()
@@ -263,8 +268,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 np.save('init_delta_temp.npy', obj_delta)
                 np.save('init_beta_temp.npy', obj_beta)
             else:
-                dset[:, :, :, 0] = obj_delta
-                dset[:, :, :, 1] = obj_beta
+                dset[:, :, 0] = np.reshape(obj_delta, [this_obj_size[0], this_obj_size[1] * this_obj_size[2]])
+                dset[:, :, 1] = np.reshape(obj_beta, [this_obj_size[0], this_obj_size[1] * this_obj_size[2]])
                 # dset_m[...] = 0
                 # dset_v[...] = 0
         comm.Barrier()
@@ -401,13 +406,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                 if shared_file_object:
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
-                    obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half, this_obj_size)
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
-                    # m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    # m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half, this_obj_size)
                     # m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
                     # m_0 = np.copy(m)
-                    # v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half)
+                    # v = get_rotated_subblocks(dset_v, this_pos_batch, coord_ls[this_i_theta], probe_size_half, this_obj_size)
                     # v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
                     # v_0 = np.copy(v)
 
@@ -466,26 +471,26 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_delta = obj_delta / n_ranks
                     obj_beta = obj_beta / n_ranks
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
-                                            probe_size_half)
+                                            probe_size_half, this_obj_size)
                     # m = m - m_0
                     # m /= n_ranks
                     # write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
-                    #                         probe_size_half)
+                    #                         probe_size_half, this_obj_size)
                     # v = v - v_0
                     # v /= n_ranks
                     # write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
-                    #                         probe_size_half)
+                    #                         probe_size_half, this_obj_size)
 
                     comm.Barrier()
 
                 if rank == 0:
                     if shared_file_object:
-                        dxchange.write_tiff(dset[:, :, :, 0],
+                        dxchange.write_tiff(np.reshape(dset[:, :, 0], this_obj_size),
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
-                        dxchange.write_tiff(dset[:, :, :, 0],
-                                            fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
-                                            dtype='float32', overwrite=True)
+                        # dxchange.write_tiff(dset[:, :, :, 0],
+                        #                     fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
+                        #                     dtype='float32', overwrite=True)
                     else:
                         dxchange.write_tiff(obj_delta,
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
@@ -532,10 +537,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
             if rank == 0:
                 if shared_file_object:
-                    dxchange.write_tiff(dset[:, :, :, 0],
+                    dxchange.write_tiff(np.reshape(dset[:, :, 0], this_obj_size),
                                         fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
-                    dxchange.write_tiff(dset[:, :, :, 1],
+                    dxchange.write_tiff(np.reshape(dset[:, :, 1], this_obj_size),
                                         fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
                     dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
