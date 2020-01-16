@@ -471,7 +471,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_delta = obj_delta / n_ranks
                     obj_beta = obj_beta / n_ranks
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
-                                            probe_size_half, this_obj_size)
+                                            probe_size_half, this_obj_size, mask=False)
                     # m = m - m_0
                     # m /= n_ranks
                     # write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
