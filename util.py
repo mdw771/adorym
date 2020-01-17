@@ -513,6 +513,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
+    # TODO: when calculating coords, allow negative
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             this_y, this_x = coords
@@ -522,7 +523,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             line_st, line_end, px_st, px_end = coords
             coord0_vec = np.arange(line_st, line_end)
             coord1_vec = np.arange(px_st, px_end)
-        coord2_vec = np.arange(whole_object_size[-1])
+        coord2_vec = np.arange(whole_object_size[2])
         coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
         coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
@@ -532,11 +533,13 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         coord1_clip_mask = np.repeat(coord1_clip_mask, array_size[2])
 
         # Flattened sub-block indices in current object frame
-        ind_new = coord1_vec * whole_object_size[2] + coord2_vec
+        ind_new = coord1_vec[coord1_clip_mask] * whole_object_size[2] + coord2_vec[coord1_clip_mask]
+
 
         # Flattened sub-block indices in original object frame
         ind_old_1 = coord_old[:, 0][ind_new].astype(int)
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
+
         if mode == 'hdf5':
             ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
@@ -553,42 +556,48 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
                                 obj_delta.shape[1]])
 
         new_shape = [obj_crop_bot - obj_crop_top,
-                     len(ind_old_1[coord1_clip_mask])]
+                     len(ind_old_1)]
 
         if mode == 'npy':
             if not mask:
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 0] += \
+                     ind_old_1, ind_old_2, 0] += \
                          np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask], 1] += \
+                     ind_old_1, ind_old_2, 1] += \
                          np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
             else:
                 temp = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1[coord1_clip_mask], ind_old_2[coord1_clip_mask]] *= temp
+                     ind_old_1, ind_old_2] *= temp
         elif mode == 'hdf5':
-            ind_old_masked = ind_old[coord1_clip_mask]
-            sorted_ind = np.argsort(ind_old_masked)
-            sorted_coords = ind_old_masked[sorted_ind]
+
+            sorted_ind = np.argsort(ind_old)
+            sorted_coords = ind_old[sorted_ind]
+
             sorted_coords_unique, unique_pos = np.unique(sorted_coords, return_index=True)
             repeats = np.roll(unique_pos, -1) - unique_pos
-            repeats[-1] += len(ind_old_masked)
+            repeats[-1] += len(ind_old)
+            # Update edge voxels only once
+            edge_mask = (sorted_coords_unique < whole_object_size[2]) + (sorted_coords_unique > whole_object_size[2] * (whole_object_size[1] - 1)) \
+                        + (sorted_coords_unique % whole_object_size[2] == 0) + (sorted_coords_unique % whole_object_size[2] == whole_object_size[2] - 1)
+            repeats[edge_mask] = 1
+
+            repeats[...] = 1
+
+
             if not mask:
                 # Sum elements contributing to the same voxel in the object file
-                ids = np.repeat(range(len(repeats)), repeats)
-                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_delta_red = np.zeros([new_shape[0], len(unique_pos)])
-                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_beta_red = np.zeros([new_shape[0], len(unique_pos)])
-                for i0 in range(new_shape[0]):
-                    increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0])
-                    increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0])
-
+                increment_delta = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_delta = increment_delta[:, unique_pos] * repeats
+                increment_beta = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_beta = increment_beta[:, unique_pos] * repeats
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
-                    np.stack([increment_delta_red, increment_beta_red], axis=-1)
+                    np.stack([increment_delta, increment_beta], axis=-1)
+
+
             else:
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old_masked[sorted_ind]] += \
+                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old[sorted_ind]] += \
                     np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, np.argsort(sorted_ind), :]
     return
 
