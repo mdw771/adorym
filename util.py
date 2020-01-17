@@ -579,21 +579,25 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             repeats = np.roll(unique_pos, -1) - unique_pos
             repeats[-1] += len(ind_old)
             # Update edge voxels only once
-            edge_mask = (sorted_coords_unique < whole_object_size[2]) + (sorted_coords_unique > whole_object_size[2] * (whole_object_size[1] - 1)) \
-                        + (sorted_coords_unique % whole_object_size[2] == 0) + (sorted_coords_unique % whole_object_size[2] == whole_object_size[2] - 1)
-            repeats[edge_mask] = 1
+            # edge_mask = (sorted_coords_unique < whole_object_size[2]) + (sorted_coords_unique > whole_object_size[2] * (whole_object_size[1] - 1)) \
+            #             + (sorted_coords_unique % whole_object_size[2] == 0) + (sorted_coords_unique % whole_object_size[2] == whole_object_size[2] - 1)
+            # repeats[edge_mask] = 1
 
-            repeats[...] = 1
+            # repeats[...] = 1
 
 
             if not mask:
                 # Sum elements contributing to the same voxel in the object file
-                increment_delta = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_delta = increment_delta[:, unique_pos] * repeats
-                increment_beta = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_beta = increment_beta[:, unique_pos] * repeats
+                ids = np.repeat(range(len(repeats)), repeats)
+                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_delta_red = np.zeros([new_shape[0], len(unique_pos)])
+                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
+                increment_beta_red = np.zeros([new_shape[0], len(unique_pos)])
+                for i0 in range(new_shape[0]):
+                    increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0]) / repeats
+                    increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0]) / repeats
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
-                    np.stack([increment_delta, increment_beta], axis=-1)
+                    np.stack([increment_delta_red, increment_beta_red], axis=-1)
 
 
             else:
