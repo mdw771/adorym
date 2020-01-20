@@ -355,8 +355,8 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         coord1_old = np.round(coord_old[0, :] + image_center[1]).astype(np.int)
         coord2_old = np.round(coord_old[1, :] + image_center[2]).astype(np.int)
         # clip coordinates
-        coord1_old = np.clip(coord1_old, 0, array_size[1]-1)
-        coord2_old = np.clip(coord2_old, 0, array_size[2]-1)
+        # coord1_old = np.clip(coord1_old, 0, array_size[1]-1)
+        # coord2_old = np.clip(coord2_old, 0, array_size[2]-1)
         coord_old = np.stack([coord1_old, coord2_old], axis=1)
         coord_old_ls.append(coord_old)
     if dest_folder is None:
@@ -402,6 +402,9 @@ def apply_rotation(obj, coord_old, src_folder):
     s = obj.shape
     coord0_vec, coord1_vec, coord2_vec = coord_vec_ls
 
+    # Clip coords, so that edge values are used for out-of-array indices
+    coord_old[:, 0] = np.clip(coord_old[:, 0], 0, s[1] - 1)
+    coord_old[:, 1] = np.clip(coord_old[:, 1], 0, s[2] - 1)
     coord_old = np.tile(coord_old, [s[0], 1])
     coord1_old = coord_old[:, 0]
     coord2_old = coord_old[:, 1]
@@ -452,6 +455,11 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, whol
         # Flattened sub-block indices in original object frame
         ind_old_1 = coord_old[:, 0][ind_new].astype(int)
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
+
+        # Clip coords so that edge values are used for out-of-array indices
+        ind_old_1 = np.clip(ind_old_1, 0, whole_object_size[1] - 1)
+        ind_old_2 = np.clip(ind_old_2, 0, whole_object_size[2] - 1)
+
         if mode == 'hdf5':
             ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
             # if not monochannel:
@@ -524,6 +532,8 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             coord0_vec = np.arange(line_st, line_end)
             coord1_vec = np.arange(px_st, px_end)
         coord2_vec = np.arange(whole_object_size[2])
+
+        # Mask for coordinates in the rotated-object frame that are inside the array
         coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
         coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
@@ -540,6 +550,12 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old_1 = coord_old[:, 0][ind_new].astype(int)
         ind_old_2 = coord_old[:, 1][ind_new].astype(int)
 
+        # Mask for coordinates in the old-object frame that are inside the array
+        coord_old_clip_mask = (ind_old_1 >= 0) * (ind_old_1 <= whole_object_size[1] - 1) * \
+                              (ind_old_2 >= 0) * (ind_old_2 <= whole_object_size[2] - 1)
+        ind_old_1 = ind_old_1[coord_old_clip_mask]
+        ind_old_2 = ind_old_2[coord_old_clip_mask]
+
         if mode == 'hdf5':
             ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
@@ -555,8 +571,8 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             obj_crop_right = min([obj_delta.shape[1] - (px_end - whole_object_size[0]),
                                 obj_delta.shape[1]])
 
-        new_shape = [obj_crop_bot - obj_crop_top,
-                     len(ind_old_1)]
+        new_shape = [obj_crop_bot - obj_crop_top, len(ind_old_1)]
+        temp_shape = [obj_crop_bot - obj_crop_top, len(coord_old_clip_mask)]
 
         if mode == 'npy':
             if not mask:
@@ -589,11 +605,11 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             if not mask:
                 # Sum elements contributing to the same voxel in the object file
                 ids = np.repeat(range(len(repeats)), repeats)
-                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_delta_red = np.zeros([new_shape[0], len(unique_pos)])
-                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, sorted_ind]
-                increment_beta_red = np.zeros([new_shape[0], len(unique_pos)])
-                for i0 in range(new_shape[0]):
+                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
+                increment_delta_red = np.zeros([temp_shape[0], len(unique_pos)])
+                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
+                increment_beta_red = np.zeros([temp_shape[0], len(unique_pos)])
+                for i0 in range(temp_shape[0]):
                     increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0]) / repeats
                     increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0]) / repeats
                 dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
@@ -921,3 +937,5 @@ def get_block_range(i_pos, n_blocks_x, block_size):
     center_y = (line_st + line_end) / 2
     center_x = (px_st + px_end) / 2
     return line_st, line_end, px_st, px_end, center_y, center_x
+
+
