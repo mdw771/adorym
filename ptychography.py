@@ -369,6 +369,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
             for i, i_theta in enumerate(theta_ls):
 
+
+                i_theta = 67
+
+
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:
                     # Append randomly selected diffraction spots if necessary, so that a rank won't be given
