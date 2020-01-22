@@ -348,17 +348,23 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     # create rotation matrix
     theta_ls = np.linspace(0, 2 * np.pi, n_theta)
     coord_old_ls = []
+    coord_inv_ls = []
     for theta in theta_ls:
         m_rot = np.array([[np.cos(theta),  -np.sin(theta)],
                           [np.sin(theta), np.cos(theta)]])
         coord_old = np.matmul(m_rot, coord_new)
         coord1_old = coord_old[0, :] + image_center[1]
         coord2_old = coord_old[1, :] + image_center[2]
-        # clip coordinates
-        # coord1_old = np.clip(coord1_old, 0, array_size[1]-1)
-        # coord2_old = np.clip(coord2_old, 0, array_size[2]-1)
         coord_old = np.stack([coord1_old, coord2_old], axis=1)
         coord_old_ls.append(coord_old)
+
+        m_rot = np.array([[np.cos(-theta),  -np.sin(-theta)],
+                          [np.sin(-theta), np.cos(-theta)]])
+        coord_inv = np.matmul(m_rot, coord_new)
+        coord1_inv = coord_inv[0, :] + image_center[1]
+        coord2_inv = coord_inv[1, :] + image_center[2]
+        coord_inv = np.stack([coord1_inv, coord2_inv], axis=1)
+        coord_inv_ls.append(coord_inv)
     if dest_folder is None:
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
     if not os.path.exists(dest_folder):
@@ -367,6 +373,8 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     # voxel in the object at that angle.
     for i, arr in enumerate(coord_old_ls):
         np.save(os.path.join(dest_folder, '{:04}'.format(i)), arr)
+    for i, arr in enumerate(coord_inv_ls):
+        np.save(os.path.join(dest_folder, '_{:04}'.format(i)), arr)
 
     # coord_vec's are coordinates list of current object (ordered, e.g. (0, 0, 0), (0, 0, 1), ...)
     coord1_vec = coord1_vec + image_center[1]
@@ -379,9 +387,12 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     return coord_old_ls
 
 
-def read_origin_coords(src_folder, index):
+def read_origin_coords(src_folder, index, reverse=False):
 
-    coords = np.load(os.path.join(src_folder, '{:04}.npy'.format(index)), allow_pickle=True)
+    if not reverse:
+        coords = np.load(os.path.join(src_folder, '{:04}.npy'.format(index)), allow_pickle=True)
+    else:
+        coords = np.load(os.path.join(src_folder, '_{:04}.npy'.format(index)), allow_pickle=True)
     return coords
 
 
@@ -526,7 +537,7 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, whol
                 this_block = np.pad(this_block,
                                     [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0]],
                                     mode='edge')
-        # dxchange.write_tiff(this_block[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/patch', dtype='float32')
+        dxchange.write_tiff(this_block[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/patch', dtype='float32', overwrite=True)
         # dxchange.write_tiff(np.reshape(this_block_ff, [this_block_ff.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/ff', dtype='float32')
         # dxchange.write_tiff(np.reshape(this_block_fc, [this_block_fc.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/fc', dtype='float32')
         # dxchange.write_tiff(np.reshape(this_block_cf, [this_block_cf.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/cf', dtype='float32')
@@ -537,11 +548,112 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, whol
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, whole_object_size, mask=False, mode='hdf5'):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old, coord_new, probe_size_half, whole_object_size, monochannel=False, interpolation='bilinear'):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
-    # TODO: when calculating coords, allow negative
+    for i_batch, coords in enumerate(this_pos_batch):
+        if len(coords) == 2:
+            this_y, this_x = coords
+            coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
+            coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+        else:
+            line_st, line_end, px_st, px_end = coords
+            coord0_vec = np.arange(line_st, line_end)
+            coord1_vec = np.arange(px_st, px_end)
+        coord2_vec = np.arange(whole_object_size[2])
+
+        # Mask for coordinates in the rotated-object frame that are inside the array
+        coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
+        coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
+        array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
+
+        coord2_vec = np.tile(coord2_vec, array_size[1])
+        coord1_vec = np.repeat(coord1_vec, array_size[2])
+        coord1_clip_mask = np.repeat(coord1_clip_mask, array_size[2])
+
+        # Flattened sub-block indices in current object frame
+        ind_new = coord1_vec[coord1_clip_mask] * whole_object_size[2] + coord2_vec[coord1_clip_mask]
+
+        # Flattened sub-block indices in original object frame
+        ind_old_1 = np.round(coord_old[:, 0][ind_new]).astype(int)
+        ind_old_2 = np.round(coord_old[:, 1][ind_new]).astype(int)          
+
+        # Mask for coordinates in the old-object frame that are inside the array
+        coord_old_clip_mask = (ind_old_1 >= 0) * (ind_old_1 <= whole_object_size[1] - 1) * \
+                              (ind_old_2 >= 0) * (ind_old_2 <= whole_object_size[2] - 1)
+        ind_old_1 = ind_old_1[coord_old_clip_mask]
+        ind_old_2 = ind_old_2[coord_old_clip_mask]
+
+        ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
+        
+        # We need to get values for these voxels in the original object array. 
+        _, ind_old, _, _ = convert_to_hdf5_indexing(ind_old)
+        
+        # Get corresponding coordinates in rotated object array.
+        ind_new_1 = coord_new[:, 0][ind_old]
+        ind_new_2 = coord_new[:, 1][ind_old]
+        
+        # Convert x-index to local chunk frame.
+        ind_new_1 = ind_new_1 - this_x + probe_size_half[1]
+
+        # Calculate y-axis cropping.
+        obj_crop_top = max([0, -coord0_vec[0]])
+        obj_crop_bot = min([obj_delta.shape[1] - (coord0_vec[-1] + 1 - whole_object_size[0]),
+                            obj_delta.shape[1]])
+        
+        # Get values from obj_delta and obj_beta.
+        if interpolation == 'bilinear':
+            ind_new_floor_1 = np.floor(ind_new_1).astype(int)
+            ind_new_ceil_1 = np.ceil(ind_new_1).astype(int)
+            ind_new_floor_2 = np.floor(ind_new_2).astype(int)
+            ind_new_ceil_2 = np.ceil(ind_new_2).astype(int)
+            integer_mask_1 = (abs(ind_new_ceil_1 - ind_new_1) < 1e-5).astype(int)
+            integer_mask_2 = (abs(ind_new_ceil_2 - ind_new_2) < 1e-5).astype(int)
+            ind_new_ceil_1 += integer_mask_1
+            ind_new_ceil_2 += integer_mask_2
+            ind_new_floor_1 = np.clip(ind_new_floor_1, 0, obj_delta.shape[2] - 1)
+            ind_new_floor_2 = np.clip(ind_new_floor_2, 0, obj_delta.shape[3] - 1)
+            ind_new_ceil_1 = np.clip(ind_new_ceil_1, 0, obj_delta.shape[2] - 1)
+            ind_new_ceil_2 = np.clip(ind_new_ceil_2, 0, obj_delta.shape[3] - 1)
+            vals_delta_ff = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_floor_2].transpose()
+            vals_delta_fc = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_ceil_2].transpose()
+            vals_delta_cf = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_ceil_1, ind_new_floor_2].transpose()
+            vals_delta_cc = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_ceil_1, ind_new_ceil_2].transpose()
+            vals_delta = vals_delta_ff * (ind_new_ceil_1 - ind_new_1) * (ind_new_ceil_2 - ind_new_2) + \
+                         vals_delta_fc * (ind_new_ceil_1 - ind_new_1) * (ind_new_2 - ind_new_floor_2) + \
+                         vals_delta_cf * (ind_new_1 - ind_new_floor_1) * (ind_new_ceil_2 - ind_new_2) + \
+                         vals_delta_cc * (ind_new_1 - ind_new_floor_1) * (ind_new_2 - ind_new_floor_2) 
+            if not monochannel:
+                vals_beta_ff = obj_beta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_floor_2].transpose()
+                vals_beta_fc = obj_beta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_ceil_2].transpose()
+                vals_beta_cf = obj_beta[i_batch, obj_crop_top:obj_crop_bot, ind_new_ceil_1, ind_new_floor_2].transpose()
+                vals_beta_cc = obj_beta[i_batch, obj_crop_top:obj_crop_bot, ind_new_ceil_1, ind_new_ceil_2].transpose()
+                vals_beta = vals_beta_ff * (ind_new_ceil_1 - ind_new_1) * (ind_new_ceil_2 - ind_new_2) + \
+                             vals_beta_fc * (ind_new_ceil_1 - ind_new_1) * (ind_new_2 - ind_new_floor_2) + \
+                             vals_beta_cf * (ind_new_1 - ind_new_floor_1) * (ind_new_ceil_2 - ind_new_2) + \
+                             vals_beta_cc * (ind_new_1 - ind_new_floor_1) * (ind_new_2 - ind_new_floor_2)
+        else:
+            ind_new_1 = np.round(ind_new_1).astype(int)
+            ind_new_2 = np.round(ind_new_2).astype(int)
+            vals_delta = obj_delta[i_batch, :, ind_new_1, ind_new_2]
+            if not monochannel:
+                vals_beta = obj_beta[i_batch, :, ind_new_1, ind_new_2]
+
+        # Write in values.
+        if not monochannel:
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old, :] += \
+                np.stack([vals_delta, vals_beta], axis=-1)
+        else:
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old] += vals_delta
+        
+    return
+
+
+def write_subblocks_to_file_deprecated(dset, this_pos_batch, obj_delta, obj_beta, coord_old, probe_size_half, whole_object_size, monochannel=False, interpolation='nearest'):
+    """
+    Write data back in the npy. If monochannel, give None to obj_beta.
+    """
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             this_y, this_x = coords
@@ -567,8 +679,9 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
 
 
         # Flattened sub-block indices in original object frame
-        ind_old_1 = np.round(coord_old[:, 0][ind_new]).astype(int)
-        ind_old_2 = np.round(coord_old[:, 1][ind_new]).astype(int)
+        if interpolation == 'nearest':
+            ind_old_1 = np.round(coord_old[:, 0][ind_new]).astype(int)
+            ind_old_2 = np.round(coord_old[:, 1][ind_new]).astype(int)
 
         # Mask for coordinates in the old-object frame that are inside the array
         coord_old_clip_mask = (ind_old_1 >= 0) * (ind_old_1 <= whole_object_size[1] - 1) * \
@@ -576,8 +689,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         ind_old_1 = ind_old_1[coord_old_clip_mask]
         ind_old_2 = ind_old_2[coord_old_clip_mask]
 
-        if mode == 'hdf5':
-            ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
+        ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
 
         obj_crop_top = max([0, -coord0_vec[0]])
         obj_crop_bot = min([obj_delta.shape[1] - (coord0_vec[-1] + 1 - whole_object_size[0]),
@@ -594,47 +706,31 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         new_shape = [obj_crop_bot - obj_crop_top, len(ind_old_1)]
         temp_shape = [obj_crop_bot - obj_crop_top, len(coord_old_clip_mask)]
 
-        if mode == 'npy':
-            if not mask:
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1, ind_old_2, 0] += \
-                         np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1, ind_old_2, 1] += \
-                         np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
-            else:
-                temp = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]),
-                     ind_old_1, ind_old_2] *= temp
-        elif mode == 'hdf5':
+        sorted_ind, sorted_coords_unique, unique_pos, repeats = convert_to_hdf5_indexing(ind_old)
+        # Update edge voxels only once
+        # edge_mask = (sorted_coords_unique < whole_object_size[2]) + (sorted_coords_unique > whole_object_size[2] * (whole_object_size[1] - 1)) \
+        #             + (sorted_coords_unique % whole_object_size[2] == 0) + (sorted_coords_unique % whole_object_size[2] == whole_object_size[2] - 1)
+        # repeats[edge_mask] = 1
+        # repeats[...] = 1
 
-            sorted_ind, sorted_coords_unique, unique_pos, repeats = convert_to_hdf5_indexing(ind_old)
-            # Update edge voxels only once
-            # edge_mask = (sorted_coords_unique < whole_object_size[2]) + (sorted_coords_unique > whole_object_size[2] * (whole_object_size[1] - 1)) \
-            #             + (sorted_coords_unique % whole_object_size[2] == 0) + (sorted_coords_unique % whole_object_size[2] == whole_object_size[2] - 1)
-            # repeats[edge_mask] = 1
+        if not monochannel:
+            # Sum elements contributing to the same voxel in the object file
+            ids = np.repeat(range(len(repeats)), repeats)
+            increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
+            increment_delta_red = np.zeros([temp_shape[0], len(unique_pos)])
+            increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
+            increment_beta_red = np.zeros([temp_shape[0], len(unique_pos)])
+            for i0 in range(temp_shape[0]):
+                increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0]) / repeats
+                increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0]) / repeats
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
+                np.stack([increment_delta_red, increment_beta_red], axis=-1)
 
-            # repeats[...] = 1
-
-
-            if not mask:
-                # Sum elements contributing to the same voxel in the object file
-                ids = np.repeat(range(len(repeats)), repeats)
-                increment_delta_full = np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
-                increment_delta_red = np.zeros([temp_shape[0], len(unique_pos)])
-                increment_beta_full = np.reshape(obj_beta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], temp_shape)[:, coord_old_clip_mask][:, sorted_ind]
-                increment_beta_red = np.zeros([temp_shape[0], len(unique_pos)])
-                for i0 in range(temp_shape[0]):
-                    increment_delta_red[i0, :] = np.bincount(ids, weights=increment_delta_full[i0]) / repeats
-                    increment_beta_red[i0, :] = np.bincount(ids, weights=increment_beta_full[i0]) / repeats
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), sorted_coords_unique, :] += \
-                    np.stack([increment_delta_red, increment_beta_red], axis=-1)
-
-
-            else:
-                dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old[sorted_ind]] += \
-                    np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, np.argsort(sorted_ind), :]
+        else:
+            dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old[sorted_ind]] += \
+                np.reshape(obj_delta[i_batch, obj_crop_top:obj_crop_bot, obj_crop_left:obj_crop_right, :], new_shape)[:, np.argsort(sorted_ind), :]
     return
+
 
 
 def pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half):

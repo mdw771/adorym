@@ -7,6 +7,7 @@ import os
 import h5py
 import warnings
 import matplotlib.pyplot as plt
+from scipy.ndimage import rotate as sp_rotate
 from util import *
 from misc import *
 
@@ -43,6 +44,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if not two_d_mode:
                 obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
                                          'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+                # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
             else:
                 obj_rot = obj_stack
             probe_pos_batch_ls = []
@@ -370,7 +372,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             for i, i_theta in enumerate(theta_ls):
 
 
-                i_theta = 67
+                # i_theta = 67
 
 
                 spots_ls = range(n_pos)
@@ -475,16 +477,20 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_beta = obj_beta - obj[:, :, :, :, 1]
                     obj_delta = obj_delta / n_ranks
                     obj_beta = obj_beta / n_ranks
-                    write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta],
-                                            probe_size_half, this_obj_size, mask=False)
+
+                    coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta), this_i_theta, reverse=True)
+
+
+                    write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta], coord_new,
+                                            probe_size_half, this_obj_size, monochannel=False)
                     # m = m - m_0
                     # m /= n_ranks
                     # write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],
-                    #                         probe_size_half, this_obj_size)
+                    #                         probe_size_half, this_obj_size, monochannel=False)
                     # v = v - v_0
                     # v /= n_ranks
                     # write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1], coord_ls[this_i_theta],
-                    #                         probe_size_half, this_obj_size)
+                    #                         probe_size_half, this_obj_size, monochannel=False)
 
                     comm.Barrier()
 
