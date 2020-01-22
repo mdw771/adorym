@@ -43,14 +43,14 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'alpha_b': 0,
                   'gamma': 0,
                   'probe_size': (72, 72),
-                  # 'learning_rate': 1e-7,
-                  'learning_rate': 1e-8,
+                  # 'learning_rate': 1e-7, # for non-shared file mode
+                  'learning_rate': 1e-8, # for shared-file mode
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_bilinear',
+                  'output_folder': 'test_0',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -75,7 +75,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_phase_max': 0.5,
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': True
+                  'shared_file_object': False
                   }
 
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',

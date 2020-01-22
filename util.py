@@ -404,37 +404,50 @@ def read_all_origin_coords(src_folder, n_theta):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, src_folder, interpolation='nearest'):
+def apply_rotation(obj, coord_old, src_folder, interpolation='bilinear'):
 
-    coord_vec_ls = []
-    for i in range(3):
-        f = os.path.join(src_folder, 'coord{}_vec.npy'.format(i))
-        coord_vec_ls.append(np.load(f, allow_pickle=True))
     s = obj.shape
-    coord0_vec, coord1_vec, coord2_vec = coord_vec_ls
 
     if interpolation == 'nearest':
-        coord_old[:, 0] = np.round(coord_old[:, 0]).astype('int')
-        coord_old[:, 1] = np.round(coord_old[:, 1]).astype('int')
+        coord_old_1 = np.round(coord_old[:, 0]).astype('int')
+        coord_old_2 = np.round(coord_old[:, 1]).astype('int')
+    else:
+        coord_old_1 = coord_old[:, 0]
+        coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old[:, 0] = np.clip(coord_old[:, 0], 0, s[1] - 1)
-    coord_old[:, 1] = np.clip(coord_old[:, 1], 0, s[2] - 1)
-    coord_old = np.tile(coord_old, [s[0], 1])
-    coord1_old = coord_old[:, 0]
-    coord2_old = coord_old[:, 1]
-    coord_old = np.stack([coord0_vec, coord1_old, coord2_old], axis=1).transpose()
-    # print(sess.run(coord_old))
+    coord_old_1 = np.clip(coord_old_1, 0, s[1] - 1)
+    coord_old_2 = np.clip(coord_old_2, 0, s[2] - 1)
 
-    obj_channel_ls = np.split(obj, s[3], 3)
-    obj_rot_channel_ls = []
-    for channel in obj_channel_ls:
-        channel_flat = channel.flatten()
-        ind = coord_old[0] * (s[1] * s[2]) + coord_old[1] * s[2] + coord_old[2]
-        ind = ind.astype('int')
-        obj_chan_new_val = channel_flat[ind]
-        obj_rot_channel_ls.append(np.reshape(obj_chan_new_val, s[:-1]))
-    obj_rot = np.stack(obj_rot_channel_ls, axis=3)
+    if interpolation == 'nearest':
+        obj_rot = np.reshape(obj[:, coord_old_1, coord_old_2], s)
+    else:
+        coord_old_floor_1 = np.floor(coord_old_1).astype(int)
+        coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
+        coord_old_floor_2 = np.floor(coord_old_2).astype(int)
+        coord_old_ceil_2 = np.ceil(coord_old_2).astype(int)
+        integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
+        integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
+        coord_old_ceil_1 += integer_mask_1
+        coord_old_ceil_2 += integer_mask_2
+        coord_old_floor_1 = np.clip(coord_old_floor_1, 0, s[1] - 1)
+        coord_old_floor_2 = np.clip(coord_old_floor_2, 0, s[2] - 1)
+        coord_old_ceil_1 = np.clip(coord_old_ceil_1, 0, s[1] - 1)
+        coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
+
+        obj_rot = []
+        for i_chan in range(s[-1]):
+            vals_ff = obj[:, coord_old_floor_1, coord_old_floor_2, i_chan]
+            vals_fc = obj[:, coord_old_floor_1, coord_old_ceil_2, i_chan]
+            vals_cf = obj[:, coord_old_ceil_1, coord_old_floor_2, i_chan]
+            vals_cc = obj[:, coord_old_ceil_1, coord_old_ceil_2, i_chan]
+            vals = vals_ff * (coord_old_ceil_1 - coord_old_1) * (coord_old_ceil_2 - coord_old_2) + \
+                   vals_fc * (coord_old_ceil_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
+                   vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 - coord_old_2) + \
+                   vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+            obj_rot.append(np.reshape(vals, s[:-1]))
+        obj_rot = np.stack(obj_rot, axis=-1)
+
     return obj_rot
 
 
