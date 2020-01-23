@@ -411,7 +411,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     t_read_0 = time.time()
                     obj = get_rotated_subblocks(dset, this_pos_batch, coord_ls[this_i_theta], probe_size_half, this_obj_size)
-                    print_flush('Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank)
+                    print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank)
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
                     # m = get_rotated_subblocks(dset_m, this_pos_batch, coord_ls[this_i_theta], probe_size_half, this_obj_size)
@@ -468,7 +468,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                        pd_grads, 0, None, None,
                                                                        step_size=probe_defocusing_learning_rate)
                     # probe_defocus_mm = probe_defocus_mm - probe_defocusing_learning_rate * pd_grads
-                    print_flush('Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank)
+                    print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank)
 
                 if shared_file_object:
                     obj_delta = obj_delta - obj[:, :, :, :, 0]
@@ -481,7 +481,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     t_write_0 = time.time()
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_ls[this_i_theta], coord_new,
                                             probe_size_half, this_obj_size, monochannel=False)
-                    print_flush('Chunk writing done in {} s.'.format(time.time() - t_write_0), 0, rank)
+                    print_flush('  Chunk writing done in {} s.'.format(time.time() - t_write_0), 0, rank)
                     # m = m - m_0
                     # m /= n_ranks
                     # write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1], coord_ls[this_i_theta],

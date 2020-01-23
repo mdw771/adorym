@@ -426,12 +426,14 @@ def apply_rotation(obj, coord_old, src_folder, interpolation='bilinear'):
         coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
         coord_old_floor_2 = np.floor(coord_old_2).astype(int)
         coord_old_ceil_2 = np.ceil(coord_old_2).astype(int)
-        integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
-        integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
+        # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
+        # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
         coord_old_floor_1 = np.clip(coord_old_floor_1, 0, s[1] - 1)
         coord_old_floor_2 = np.clip(coord_old_floor_2, 0, s[2] - 1)
         coord_old_ceil_1 = np.clip(coord_old_ceil_1, 0, s[1] - 1)
         coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
+        integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
+        integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
 
         obj_rot = []
         for i_chan in range(s[-1]):
@@ -586,9 +588,11 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         # Flattened sub-block indices in current object frame
         ind_new = coord1_vec[coord1_clip_mask] * whole_object_size[2] + coord2_vec[coord1_clip_mask]
 
-        # Flattened sub-block indices in original object frame
-        ind_old_1 = np.round(coord_old[:, 0][ind_new]).astype(int)
-        ind_old_2 = np.round(coord_old[:, 1][ind_new]).astype(int)          
+        # Relevant indices in original object frame, expanding selection to both floors and ceils
+        ind_old_1 = coord_old[:, 0][ind_new]
+        ind_old_1 = np.concatenate([np.floor(ind_old_1), np.ceil(ind_old_1)]).astype(int)
+        ind_old_2 = coord_old[:, 1][ind_new]
+        ind_old_2 = np.concatenate([np.floor(ind_old_2), np.ceil(ind_old_2)]).astype(int)
 
         # Mask for coordinates in the old-object frame that are inside the array
         coord_old_clip_mask = (ind_old_1 >= 0) * (ind_old_1 <= whole_object_size[1] - 1) * \
@@ -598,7 +602,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
 
         ind_old = ind_old_1 * whole_object_size[1] + ind_old_2
         
-        # We need to get values for these voxels in the original object array. 
+        # These are the voxels in the HDF5 that we need to update.
         _, ind_old, _, _ = convert_to_hdf5_indexing(ind_old)
         
         # Get corresponding coordinates in rotated object array.
@@ -619,12 +623,15 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
             ind_new_ceil_1 = np.ceil(ind_new_1).astype(int)
             ind_new_floor_2 = np.floor(ind_new_2).astype(int)
             ind_new_ceil_2 = np.ceil(ind_new_2).astype(int)
-            integer_mask_1 = (abs(ind_new_ceil_1 - ind_new_1) < 1e-5).astype(int)
-            integer_mask_2 = (abs(ind_new_ceil_2 - ind_new_2) < 1e-5).astype(int)
+            # integer_mask_1 = (abs(ind_new_ceil_1 - ind_new_1) < 1e-5).astype(int)
+            # integer_mask_2 = (abs(ind_new_ceil_2 - ind_new_2) < 1e-5).astype(int)
             ind_new_floor_1 = np.clip(ind_new_floor_1, 0, obj_delta.shape[2] - 1)
             ind_new_floor_2 = np.clip(ind_new_floor_2, 0, obj_delta.shape[3] - 1)
             ind_new_ceil_1 = np.clip(ind_new_ceil_1, 0, obj_delta.shape[2] - 1)
             ind_new_ceil_2 = np.clip(ind_new_ceil_2, 0, obj_delta.shape[3] - 1)
+            integer_mask_1 = abs(ind_new_ceil_1 - ind_new_floor_1) < 1e-5
+            integer_mask_2 = abs(ind_new_ceil_2 - ind_new_floor_2) < 1e-5
+
             vals_delta_ff = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_floor_2].transpose()
             vals_delta_fc = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_floor_1, ind_new_ceil_2].transpose()
             vals_delta_cf = obj_delta[i_batch, obj_crop_top:obj_crop_bot, ind_new_ceil_1, ind_new_floor_2].transpose()
