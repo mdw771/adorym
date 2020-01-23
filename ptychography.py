@@ -101,7 +101,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-        print('Loss is ', loss._value)
+        print('  Loss is ', loss._value)
 
         # Regularization
         if reweighted_l1:
@@ -370,6 +370,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 theta_ls = np.array([i_theta])
 
             for i, i_theta in enumerate(theta_ls):
+
+
+                # i_theta = 67
+
 
                 spots_ls = range(n_pos)
                 if n_pos % minibatch_size != 0:

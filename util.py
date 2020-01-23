@@ -550,7 +550,7 @@ def get_rotated_subblocks(dset, this_pos_batch, coord_old, probe_size_half, whol
                 this_block = np.pad(this_block,
                                     [[0, coord0_vec[-1] + 1 - whole_object_size[0]], [0, 0], [0, 0]],
                                     mode='edge')
-        dxchange.write_tiff(this_block[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/patch', dtype='float32', overwrite=True)
+        # dxchange.write_tiff(this_block[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/patch', dtype='float32', overwrite=True)
         # dxchange.write_tiff(np.reshape(this_block_ff, [this_block_ff.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/ff', dtype='float32')
         # dxchange.write_tiff(np.reshape(this_block_fc, [this_block_fc.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/fc', dtype='float32')
         # dxchange.write_tiff(np.reshape(this_block_cf, [this_block_cf.shape[0], block_shape[1], whole_object_size[2], 2])[:, :, :, 0], '/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/cf', dtype='float32')
@@ -565,6 +565,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
+
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             this_y, this_x = coords
@@ -577,22 +578,20 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         coord2_vec = np.arange(whole_object_size[2])
 
         # Mask for coordinates in the rotated-object frame that are inside the array
-        coord1_clip_mask = (coord1_vec >= 0) * (coord1_vec <= whole_object_size[1] - 1)
-        coord1_vec = np.clip(coord1_vec, 0, whole_object_size[1] - 1)
         array_size = (len(coord0_vec), len(coord1_vec), len(coord2_vec))
 
         coord2_vec = np.tile(coord2_vec, array_size[1])
         coord1_vec = np.repeat(coord1_vec, array_size[2])
-        coord1_clip_mask = np.repeat(coord1_clip_mask, array_size[2])
 
         # Flattened sub-block indices in current object frame
-        ind_new = coord1_vec[coord1_clip_mask] * whole_object_size[2] + coord2_vec[coord1_clip_mask]
+        ind_new = coord1_vec * whole_object_size[2] + coord2_vec
+        ind_new = ind_new[(ind_new >= 0) * (ind_new <= coord_old.shape[0] - 1)]
 
         # Relevant indices in original object frame, expanding selection to both floors and ceils
-        ind_old_1 = coord_old[:, 0][ind_new]
-        ind_old_1 = np.concatenate([np.floor(ind_old_1), np.ceil(ind_old_1)]).astype(int)
-        ind_old_2 = coord_old[:, 1][ind_new]
-        ind_old_2 = np.concatenate([np.floor(ind_old_2), np.ceil(ind_old_2)]).astype(int)
+        ind_old_1 = coord_old[:, 0][ind_new].astype(int)
+        ind_old_1 = np.concatenate([ind_old_1 - 1, ind_old_1, ind_old_1 + 1])
+        ind_old_2 = coord_old[:, 1][ind_new].astype(int)
+        ind_old_2 = np.concatenate([ind_old_2 - 1, ind_old_2, ind_old_2 + 1])
 
         # Mask for coordinates in the old-object frame that are inside the array
         coord_old_clip_mask = (ind_old_1 >= 0) * (ind_old_1 <= whole_object_size[1] - 1) * \
@@ -604,8 +603,22 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         
         # These are the voxels in the HDF5 that we need to update.
         _, ind_old, _, _ = convert_to_hdf5_indexing(ind_old)
+
+        # import matplotlib.pyplot as plt
+        #
+        # # x = np.zeros(64 * 64)
+        # # x[ind_old] = 1
+        # # x = np.reshape(x, [64, 64])
+        #
+        # x = np.zeros([64, 64])
+        # x[ind_old_1, ind_old_2] = 1
+        #
+        # plt.imshow(x)
+        # plt.show()
+        # plt.savefig('/Users/ming/Research/Programs/du/adorym_dev/adhesin_ptycho_2/test_bilinear/debug/x_{}.png'.format(i_batch))
         
         # Get corresponding coordinates in rotated object array.
+        ind_old = ind_old[(ind_old >= 0) * (ind_old <= coord_new.shape[0] - 1)]
         ind_new_1 = coord_new[:, 0][ind_old]
         ind_new_2 = coord_new[:, 1][ind_old]
         
