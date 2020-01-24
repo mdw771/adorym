@@ -206,7 +206,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w', driver='mpio', comm=comm)
             except:
                 f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w')
-            dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1] * this_obj_size[2], 2), dtype='float32')
+            dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1] * this_obj_size[2], 2), dtype='float64')
             if rank == 0:
                 dset[...] = np.zeros([this_obj_size[0], this_obj_size[1] * this_obj_size[2], 2])
                 # np.save(os.path.join(output_folder, 'intermediate_m.npy'), np.zeros([*this_obj_size, 2]))
