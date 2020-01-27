@@ -99,7 +99,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
-        print('  Loss is ', loss._value)
 
         # Regularization
         if reweighted_l1:
@@ -436,7 +435,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 else:
                     if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
 
+                t_grad_0 = time.time()
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
+                print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank)
                 grads = list(grads)
 
                 if shared_file_object:
@@ -530,7 +531,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
                 comm.Barrier()
-                print_flush('Minibatch done in {} s (rank {})'.format(time.time() - t00, rank))
+                print_flush('Minibatch done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank)
                 f_conv.write('{}\n'.format(time.time() - t_zero))
                 f_conv.flush()
 
