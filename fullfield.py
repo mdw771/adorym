@@ -10,9 +10,7 @@ import h5py
 import warnings
 from util import *
 from misc import *
-import matplotlib.pyplot as plt
-
-plt.switch_backend('agg')
+from optimizers import *
 
 PI = 3.1415927
 

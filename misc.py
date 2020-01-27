@@ -27,7 +27,8 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_defocusing_learning_rate',
                          'shared_file_object',
                          'n_ranks',
-                         'reweighted_l1']
+                         'reweighted_l1',
+                         'optimizer']
 
 SUMMARY_PRESET_PP = ['obj_size',
                      'output_folder',
