@@ -408,7 +408,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 this_i_theta = this_ind_batch[rank * minibatch_size, 0]
                 this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
 
+                t_prj_0 = time.time()
                 this_prj_batch = prj[this_i_theta, this_ind_rank]
+                print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank)
+
                 this_pos_batch = probe_pos[this_ind_rank]
                 if ds_level > 1:
                     this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]

@@ -620,8 +620,6 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, coord_old
         discont_pos = discont_pos[discont_pos > whole_object_size[2]]
         discont_pos = discont_pos[discont_pos % whole_object_size[2] != 0]
         ind_old = np.concatenate([ind_old, discont_pos - 1])
-
-
         
         # These are the voxels in the HDF5 that we need to update.
         _, ind_old, _, _ = convert_to_hdf5_indexing(ind_old)
