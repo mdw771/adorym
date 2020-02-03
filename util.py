@@ -76,7 +76,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     try:
         h = np.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * np.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
         H = np.fft.fftshift(fft2(h)) * voxel_nm[0] * voxel_nm[1]
-        dxchange.write_tiff(x, '2d_512/monitor_output/x', dtype='float32', overwrite=True)
+        # dxchange.write_tiff(x, '2d_512/monitor_output/x', dtype='float32', overwrite=True)
     except:
         h = tf.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * tf.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
         # h = tf.convert_to_tensor(h, dtype='complex64')

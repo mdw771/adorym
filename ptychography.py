@@ -198,6 +198,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 os.makedirs(os.path.join(output_folder))
             except:
                 print('Target folder {} exists.'.format(output_folder))
+        comm.Barrier()
 
         if shared_file_object:
             # Create parallel h5
@@ -279,6 +280,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 dset[:, :, 0] = np.reshape(obj_delta, [this_obj_size[0], this_obj_size[1] * this_obj_size[2]])
                 dset[:, :, 1] = np.reshape(obj_beta, [this_obj_size[0], this_obj_size[1] * this_obj_size[2]])
+                print_flush('Object HDF5 written.', 0, rank)
                 # dset_m[...] = 0
                 # dset_v[...] = 0
         comm.Barrier()
@@ -340,10 +342,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         loss_grad = grad(calculate_loss, opt_arg_ls)
 
         # Save convergence data
-        try:
-            os.makedirs(os.path.join(output_folder, 'convergence'))
-        except:
-            pass
+        if rank == 0:
+            try:
+                os.makedirs(os.path.join(output_folder, 'convergence'))
+            except:
+                pass
+        comm.Barrier()
         f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
         f_conv.write('i_epoch,i_batch,loss,time\n')
 
