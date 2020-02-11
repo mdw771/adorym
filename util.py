@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib
 import warnings
 from math import ceil, floor
+
 try:
     import sys
     from scipy.ndimage import gaussian_filter
@@ -624,13 +625,18 @@ def upsample_2x(arr):
     return out_arr
 
 
-def print_flush(a, designate_rank=None, this_rank=None):
+def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp=''):
 
     if designate_rank is not None:
         if this_rank == designate_rank:
             print(a)
     else:
         print(a)
+    if (designate_rank is None or this_rank == designate_rank) and save_stdout:
+        f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
+        f.write(a)
+        f.write('\n')
+        f.close()
     sys.stdout.flush()
     return
 
