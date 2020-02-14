@@ -209,6 +209,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 print('Target folder {} exists.'.format(output_folder))
         comm.Barrier()
 
+        if optimizer == 'adam':
+            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
+            optimizer_options_obj = {'step_size': learning_rate,
+                                     'shared_file_object': shared_file_object}
+        elif optimizer == 'gd':
+            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
+            optimizer_options_obj = {'step_size': learning_rate,
+                                     'dynamic_rate': True,
+                                     'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
+
         if shared_file_object:
             # Create parallel h5
             try:
@@ -216,24 +226,12 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             except:
                 f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w')
             dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2), dtype='float64')
-
-            if optimizer == 'adam':
-                try:
-                    f_m = h5py.File(os.path.join(output_folder, 'intermediate_m.h5'), 'w', driver='mpio', comm=comm)
-                except:
-                    f_m = h5py.File(os.path.join(output_folder, 'intermediate_m.h5'), 'w')
-                dset_m = f_m.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2),
-                                            dtype='float64')
-                try:
-                    f_v = h5py.File(os.path.join(output_folder, 'intermediate_v.h5'), 'w', driver='mpio', comm=comm)
-                except:
-                    f_v = h5py.File(os.path.join(output_folder, 'intermediate_v.h5'), 'w')
-                dset_v = f_v.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2),
-                                            dtype='float64')
-
             if rank == 0:
                 dset[...] = np.zeros([this_obj_size[0], this_obj_size[1], this_obj_size[2], 2])
+            opt.create_file_objects()
             comm.Barrier()
+        else:
+            opt.create_param_arrays()
 
         # read rotation data
         try:
@@ -290,8 +288,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 dset[:, :, :, 0] = obj_delta
                 dset[:, :, :, 1] = obj_beta
                 print_flush('Object HDF5 written.', 0, rank, save_stdout=True, output_folder=output_folder, timestamp=timestr)
-                # dset_m[...] = 0
-                # dset_v[...] = 0
         comm.Barrier()
 
         if not shared_file_object:
@@ -344,8 +340,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         opt_arg_ls = [0, 1]
         if probe_type == 'optimizable':
             opt_arg_ls = opt_arg_ls + [2, 3]
+            opt_probe = GDOptimizer([*probe_size, 2], output_folder=output_folder)
+            optimizer_options_probe = {'step_size': probe_learning_rate,
+                                      'dynamic_rate': True,
+                                      'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
         if optimize_probe_defocusing:
             opt_arg_ls.append(4)
+            opt_probe_defocus = GDOptimizer([1], output_folder=output_folder)
+            optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
+                                               'dynamic_rate': True,
+                                               'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
         probe_defocus_mm = np.array(0.0)
 
         loss_grad = grad(calculate_loss, opt_arg_ls)
@@ -366,7 +370,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         cont = True
         i_epoch = 0
-        m, v, m_p, v_p, m_pd, v_pd = (None, None, None, None, None, None)
+        m_p, v_p, m_pd, v_pd = (None, None, None, None)
         while cont:
             n_pos = len(probe_pos)
             n_spots = n_theta * n_pos
@@ -453,13 +457,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, save_stdout=True, output_folder=output_folder, timestamp=timestr)
                     obj_delta = np.array(obj[:, :, :, :, 0])
                     obj_beta = np.array(obj[:, :, :, :, 1])
-                    if optimizer == 'adam':
-                        m = get_rotated_subblocks(dset_m, this_pos_batch, probe_size_half, this_obj_size)
-                        m = np.array([m[:, :, :, :, 0], m[:, :, :, :, 1]])
-                        m_0 = np.copy(m)
-                        v = get_rotated_subblocks(dset_v, this_pos_batch, probe_size_half, this_obj_size)
-                        v = np.array([v[:, :, :, :, 0], v[:, :, :, :, 1]])
-                        v_0 = np.copy(v)
+                    opt.get_params_from_file(this_pos_batch, probe_size_half)
 
                 # Update weight for reweighted L1
                 if shared_file_object:
@@ -473,56 +471,43 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 grads = list(grads)
 
                 if shared_file_object:
-                    obj_grads = np.array(grads[:2])
+                    obj_grads = np.stack(grads[:2], axis=-1)
                 else:
-                    this_obj_grads = np.array(grads[:2])
+                    this_obj_grads = np.stack(grads[:2], axis=-1)
                     obj_grads = np.zeros_like(this_obj_grads)
                     comm.Barrier()
                     comm.Allreduce(this_obj_grads, obj_grads)
                 obj_grads = obj_grads / n_ranks
+
                 effective_iter = i_batch // max([ceil(n_pos / (minibatch_size * n_ranks)), 1])
-                if not shared_file_object:
-                    if optimizer == 'adam':
-                        (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                          obj_grads, effective_iter, m, v, step_size=learning_rate)
-                    elif optimizer == 'gd':
-                        (obj_delta, obj_beta) = apply_gradient_gd(np.array([obj_delta, obj_beta]), obj_grads, step_size=learning_rate,
-                                                                  dynamic_rate=True, i_batch=i_batch,
-                                                                  first_downrate_iteration=4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1]),
-                                                                  comm=comm)
-                else:
-                    if optimizer == 'adam':
-                        (obj_delta, obj_beta), m, v = apply_gradient_adam(np.array([obj_delta, obj_beta]),
-                                                                          obj_grads, effective_iter, m, v, step_size=learning_rate)
-                    elif optimizer == 'gd':
-                        (obj_delta, obj_beta) = apply_gradient_gd(np.array([obj_delta, obj_beta]), obj_grads, step_size=learning_rate,
-                                                                  dynamic_rate=True, i_batch=i_batch,
-                                                                  first_downrate_iteration=4 * max([ceil(n_pos // (minibatch_size * n_ranks)), 1]),
-                                                                  comm=comm)
+                obj_temp = opt.apply_gradient(np.stack([obj_delta, obj_beta], axis=-1), obj_grads, effective_iter,
+                                                        **optimizer_options_obj)
+                obj_delta = np.take(obj_temp, 0, axis=-1)
+                obj_beta = np.take(obj_temp, 1, axis=-1)
+                if shared_file_object:
+                    opt.write_params_to_file(this_pos_batch, probe_size_half)
+
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
                 if object_type == 'absorption_only': obj_delta[...] = 0
                 if object_type == 'phase_only': obj_beta[...] = 0
 
                 if probe_type == 'optimizable':
-                    this_probe_grads = np.array(grads[2:4])
+                    this_probe_grads = np.stack(grads[2:4], axis=-1)
                     probe_grads = np.zeros_like(this_probe_grads)
-                    comm.Barrier()
                     comm.Allreduce(this_probe_grads, probe_grads)
                     probe_grads = probe_grads / n_ranks
-                    (probe_real, probe_imag), m_p, v_p = apply_gradient_adam(np.array([probe_real, probe_imag]),
-                                                                          probe_grads, i_epoch, None, None, step_size=probe_learning_rate)
+                    probe_temp = opt_probe.apply_gradient(np.stack([probe_real, probe_imag], axis=-1), probe_grads, **optimizer_options_probe)
+                    probe_real = np.take(probe_temp, 0, axis=-1)
+                    probe_imag = np.take(probe_temp, 1, axis=-1)
 
                 if optimize_probe_defocusing:
                     this_pd_grad = np.array(grads[len(opt_arg_ls) - 1])
                     pd_grads = np.array(0.0)
-                    comm.Barrier()
                     comm.Allreduce(this_pd_grad, pd_grads)
                     pd_grads = pd_grads / n_ranks
-                    probe_defocus_mm, m_pd, v_pd = apply_gradient_adam(probe_defocus_mm,
-                                                                       pd_grads, 0, None, None,
-                                                                       step_size=probe_defocusing_learning_rate)
-                    # probe_defocus_mm = probe_defocus_mm - probe_defocusing_learning_rate * pd_grads
+                    probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads,
+                                                                        **optimizer_options_probe_defocus)
                     print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank, save_stdout=True, output_folder=output_folder, timestamp=timestr)
 
                 if shared_file_object:
@@ -537,16 +522,6 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta,
                                             probe_size_half, this_obj_size, monochannel=False)
                     print_flush('  Chunk writing done in {} s.'.format(time.time() - t_write_0), 0, rank, save_stdout=True, output_folder=output_folder, timestamp=timestr)
-
-                    if optimizer == 'adam':
-                        m = m - m_0
-                        m /= n_ranks
-                        write_subblocks_to_file(dset_m, this_pos_batch, m[0], m[1],
-                                                probe_size_half, this_obj_size, monochannel=False)
-                        v = v - v_0
-                        v /= n_ranks
-                        write_subblocks_to_file(dset_v, this_pos_batch, v[0], v[1],
-                                                probe_size_half, this_obj_size, monochannel=False)
 
                     comm.Barrier()
 
