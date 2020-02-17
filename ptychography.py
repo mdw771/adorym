@@ -285,6 +285,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 np.save('init_delta_temp.npy', obj_delta)
                 np.save('init_beta_temp.npy', obj_beta)
             else:
+                print_flush('Writing initial data into object HDF5...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                 dset[:, :, :, 0] = obj_delta
                 dset[:, :, :, 1] = obj_beta
                 print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
@@ -525,14 +526,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                     comm.Barrier()
 
-                if rank == 0:
+                if rank == 0 and save_intermediate:
                     if shared_file_object:
                         dxchange.write_tiff(dset[:, :, :, 0],
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
-                        # dxchange.write_tiff(dset[:, :, :, 0],
-                        #                     fname=os.path.join(output_folder, 'current/delta_{}'.format(i_batch)),
-                        #                     dtype='float32', overwrite=True)
                     else:
                         dxchange.write_tiff(obj_delta,
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
@@ -555,37 +553,13 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 if i_epoch == n_epochs - 1: cont = False
 
-            # if dynamic_dropping:
-            #     print_flush('Dynamic dropping...', 0, rank)
-            #     this_loss_table = np.zeros(n_pos)
-            #     loss_table = np.zeros(n_pos)
-            #     fill_start = 0
-            #     ind_list = np.arange(n_pos)
-            #     if n_pos % size != 0:
-            #         ind_list = np.append(ind_list, np.zeros(size - (n_pos % size)))
-            #     while fill_start < n_pos:
-            #         this_ind_rank = ind_list[fill_start + rank:fill_start + rank + 1]
-            #         this_prj_batch = prj[0, this_ind_rank]
-            #         this_pos_batch = probe_pos[this_ind_rank]
-            #         this_loss = calculate_loss(obj_delta, obj_beta, 0, this_pos_batch, this_prj_batch)
-            #         loss_table[fill_start + rank] = this_loss
-            #         fill_start += size
-            #     comm.Allreduce(this_loss_table, loss_table)
-            #     loss_table = loss_table[:n_pos]
-            #     drop_ls = np.where(loss_table < dropping_threshold)[0]
-            #     np.delete(probe_pos, drop_ls, axis=0)
-            #     print_flush('Dropped {} spot positions.'.format(len(drop_ls)), 0, rank)
-
             i_epoch = i_epoch + 1
 
-            # this_loss = calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, this_i_theta, this_pos_batch, this_prj_batch)
             average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     time.time() - t0, time.time() - t_zero), save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-            #print_flush(    
-            #'Average loss = {}.'.format(comm.Allreduce(this_loss, average_loss)))
-            if rank == 0:
+            if rank == 0 and save_intermediate:
                 if shared_file_object:
                     dxchange.write_tiff(dset[:, :, :, 0],
                                         fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),

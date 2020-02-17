@@ -628,7 +628,7 @@ def upsample_2x(arr):
 
 def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp=''):
 
-    a = '[{}] '.format(str(datetime.datetime.today())) + a
+    a = '[{}][{}] '.format(str(datetime.datetime.today()), this_rank) + a
     if designate_rank is not None:
         if this_rank == designate_rank:
             print(a)
