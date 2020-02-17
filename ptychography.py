@@ -248,13 +248,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         if minibatch_size is None:
             minibatch_size = n_pos
 
-        # unify random seed for all threads
+        # Unify random seed for all threads
         comm.Barrier()
         seed = int(time.time() / 60)
         np.random.seed(seed)
         comm.Barrier()
 
-        if rank == 0:
+        # Initialize object array or dataset
+        if not shared_file_object:
             if not_first_level == False:
                 if initial_guess is None:
                     print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
@@ -268,7 +269,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj_delta = np.array(initial_guess[0])
                     obj_beta = np.array(initial_guess[1])
             else:
-                print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+                print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                 obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
                 obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
                 obj_delta = upsample_2x(obj_delta)
@@ -281,17 +282,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 obj_beta[...] = 0
             elif object_type == 'absorption_only':
                 obj_delta[...] = 0
-            if not shared_file_object:
-                np.save('init_delta_temp.npy', obj_delta)
-                np.save('init_beta_temp.npy', obj_beta)
-            else:
-                print_flush('Writing initial data into object HDF5...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                dset[:, :, :, 0] = obj_delta
-                dset[:, :, :, 1] = obj_beta
-                print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-        comm.Barrier()
-
-        if not shared_file_object:
+            np.save('init_delta_temp.npy', obj_delta)
+            np.save('init_beta_temp.npy', obj_beta)
             obj_delta = np.zeros(this_obj_size)
             obj_beta = np.zeros(this_obj_size)
             obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
@@ -300,7 +292,20 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             if rank == 0:
                 os.remove('init_delta_temp.npy')
                 os.remove('init_beta_temp.npy')
-            comm.Barrier()
+        else:
+            if initial_guess is None:
+                print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+                initialize_hdf5_with_gaussian(dset, rank, n_ranks, 8.7e-7, 1e-7, 5.1e-8, 1e-8)
+            else:
+                print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+                obj_delta = np.array(initial_guess[0])
+                obj_beta = np.array(initial_guess[1])
+            print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
+                        timestamp=timestr)
+
+        comm.Barrier()
+
+
 
         print_flush('Initialzing probe...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
         if probe_type == 'gaussian':

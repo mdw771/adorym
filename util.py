@@ -382,6 +382,34 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
     return None
 
 
+def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma):
+
+    s = dset.shape
+    slice_ls = range(rank, s[0], n_ranks)
+
+    np.random.seed(rank)
+    for i_slice in slice_ls:
+        slice_delta = np.random.normal(size=[s[1], s[2]], loc=delta_mu, scale=delta_sigma)
+        slice_beta = np.random.normal(size=[s[1], s[2]], loc=beta_mu, scale=beta_sigma)
+        slice_data = np.stack([slice_delta, slice_beta], axis=-1)
+        slice_data[slice_data < 0] = 0
+        dset[i_slice] = slice_data
+    return None
+
+
+def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
+
+    s = dset.shape
+    slice_ls = range(rank, s[0], n_ranks)
+
+    np.random.seed(rank)
+    for i_slice in slice_ls:
+        slice_data = np.stack([init_delta[i_slice], init_beta[i_slice]], axis=-1)
+        slice_data[slice_data < 0] = 0
+        dset[i_slice] = slice_data
+    return None
+
+
 def get_rotated_subblocks(dset, this_pos_batch, probe_size_half, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
