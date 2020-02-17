@@ -4,6 +4,7 @@ import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 import warnings
+import datetime
 from math import ceil, floor
 
 try:
@@ -627,6 +628,7 @@ def upsample_2x(arr):
 
 def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp=''):
 
+    a = '[{}] '.format(str(datetime.datetime.today())) + a
     if designate_rank is not None:
         if this_rank == designate_rank:
             print(a)
