@@ -10,6 +10,7 @@ import warnings
 from scipy.ndimage import rotate as sp_rotate
 from util import *
 from misc import *
+from propagate import *
 from optimizers import *
 
 PI = 3.1415927
@@ -27,7 +28,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
-                             shared_file_object=True, reweighted_l1=False, optimizer='adam', save_stdout=False, **kwargs):
+                             shared_file_object=True, reweighted_l1=False, optimizer='adam', save_stdout=False, use_checkpoint=True, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
 
@@ -221,17 +222,27 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         if shared_file_object:
             # Create parallel h5
+            fmode = 'a' if use_checkpoint else 'w'
             try:
-                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w', driver='mpio', comm=comm)
+                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), fmode, driver='mpio', comm=comm)
             except:
-                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), 'w')
-            dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2), dtype='float64')
+                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), fmode)
+            try:
+                dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2), dtype='float64')
+            except:
+                dset = f_obj['obj']
             if rank == 0:
                 dset[...] = np.zeros([this_obj_size[0], this_obj_size[1], this_obj_size[2], 2])
-            opt.create_file_objects()
+            opt.create_file_objects(use_checkpoint=use_checkpoint)
             comm.Barrier()
         else:
-            opt.create_param_arrays()
+            if use_checkpoint:
+                try:
+                    opt.restore_param_arrays_from_checkpoint()
+                except:
+                    opt.create_param_arrays()
+            else:
+                opt.create_param_arrays()
 
         # read rotation data
         try:
@@ -254,55 +265,32 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         np.random.seed(seed)
         comm.Barrier()
 
-        # Initialize object array or dataset
-        if not shared_file_object:
-            if not_first_level == False:
-                if initial_guess is None:
-                    print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                    obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                    obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
-                    obj_delta[obj_delta < 0] = 0
-                    obj_beta[obj_beta < 0] = 0
-                else:
-                    print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                    sys.stdout.flush()
-                    obj_delta = np.array(initial_guess[0])
-                    obj_beta = np.array(initial_guess[1])
-            else:
-                print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-                obj_delta = upsample_2x(obj_delta)
-                obj_beta = upsample_2x(obj_beta)
-                obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
-                obj_delta[obj_delta < 0] = 0
-                obj_beta[obj_beta < 0] = 0
-            if object_type == 'phase_only':
-                obj_beta[...] = 0
-            elif object_type == 'absorption_only':
-                obj_delta[...] = 0
-            np.save('init_delta_temp.npy', obj_delta)
-            np.save('init_beta_temp.npy', obj_beta)
-            obj_delta = np.zeros(this_obj_size)
-            obj_beta = np.zeros(this_obj_size)
-            obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
-            obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
-            comm.Barrier()
-            if rank == 0:
-                os.remove('init_delta_temp.npy')
-                os.remove('init_beta_temp.npy')
-        else:
-            if initial_guess is None:
-                print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                initialize_hdf5_with_gaussian(dset, rank, n_ranks, 8.7e-7, 1e-7, 5.1e-8, 1e-8)
-            else:
-                print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                obj_delta = np.array(initial_guess[0])
-                obj_beta = np.array(initial_guess[1])
-            print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
-                        timestamp=timestr)
+        # Get checkpointed parameters
+        starting_epoch, starting_batch = (0, 0)
+        initialize = False if use_checkpoint else True
+        if use_checkpoint and shared_file_object:
+            try:
+                starting_epoch, starting_batch = restore_checkpoint(output_folder, shared_file_object)
+            except:
+                initialize = True
 
+        elif use_checkpoint and (not shared_file_object):
+            try:
+                starting_epoch, starting_batch, obj_delta, obj_beta = restore_checkpoint(output_folder, shared_file_object, opt)
+            except:
+                initialize = True
+        if initialize:
+            if shared_file_object:
+                initialize_object(this_obj_size, dset=dset, ds_level=ds_level, object_type=object_type,
+                                  initial_guess=None, output_folder=output_folder, rank=rank,
+                                  n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
+                                  shared_file_object=True, not_first_level=not_first_level)
+            else:
+                obj_delta, obj_beta = \
+                    initialize_object(this_obj_size, dset=None, ds_level=ds_level, object_type=object_type,
+                                      initial_guess=None, output_folder=output_folder, rank=rank,
+                                      n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
+                                      shared_file_object=False, not_first_level=not_first_level)
         comm.Barrier()
 
 
@@ -375,9 +363,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             create_summary(output_folder, locals(), preset='ptycho')
 
         cont = True
-        i_epoch = 0
+        i_epoch = starting_epoch
         m_p, v_p, m_pd, v_pd = (None, None, None, None)
         while cont:
+            np.random.seed(i_epoch)
             n_pos = len(probe_pos)
             n_spots = n_theta * n_pos
             n_tot_per_batch = minibatch_size * n_ranks
@@ -427,7 +416,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             print_flush('Allocation done in {} s.'.format(time.time() - t00), designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
             current_i_theta = 0
-            for i_batch in range(n_batch):
+            for i_batch in range(starting_batch, n_batch):
+
+                print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), 0, rank, save_stdout, output_folder, timestr)
+                if shared_file_object:
+                    save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True,
+                                    obj_array=None, optimizer=opt)
+                    f_obj.flush()
+                else:
+                    save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
+                                    obj_array=np.stack([obj_delta, obj_beta], axis=-1), optimizer=opt)
 
                 t00 = time.time()
                 if len(ind_list_rand[i_batch]) < n_tot_per_batch:

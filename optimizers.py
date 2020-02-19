@@ -29,17 +29,21 @@ class Optimizer(object):
         self.params_chunk_array_0_dict = {}
         return
 
-    def create_file_objects(self):
+    def create_file_objects(self, use_checkpoint=False):
 
         if len(self.params_list) > 0:
             for param_name in self.params_list:
+                fmode = 'a' if use_checkpoint else 'w'
                 try:
-                    self.params_file_pointer_dict[param_name] = h5py.File(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name)), 'w', driver='mpio', comm=comm)
+                    self.params_file_pointer_dict[param_name] = h5py.File(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name)), fmode, driver='mpio', comm=comm)
                     print_flush('Created intermediate file: {}'.format(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name))), 0, rank)
                 except:
-                    self.params_file_pointer_dict[param_name] = h5py.File(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name)), 'w')
-                dset_p = self.params_file_pointer_dict[param_name].create_dataset('obj', shape=self.whole_object_size,
-                                                                                  dtype='float64', data=np.zeros(self.whole_object_size))
+                    self.params_file_pointer_dict[param_name] = h5py.File(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name)), fmode)
+                try:
+                    dset_p = self.params_file_pointer_dict[param_name].create_dataset('obj', shape=self.whole_object_size,
+                                                                                      dtype='float64', data=np.zeros(self.whole_object_size))
+                except:
+                    dset_p = self.params_file_pointer_dict[param_name]['obj']
                 # if rank == 0: dset_p[...] = 0
                 self.params_dset_dict[param_name] = dset_p
         return
@@ -49,6 +53,24 @@ class Optimizer(object):
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 self.params_whole_array_dict[param_name] = np.zeros(self.whole_object_size)
+        return
+
+    def restore_param_arrays_from_checkpoint(self):
+
+        arr = np.load(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'))
+        if len(self.params_list) > 0:
+            for i, param_name in enumerate(self.params_list):
+                self.params_whole_array_dict[param_name] = arr[i]
+        return
+
+    def save_param_arrays_to_checkpoint(self):
+
+        if len(self.params_list) > 0:
+            arr = []
+            for i, param_name in enumerate(self.params_list):
+                arr.append(self.params_whole_array_dict[param_name])
+            arr = np.stack(arr)
+            np.save(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'), arr)
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size_half=None):

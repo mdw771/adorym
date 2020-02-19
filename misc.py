@@ -1,4 +1,5 @@
 import os
+import autograd.numpy as np
 
 SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_size',
@@ -98,3 +99,26 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
     print('========================================')
     f.close()
     return
+
+
+def save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True, obj_array=None, optimizer=None):
+
+    np.savetxt(os.path.join(output_folder, 'checkpoint.txt'),
+               np.array([i_epoch, i_batch]), fmt='%d')
+    if not shared_file_object:
+        np.save(os.path.join(output_folder, 'obj_checkpoint.npy'), obj_array)
+        optimizer.save_param_arrays_to_checkpoint()
+    return
+
+
+def restore_checkpoint(output_folder, shared_file_object=True, optimizer=None):
+
+    i_epoch, i_batch = [int(i) for i in np.loadtxt(os.path.join(output_folder, 'checkpoint.txt'))]
+    if not shared_file_object:
+        obj = np.load(os.path.join(output_folder, 'obj_checkpoint.npy'))
+        obj_delta = np.take(obj, 0, axis=-1)
+        obj_beta = np.take(obj, 1, axis=-1)
+        optimizer.restore_param_arrays_from_checkpoint()
+        return i_epoch, i_batch, obj_delta, obj_beta
+    else:
+        return i_epoch, i_batch
