@@ -11,6 +11,7 @@ from scipy.ndimage import rotate as sp_rotate
 from util import *
 from misc import *
 from propagate import *
+from array_ops import *
 from optimizers import *
 
 PI = 3.1415927
@@ -25,7 +26,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              probe_defocusing_learning_rate=1e-5,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask=None,
+                             pupil_function=None, probe_circ_mask=0.9, finite_support=False,
                              forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
                              shared_file_object=True, reweighted_l1=False, optimizer='adam', save_stdout=False, use_checkpoint=True, binning=1, **kwargs):
@@ -156,6 +157,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         prj_theta_ind = prj_theta_ind[::theta_downsample]
         n_theta = len(theta)
     original_shape = [n_theta, *prj.shape[1:]]
+
     print_flush('Data reading: {} s'.format(time.time() - t0), designate_rank=0, this_rank=rank)
     print_flush('Data shape: {}'.format(original_shape), designate_rank=0, this_rank=rank)
     comm.Barrier()
@@ -187,6 +189,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
     for ds_level in range(multiscale_level - 1, -1, -1):
 
+        # ================================================================================
+        # Set metadata.
+        # ================================================================================
         ds_level = 2 ** ds_level
         print_flush('Multiscale downsampling level: {}'.format(ds_level), designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
         comm.Barrier()
@@ -195,14 +200,20 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         probe_pos = np.array(probe_pos)
         probe_size_half = (np.array(probe_size) / 2).astype('int')
         prj_shape = original_shape
+
         if ds_level > 1:
             this_obj_size = [int(x / ds_level) for x in obj_size]
         else:
             this_obj_size = obj_size
 
         dim_y, dim_x = prj_shape[-2:]
+        if minibatch_size is None:
+            minibatch_size = n_pos
         comm.Barrier()
 
+        # ================================================================================
+        # Create output directory.
+        # ================================================================================
         if rank == 0:
             try:
                 os.makedirs(os.path.join(output_folder))
@@ -210,6 +221,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 print('Target folder {} exists.'.format(output_folder))
         comm.Barrier()
 
+        # ================================================================================
+        # Create optimizers.
+        # ================================================================================
         if optimizer == 'adam':
             opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
             optimizer_options_obj = {'step_size': learning_rate,
@@ -219,22 +233,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
-
         if shared_file_object:
-            # Create parallel h5
-            fmode = 'a' if use_checkpoint else 'w'
-            try:
-                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), fmode, driver='mpio', comm=comm)
-            except:
-                f_obj = h5py.File(os.path.join(output_folder, 'intermediate_obj.h5'), fmode)
-            try:
-                dset = f_obj.create_dataset('obj', shape=(this_obj_size[0], this_obj_size[1], this_obj_size[2], 2), dtype='float64')
-            except:
-                dset = f_obj['obj']
-            if rank == 0:
-                dset[...] = np.zeros([this_obj_size[0], this_obj_size[1], this_obj_size[2], 2])
             opt.create_file_objects(use_checkpoint=use_checkpoint)
-            comm.Barrier()
         else:
             if use_checkpoint:
                 try:
@@ -244,7 +244,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 opt.create_param_arrays()
 
-        # read rotation data
+        # ================================================================================
+        # Read rotation data.
+        # ================================================================================
         try:
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
@@ -256,81 +258,68 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                               n_theta)
 
-        if minibatch_size is None:
-            minibatch_size = n_pos
-
-        # Unify random seed for all threads
+        # ================================================================================
+        # Unify random seed for all threads.
+        # ================================================================================
         comm.Barrier()
         seed = int(time.time() / 60)
         np.random.seed(seed)
         comm.Barrier()
 
-        # Get checkpointed parameters
+        # ================================================================================
+        # Get checkpointed parameters.
+        # ================================================================================
         starting_epoch, starting_batch = (0, 0)
-        initialize = False if use_checkpoint else True
+        needs_initialize = False if use_checkpoint else True
         if use_checkpoint and shared_file_object:
             try:
                 starting_epoch, starting_batch = restore_checkpoint(output_folder, shared_file_object)
             except:
-                initialize = True
+                needs_initialize = True
 
         elif use_checkpoint and (not shared_file_object):
             try:
                 starting_epoch, starting_batch, obj_delta, obj_beta = restore_checkpoint(output_folder, shared_file_object, opt)
             except:
-                initialize = True
-        if initialize:
-            if shared_file_object:
-                initialize_object(this_obj_size, dset=dset, ds_level=ds_level, object_type=object_type,
-                                  initial_guess=None, output_folder=output_folder, rank=rank,
-                                  n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
-                                  shared_file_object=True, not_first_level=not_first_level)
-            else:
-                obj_delta, obj_beta = \
-                    initialize_object(this_obj_size, dset=None, ds_level=ds_level, object_type=object_type,
-                                      initial_guess=None, output_folder=output_folder, rank=rank,
-                                      n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
-                                      shared_file_object=False, not_first_level=not_first_level)
-        comm.Barrier()
+                needs_initialize = True
 
-
-
-        print_flush('Initialzing probe...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-        if probe_type == 'gaussian':
-            probe_mag_sigma = kwargs['probe_mag_sigma']
-            probe_phase_sigma = kwargs['probe_phase_sigma']
-            probe_phase_max = kwargs['probe_phase_max']
-            py = np.arange(probe_size[0]) - (probe_size[0] - 1.) / 2
-            px = np.arange(probe_size[1]) - (probe_size[1] - 1.) / 2
-            pxx, pyy = np.meshgrid(px, py)
-            probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
-            probe_phase = probe_phase_max * np.exp(
-                -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-        elif probe_type == 'optimizable':
-            if probe_initial is not None:
-                probe_mag, probe_phase = probe_initial
-                probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-            else:
-                print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
-                probe_real = probe_init.real
-                probe_imag = probe_init.imag
-            if pupil_function is not None:
-                probe_real = probe_real * pupil_function
-                probe_imag = probe_imag * pupil_function
-        elif probe_type == 'fixed':
-            probe_mag, probe_phase = probe_initial
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+        # ================================================================================
+        # Create object class.
+        # ================================================================================
+        obj = ObjectFunction([*this_obj_size, 2], shared_file_object=shared_file_object,
+                             output_folder=output_folder, ds_level=ds_level, object_type=object_type)
+        if shared_file_object:
+            obj.create_file_object(use_checkpoint)
+            if needs_initialize:
+                obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
+                                           not_first_level=not_first_level, initial_guess=initial_guess)
         else:
-            raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
+            if needs_initialize:
+                obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
+                                     not_first_level=not_first_level, initial_guess=initial_guess)
+            else:
+                obj.delta = obj_delta
+                obj.beta = obj_beta
 
-        # generate Fresnel kernel
+        # ================================================================================
+        # Initialize probe functions.
+        # ================================================================================
+        print_flush('Initialzing probe...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+        probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
+                             save_stdout=save_stdout, output_folder=output_folder, timestr=timestr,
+                             save_path=save_path, fname=fname, **kwargs)
+
+        # ================================================================================
+        # generate Fresnel kernel.
+        # ================================================================================
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
+        # ================================================================================
+        # Set optimizer parameters.
+        # ================================================================================
         opt_arg_ls = [0, 1]
         if probe_type == 'optimizable':
             opt_arg_ls = opt_arg_ls + [2, 3]
@@ -346,9 +335,14 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
         probe_defocus_mm = np.array(0.0)
 
+        # ================================================================================
+        # Get gradient of loss function w.r.t. optimizable variables.
+        # ================================================================================
         loss_grad = grad(calculate_loss, opt_arg_ls)
 
-        # Save convergence data
+        # ================================================================================
+        # Save convergence data.
+        # ================================================================================
         if rank == 0:
             try:
                 os.makedirs(os.path.join(output_folder, 'convergence'))
@@ -358,10 +352,16 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
         f_conv.write('i_epoch,i_batch,loss,time\n')
 
+        # ================================================================================
+        # Create parameter summary file.
+        # ================================================================================
         print_flush('Optimizer started.', designate_rank=0, this_rank=rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
         if rank == 0:
             create_summary(output_folder, locals(), preset='ptycho')
 
+        # ================================================================================
+        # Start outer (epoch) loop.
+        # ================================================================================
         cont = True
         i_epoch = starting_epoch
         m_p, v_p, m_pd, v_pd = (None, None, None, None)
@@ -388,8 +388,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 i_theta = np.nonzero(theta_ls)[0][0]
                 theta_ls = np.array([i_theta])
 
+            # ================================================================================
+            # Put diffraction spots from all angles together, and divide into minibatches.
+            # ================================================================================
             for i, i_theta in enumerate(theta_ls):
-
                 spots_ls = range(n_pos)
                 # Append randomly selected diffraction spots if necessary, so that a rank won't be given
                 # spots from different angles in one batch.
@@ -422,7 +424,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if shared_file_object:
                     save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True,
                                     obj_array=None, optimizer=opt)
-                    f_obj.flush()
+                    obj.f.flush()
                 else:
                     save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
                                     obj_array=np.stack([obj_delta, obj_beta], axis=-1), optimizer=opt)
@@ -441,7 +443,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                     t_rot_0 = time.time()
-                    apply_rotation_to_hdf5(dset, coord_ls[this_i_theta], rank, n_ranks, interpolation='bilinear')
+                    obj.rotate_data_in_file(coord_ls[this_i_theta], interpolation='bilinear')
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
@@ -455,13 +457,18 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 comm.Barrier()
 
                 if shared_file_object:
+                    # ================================================================================
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
+                    # ================================================================================
                     t_read_0 = time.time()
-                    obj = get_rotated_subblocks(dset, this_pos_batch, probe_size_half, this_obj_size)
+                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size_half)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                    obj_delta = np.array(obj[:, :, :, :, 0])
-                    obj_beta = np.array(obj[:, :, :, :, 1])
+                    obj_delta = np.array(obj_rot[:, :, :, :, 0])
+                    obj_beta = np.array(obj_rot[:, :, :, :, 1])
                     opt.get_params_from_file(this_pos_batch, probe_size_half)
+                else:
+                    obj_delta = obj.delta
+                    obj_beta = obj.beta
 
                 # Update weight for reweighted L1
                 if shared_file_object:
@@ -469,6 +476,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 else:
                     if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
 
+                # ================================================================================
+                # Calculate object gradients.
+                # ================================================================================
                 t_grad_0 = time.time()
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
@@ -491,6 +501,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if shared_file_object:
                     opt.write_params_to_file(this_pos_batch, probe_size_half)
 
+                # ================================================================================
+                # Nonnegativity and phase/absorption-only constraints.
+                # ================================================================================
                 obj_delta = np.clip(obj_delta, 0, None)
                 obj_beta = np.clip(obj_beta, 0, None)
                 if object_type == 'absorption_only': obj_delta[...] = 0
@@ -515,27 +528,27 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
                 if shared_file_object:
-                    obj_delta = obj_delta - obj[:, :, :, :, 0]
-                    obj_beta = obj_beta - obj[:, :, :, :, 1]
-                    obj_delta = obj_delta / n_ranks
-                    obj_beta = obj_beta / n_ranks
-
-                    coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta), this_i_theta, reverse=True)
-
+                    # ================================================================================
+                    # write updated object chunks back into the file.
+                    # ================================================================================
                     t_write_0 = time.time()
-                    write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta,
-                                            probe_size_half, this_obj_size, monochannel=False)
+                    obj.write_chunks_to_file(this_pos_batch, obj_delta, obj_beta, probe_size_half, write_difference=True)
                     print_flush('  Chunk writing done in {} s.'.format(time.time() - t_write_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-
-                    comm.Barrier()
+                else:
+                    obj.delta = obj_delta
+                    obj.beta = obj_beta
+                comm.Barrier()
 
                 if rank == 0 and save_intermediate:
+                    # ================================================================================
+                    # Save intermediate object.
+                    # ================================================================================
                     if shared_file_object:
-                        dxchange.write_tiff(dset[:, :, :, 0],
+                        dxchange.write_tiff(obj.dset[:, :, :, 0],
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
                     else:
-                        dxchange.write_tiff(obj_delta,
+                        dxchange.write_tiff(obj.delta,
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
                 comm.Barrier()
@@ -543,11 +556,15 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 f_conv.write('{}\n'.format(time.time() - t_zero))
                 f_conv.flush()
 
+                # ================================================================================
                 # If finishing or above to move to a different angle, rotate the dataset back.
+                # ================================================================================
                 if shared_file_object and (i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != current_i_theta):
+                    coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                   this_i_theta, reverse=True)
                     print_flush('  Rotating dataset back...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                     t_rot_0 = time.time()
-                    apply_rotation_to_hdf5(dset, coord_new, rank, n_ranks, interpolation='bilinear')
+                    obj.rotate_data_in_file(coord_new)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
@@ -564,10 +581,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                     time.time() - t0, time.time() - t_zero), save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
             if rank == 0 and save_intermediate:
                 if shared_file_object:
-                    dxchange.write_tiff(dset[:, :, :, 0],
+                    dxchange.write_tiff(obj.dset[:, :, :, 0],
                                         fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
-                    dxchange.write_tiff(dset[:, :, :, 1],
+                    dxchange.write_tiff(obj.dset[:, :, :, 1],
                                         fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
                     dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
@@ -577,10 +594,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                         fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
                 else:
-                    dxchange.write_tiff(obj_delta,
+                    dxchange.write_tiff(obj.delta,
                                         fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
-                    dxchange.write_tiff(obj_beta,
+                    dxchange.write_tiff(obj.beta,
                                         fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
                                         dtype='float32', overwrite=True)
                     dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),

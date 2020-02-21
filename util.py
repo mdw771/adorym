@@ -87,6 +87,41 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
         return
 
 
+def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None,
+                     save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None, **kwargs):
+
+    if probe_type == 'gaussian':
+        probe_mag_sigma = kwargs['probe_mag_sigma']
+        probe_phase_sigma = kwargs['probe_phase_sigma']
+        probe_phase_max = kwargs['probe_phase_max']
+        py = np.arange(probe_size[0]) - (probe_size[0] - 1.) / 2
+        px = np.arange(probe_size[1]) - (probe_size[1] - 1.) / 2
+        pxx, pyy = np.meshgrid(px, py)
+        probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
+        probe_phase = probe_phase_max * np.exp(
+            -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
+        probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+    elif probe_type == 'optimizable':
+        if probe_initial is not None:
+            probe_mag, probe_phase = probe_initial
+            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+        else:
+            print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
+                        output_folder=output_folder, timestamp=timestr)
+            probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
+            probe_real = probe_init.real
+            probe_imag = probe_init.imag
+        if pupil_function is not None:
+            probe_real = probe_real * pupil_function
+            probe_imag = probe_imag * pupil_function
+    elif probe_type == 'fixed':
+        probe_mag, probe_phase = probe_initial
+        probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+    else:
+        raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
+    return probe_real, probe_imag
+
+
 def preprocess(dat, blur=None, normalize_bg=False):
 
     dat[np.abs(dat) < 2e-3] = 2e-3

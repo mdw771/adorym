@@ -78,7 +78,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_defocusing_learning_rate': 1e-7,
                   'shared_file_object': True,
                   'optimizer': 'gd',
-                  'use_checkpoint': True,
+                  'use_checkpoint': False,
                   }
 
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
