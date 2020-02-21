@@ -90,7 +90,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
 
 def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                      free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
-                                     pure_projection=False):
+                                     pure_projection=False, binning=1):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -108,16 +108,28 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
     if kernel is not None:
         h = kernel
     else:
-        h = get_kernel(delta_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
-    k = 2. * PI * delta_nm / lmbda_nm
+        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
 
     for i in range(n_slice):
-        delta_slice = grid_delta_batch[:, :, :, i]
-        beta_slice = grid_beta_batch[:, :, :, i]
-        c = exp_j(k * delta_slice) * np.exp(-k * beta_slice)
-        wavefront = wavefront * c
-        if i < n_slice - 1 and not pure_projection:
-            wavefront = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+        if i % binning == 0:
+            i_bin = 0
+            delta_slice = np.zeros_like(wavefront)
+            beta_slice = np.zeros_like(wavefront)
+        delta_slice += grid_delta_batch[:, :, :, i]
+        beta_slice += grid_beta_batch[:, :, :, i]
+        i_bin += 1
+
+        if i_bin == binning or i == n_slice - 1:
+            k1 = 2. * PI * delta_nm * i_bin / lmbda_nm
+            c = exp_j(k1 * delta_slice) * np.exp(-k1 * beta_slice)
+            wavefront = wavefront * c
+            if i < n_slice - 1 and not pure_projection:
+                if i_bin == binning:
+                    wavefront = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+                else:
+                    h1 = get_kernel(delta_nm * i_bin, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
+                    wavefront = np.fft.ifft2(
+                        np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h1, axes=[1, 2]))
 
     if free_prop_cm is not None:
         if free_prop_cm == 'inf':
