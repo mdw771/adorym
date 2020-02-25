@@ -117,6 +117,9 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
     elif probe_type == 'fixed':
         probe_mag, probe_phase = probe_initial
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
+    elif probe_type == 'plane':
+        probe_real = np.ones(probe_size)
+        probe_imag = np.zeros(probe_size)
     else:
         raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
     return probe_real, probe_imag
@@ -313,7 +316,7 @@ def apply_rotation(obj, coord_old, src_folder, interpolation='bilinear'):
     return obj_rot
 
 
-def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilinear'):
+def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilinear', monochannel=False):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
@@ -351,18 +354,84 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
         for i_slice in slice_ls:
             obj_rot = []
             obj = dset[i_slice]
-            for i_chan in range(s[-1]):
-                vals_ff = obj[coord_old_floor_1, coord_old_floor_2, i_chan]
-                vals_fc = obj[coord_old_floor_1, coord_old_ceil_2, i_chan]
-                vals_cf = obj[coord_old_ceil_1, coord_old_floor_2, i_chan]
-                vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2, i_chan]
+            if not monochannel:
+                for i_chan in range(s[-1]):
+                    vals_ff = obj[coord_old_floor_1, coord_old_floor_2, i_chan]
+                    vals_fc = obj[coord_old_floor_1, coord_old_ceil_2, i_chan]
+                    vals_cf = obj[coord_old_ceil_1, coord_old_floor_2, i_chan]
+                    vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2, i_chan]
+                    vals = vals_ff * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
+                           vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
+                           vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
+                           vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+                    obj_rot.append(np.reshape(vals, s[1:-1]))
+                obj_rot = np.stack(obj_rot, axis=-1)
+            else:
+                vals_ff = obj[coord_old_floor_1, coord_old_floor_2]
+                vals_fc = obj[coord_old_floor_1, coord_old_ceil_2]
+                vals_cf = obj[coord_old_ceil_1, coord_old_floor_2]
+                vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2]
                 vals = vals_ff * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
                        vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
                        vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
                        vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-                obj_rot.append(np.reshape(vals, s[1:-1]))
-            obj_rot = np.stack(obj_rot, axis=-1)
+                obj_rot = np.reshape(vals, s[1:3])
             dset[i_slice] = obj_rot
+
+    return None
+
+
+def revert_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilinear', monochannel=False):
+
+    s = dset.shape
+    slice_ls = range(rank, s[0], n_ranks)
+
+    if interpolation == 'nearest':
+        coord_old_1 = np.round(coord_old[:, 0]).astype('int')
+        coord_old_2 = np.round(coord_old[:, 1]).astype('int')
+    else:
+        coord_old_1 = coord_old[:, 0]
+        coord_old_2 = coord_old[:, 1]
+
+    # Clip coords, so that edge values are used for out-of-array indices
+    coord_old_1 = np.clip(coord_old_1, 0, s[1] - 1)
+    coord_old_2 = np.clip(coord_old_2, 0, s[2] - 1)
+
+    if interpolation == 'nearest':
+        for i_slice in slice_ls:
+            obj = dset[i_slice]
+            obj_rot = np.reshape(obj[coord_old_1, coord_old_2], s[1:])
+            dset[i_slice] = obj_rot
+    else:
+        coord_old_floor_1 = np.floor(coord_old_1).astype(int)
+        coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
+        coord_old_floor_2 = np.floor(coord_old_2).astype(int)
+        coord_old_ceil_2 = np.ceil(coord_old_2).astype(int)
+        # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
+        # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
+        coord_old_floor_1 = np.clip(coord_old_floor_1, 0, s[1] - 1)
+        coord_old_floor_2 = np.clip(coord_old_floor_2, 0, s[2] - 1)
+        coord_old_ceil_1 = np.clip(coord_old_ceil_1, 0, s[1] - 1)
+        coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
+        integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
+        integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
+
+        for i_slice in slice_ls:
+            current_arr = dset[i_slice]
+            obj = np.zeros_like(current_arr)
+            if not monochannel:
+                for i_chan in range(s[-1]):
+                    obj[coord_old_floor_1, coord_old_floor_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+                    obj[coord_old_floor_1, coord_old_ceil_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+                    obj[coord_old_ceil_1, coord_old_floor_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+                    obj[coord_old_ceil_1, coord_old_ceil_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+            else:
+                current_arr = current_arr.flatten()
+                obj[coord_old_floor_1, coord_old_floor_2] += current_arr * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+                obj[coord_old_floor_1, coord_old_ceil_2] += current_arr * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+                obj[coord_old_ceil_1, coord_old_floor_2] += current_arr * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+                obj[coord_old_ceil_1, coord_old_ceil_2] += current_arr * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+            dset[i_slice] = obj
 
     return None
 
@@ -389,8 +458,11 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
 
     np.random.seed(rank)
     for i_slice in slice_ls:
-        slice_data = np.stack([init_delta[i_slice], init_beta[i_slice]], axis=-1)
-        slice_data[slice_data < 0] = 0
+        if init_beta is not None:
+            slice_data = np.stack([init_delta[i_slice], init_beta[i_slice]], axis=-1)
+        else:
+            slice_data = init_delta[i_slice]
+        # slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data
     return None
 

@@ -131,7 +131,7 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
                     wavefront = np.fft.ifft2(
                         np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h1, axes=[1, 2]))
 
-    if free_prop_cm is not None:
+    if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
             wavefront = np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2])
         else:

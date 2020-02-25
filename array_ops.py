@@ -44,7 +44,13 @@ class LargeArray(object):
 
     def rotate_data_in_file(self, coords, interpolation='bilinear'):
 
-        apply_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation)
+        apply_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation,
+                               monochannel=self.monochannel)
+
+    def reverse_rotate_data_in_file(self, coords, interpolation='bilinear'):
+
+        revert_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation,
+                               monochannel=self.monochannel)
 
     def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size_half, write_difference=True):
 
@@ -93,3 +99,45 @@ class ObjectFunction(LargeArray):
                           initial_guess=initial_guess, output_folder=self.output_folder, rank=rank,
                           n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
                           shared_file_object=True, not_first_level=not_first_level)
+
+    def apply_finite_support_mask_to_array(self, mask):
+
+        assert isinstance(mask, Mask)
+        if not self.shared_file_object:
+            self.delta *= mask.mask
+            self.beta *= mask.mask
+
+
+class Gradient(ObjectFunction):
+
+    pass
+
+
+class Mask(LargeArray):
+
+    def __init__(self, full_size, finite_support_mask_path, shared_file_object=False, output_folder=None, ds_level=1):
+        super(Mask, self).__init__(full_size, shared_file_object=shared_file_object,
+                                   monochannel=True, output_folder=output_folder)
+        self.mask = None
+        self.ds_level = ds_level
+        self.finite_support_mask_path = finite_support_mask_path
+
+    def create_file_object(self, use_checkpoint=False):
+
+        super(Mask, self).create_file_object('intermediate_mask.h5', use_checkpoint=use_checkpoint)
+
+    def initialize_array_with_values(self, mask):
+
+        self.mask = mask
+
+    def initialize_file_object(self):
+
+        # arr is a memmap.
+        arr = dxchange.read_tiff(self.finite_support_mask_path)
+        initialize_hdf5_with_arrays(self.dset, rank, n_ranks, arr, None)
+
+    def update_mask_array(self, obj, threshold=1e-9):
+
+        assert isinstance(obj, ObjectFunction)
+        obj_arr = obj.delta
+        self.mask[obj_arr < threshold] = 0

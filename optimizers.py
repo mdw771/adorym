@@ -3,7 +3,7 @@ import os
 import h5py
 from mpi4py import MPI
 
-from util import get_rotated_subblocks, write_subblocks_to_file, print_flush
+from util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -89,6 +89,17 @@ class Optimizer(object):
             dset_p = self.params_dset_dict[param_name]
             write_subblocks_to_file(dset_p, this_pos_batch, np.take(p, 0, axis=-1), np.take(p, 1, axis=-1),
                                     probe_size_half, self.whole_object_size[:-1], monochannel=False)
+        return
+
+    def rotate_files(self, coords, interpolation='bilinear'):
+
+        for param_name, dset_p in self.params_dset_dict.items():
+            apply_rotation_to_hdf5(dset_p, coords, rank, n_ranks, interpolation=interpolation, monochannel=False)
+
+    def rotate_arrays(self, coords, interpolation='bilinear'):
+
+        for param_name, arr in self.params_whole_array_dict.items():
+            self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, None, interpolation=interpolation)
         return
 
 

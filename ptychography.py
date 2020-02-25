@@ -26,10 +26,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                              probe_defocusing_learning_rate=1e-5,
                              multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
                              dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, finite_support=False,
-                             forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5,
+                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask_path=None,
+                             forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5, shrink_cycle=None, shrink_threshold=1e-9,
                              n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
-                             shared_file_object=True, reweighted_l1=False, optimizer='adam', save_stdout=False, use_checkpoint=True, binning=1, **kwargs):
+                             shared_file_object=True, reweighted_l1=False, optimizer='adam', interpolation='bilinear', save_stdout=False, use_checkpoint=True, binning=1, **kwargs):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
 
@@ -72,7 +72,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
                 subobj_ls = np.stack(subobj_ls)
                 exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
-                                                           probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm='inf',
+                                                           probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                                            obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                                            fresnel_approx=fresnel_approx, pure_projection=pure_projection)
                 exiting_ls.append(exiting)
@@ -93,7 +93,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 subobj_ls_beta = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
                 exiting = multislice_propagate_batch_numpy(subobj_ls_delta, subobj_ls_beta, probe_real,
                                                            probe_imag, energy_ev, psize_cm * ds_level, kernel=h,
-                                                           free_prop_cm='inf',
+                                                           free_prop_cm=free_prop_cm,
                                                            obj_batch_shape=[len(pos_batch), *probe_size,
                                                                             this_obj_size[-1]],
                                                            fresnel_approx=fresnel_approx,
@@ -102,6 +102,8 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 pos_ind += len(pos_batch)
             exiting_ls = np.concatenate(exiting_ls, 0)
             loss = np.mean((np.abs(exiting_ls) - np.abs(this_prj_batch)) ** 2)
+            # dxchange.write_tiff(abs(exiting_ls._value[0]), output_folder + '/det/det', dtype='float32', overwrite=True)
+            # raise
 
         # Regularization
         if reweighted_l1:
@@ -141,7 +143,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         else:
             timestr = timestr.replace(i, '')
 
-    # read data
+    # ================================================================================
+    # Create pointer for raw data.
+    # ================================================================================
     t0 = time.time()
     print_flush('Reading data...', designate_rank=0, this_rank=rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
@@ -164,22 +168,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
     not_first_level = False
 
+    # ================================================================================
+    # Set output folder name if not specified.
+    # ================================================================================
     if output_folder is None:
-        output_folder = 'recon_ptycho_minibatch_{}_' \
-                        'iter_{}_' \
-                        'alphad_{}_' \
-                        'alphab_{}_' \
-                        'rate_{}_' \
-                        'energy_{}_' \
-                        'size_{}_' \
-                        'ntheta_{}_' \
-                        'ms_{}_' \
-                        'cpu_{}' \
-            .format(minibatch_size,
-                    n_epochs, alpha_d, alpha_b,
-                    learning_rate, energy_ev,
-                    prj.shape[-1], prj.shape[0],
-                    multiscale_level, cpu_only)
+        output_folder = 'recon_{}'.format(timestr)
         if abs(PI - theta_end) < 1e-3:
             output_folder += '_180'
     print_flush('Output folder is {}'.format(output_folder), designate_rank=0, this_rank=rank)
@@ -300,6 +293,23 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
             else:
                 obj.delta = obj_delta
                 obj.beta = obj_beta
+
+        # ================================================================================
+        # If a finite support mask path is specified (common for full-field imaging),
+        # create an instance of monochannel mask class. While finite_support_mask_path
+        # has to point to a 3D tiff file, the mask will be written as an HDF5 if
+        # share_file_mode is True.
+        # ================================================================================
+        mask = None
+        if finite_support_mask_path is not None:
+            mask = Mask(this_obj_size, finite_support_mask_path, shared_file_object=shared_file_object,
+                        output_folder=output_folder, ds_level=ds_level)
+            if shared_file_object:
+                mask.create_file_object(use_checkpoint=use_checkpoint)
+                mask.initialize_file_object()
+            else:
+                mask_arr = dxchange.read_tiff(finite_support_mask_path)
+                mask.initialize_array_with_values(mask_arr)
 
         # ================================================================================
         # Initialize probe functions.
@@ -427,7 +437,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj.f.flush()
                 else:
                     save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
-                                    obj_array=np.stack([obj_delta, obj_beta], axis=-1), optimizer=opt)
+                                    obj_array=np.stack([obj.delta, obj.beta], axis=-1), optimizer=opt)
 
                 t00 = time.time()
                 if len(ind_list_rand[i_batch]) < n_tot_per_batch:
@@ -437,13 +447,18 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 this_ind_batch = ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch[rank * minibatch_size, 0]
                 this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+                print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, save_stdout, output_folder, timestr)
 
+                # ================================================================================
                 # In shared file mode, if moving to a new angle, rotate the HDF5 object.
-                if this_i_theta != current_i_theta:
+                # ================================================================================
+                if shared_file_object and this_i_theta != current_i_theta:
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                     t_rot_0 = time.time()
-                    obj.rotate_data_in_file(coord_ls[this_i_theta], interpolation='bilinear')
+                    obj.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
+                    opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
+                    if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
@@ -477,6 +492,17 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     if i_batch % 10 == 0: weight_l1 = np.max(obj_delta) / (abs(obj_delta) + 1e-8)
 
                 # ================================================================================
+                # Apply finite support mask if specified.
+                # ================================================================================
+                if mask is not None:
+                    if not shared_file_object:
+                        obj.apply_finite_support_mask_to_array(mask)
+                    else:
+                        mask_arr = mask.read_chunks_from_file(this_pos_batch, probe_size_half)
+                        obj_delta *= mask_arr
+                        obj_beta *= mask_arr
+
+                # ================================================================================
                 # Calculate object gradients.
                 # ================================================================================
                 t_grad_0 = time.time()
@@ -484,6 +510,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                 grads = list(grads)
 
+                # ================================================================================
+                # Reshape object gradient to [y, x, z, c] or [n, y, x, z, c] and average over
+                # ranks.
+                # ================================================================================
                 if shared_file_object:
                     obj_grads = np.stack(grads[:2], axis=-1)
                 else:
@@ -493,6 +523,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     comm.Allreduce(this_obj_grads, obj_grads)
                 obj_grads = obj_grads / n_ranks
 
+                # ================================================================================
+                # Update object function with optimizer.
+                # ================================================================================
                 effective_iter = i_batch // max([ceil(n_pos / (minibatch_size * n_ranks)), 1])
                 obj_temp = opt.apply_gradient(np.stack([obj_delta, obj_beta], axis=-1), obj_grads, effective_iter,
                                                         **optimizer_options_obj)
@@ -509,6 +542,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 if object_type == 'absorption_only': obj_delta[...] = 0
                 if object_type == 'phase_only': obj_beta[...] = 0
 
+                # ================================================================================
+                # Optimize probe and other parameters if necessary.
+                # ================================================================================
                 if probe_type == 'optimizable':
                     this_probe_grads = np.stack(grads[2:4], axis=-1)
                     probe_grads = np.zeros_like(this_probe_grads)
@@ -527,10 +563,10 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                                         **optimizer_options_probe_defocus)
                     print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 
+                # ================================================================================
+                # Write updated object chunks back into the file or object class instance.
+                # ================================================================================
                 if shared_file_object:
-                    # ================================================================================
-                    # write updated object chunks back into the file.
-                    # ================================================================================
                     t_write_0 = time.time()
                     obj.write_chunks_to_file(this_pos_batch, obj_delta, obj_beta, probe_size_half, write_difference=True)
                     print_flush('  Chunk writing done in {} s.'.format(time.time() - t_write_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
@@ -539,10 +575,22 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     obj.beta = obj_beta
                 comm.Barrier()
 
+                # ================================================================================
+                # Update finite support mask if necessary.
+                # ================================================================================
+                if mask is not None and shrink_cycle is not None:
+                    if i_batch % shrink_cycle == 0 and i_batch > 0:
+                        if shared_file_object:
+                            shrink_mask_bool = obj_delta < shrink_threshold
+                            shrink_mask_bool *= mask_arr
+                            mask.write_chunks_to_file(this_pos_batch, shrink_mask_bool, None, probe_size_half, write_difference=True)
+                        else:
+                            mask.update_mask_array(obj, shrink_threshold)
+
+                # ================================================================================
+                # Save intermediate object.
+                # ================================================================================
                 if rank == 0 and save_intermediate:
-                    # ================================================================================
-                    # Save intermediate object.
-                    # ================================================================================
                     if shared_file_object:
                         dxchange.write_tiff(obj.dset[:, :, :, 0],
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
@@ -564,7 +612,9 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                                                    this_i_theta, reverse=True)
                     print_flush('  Rotating dataset back...', 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
                     t_rot_0 = time.time()
-                    obj.rotate_data_in_file(coord_new)
+                    obj.reverse_rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
+                    opt.rotate_files(coord_new, interpolation=interpolation)
+                    if mask is not None: mask.reverse_rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
 

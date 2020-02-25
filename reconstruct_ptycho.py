@@ -33,6 +33,54 @@ else:
         init = [np.array(init_delta[...]), np.array(init_beta[...])]
 
 
+params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
+                  'theta_st': 0,
+                  'theta_end': 2 * np.pi,
+                  'theta_downsample': None,
+                  'n_epochs': 10,
+                  'obj_size': (64, 64, 64),
+                  # 'alpha_d': 1.e-9 * 64 ** 3,
+                  'alpha_d': 0,
+                  # 'alpha_b': 1.e-10 * 64 ** 3,
+                  'alpha_b': 0,
+                  'gamma': 0,
+                  'probe_size': (64, 64),
+                  # 'learning_rate': 1., # for non-shared file mode gd
+                  # 'learning_rate': 1e-8, # for shared-file mode adam
+                  'learning_rate': 1e-5, # for shared-file mode gd
+                  'center': 32,
+                  'energy_ev': 800,
+                  'psize_cm': 0.67e-7,
+                  'minibatch_size': 1,
+                  'n_batch_per_update': 1,
+                  'output_folder': 'test',
+                  'cpu_only': True,
+                  'save_path': 'adhesin',
+                  'multiscale_level': 1,
+                  'n_epoch_final_pass': None,
+                  'free_prop_cm': 0,
+                  'save_intermediate': True,
+                  'full_intermediate': True,
+                  # 'initial_guess': [np.load('adhesin_ptycho_2/phantom/grid_delta.npy'), np.load('adhesin_ptycho_2/phantom/grid_beta.npy')],
+                  'initial_guess': None,
+                  # 'probe_initial': [dxchange.read_tiff('adhesin_ptycho_2/probe_mag_defocus_10nm.tiff'), dxchange.read_tiff('adhesin_ptycho_2/probe_phase_defocus_10nm.tiff')],
+                  'probe_initial': None,
+                  'n_dp_batch': 1,
+                  'fresnel_approx': True,
+                  'probe_type': 'plane',
+                  'finite_support_mask_path': 'adhesin/fin_sup_mask/mask.tiff',
+                  # 'finite_support_mask_path': None,
+                  'forward_algorithm': 'fresnel',
+                  'object_type': 'normal',
+                  'probe_pos': [(32, 32)],
+                  'optimize_probe_defocusing': False,
+                  'probe_defocusing_learning_rate': 1e-7,
+                  'shared_file_object': True,
+                  'optimizer': 'gd',
+                  'use_checkpoint': False,
+                  }
+
+
 params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
@@ -51,7 +99,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test',
+                  'output_folder': 'test_revert',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -79,6 +127,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'shared_file_object': True,
                   'optimizer': 'gd',
                   'use_checkpoint': False,
+                  'free_prop_cm': 'inf'
                   }
 
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
@@ -118,6 +167,7 @@ params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'shared_file_object': True,
                     'reweighted_l1': False if epoch == 0 else True,
                     'optimizer': 'gd',
+                    'free_prop_cm': 'inf'
                     }
 
 params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
@@ -134,7 +184,7 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'center': 128,
                         'energy_ev': 5000,
                         'psize_cm': 1.e-7,
-                        'minibatch_size': 1,
+                        'minibatch_size': 2,
                         'n_batch_per_update': 1,
                         # 'output_folder': 'theta_' + timestr,
                         'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
@@ -157,6 +207,7 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'shared_file_object': True,
                         'reweighted_l1': False if epoch == 0 else True,
                         'optimizer': 'gd',
+                        'free_prop_cm': 'inf'
                         }
 
 params_2d = {'fname': 'data_cone_256_1nm_marc.h5',
@@ -192,6 +243,7 @@ params_2d = {'fname': 'data_cone_256_1nm_marc.h5',
                     'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
                     'finite_support_mask': None,
                     'object_type': 'normal',
+                    'free_prop_cm': 'inf'
                     }
 
 params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
@@ -227,7 +279,8 @@ params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
                     'probe_pos': [(y, x) for y in np.arange(33) * 10 for x in np.arange(34) * 10],
-                    'finite_support_mask': None
+                    'finite_support_mask': None,
+                    'free_prop_cm': 'inf'
                     }
 
 params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
@@ -261,7 +314,8 @@ params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
                                             'probe_phase_max': 0.5},
                           'forward_algorithm': 'fresnel',
                           'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
-                          'finite_support_mask': None
+                          'finite_support_mask': None,
+                          'free_prop_cm': 'inf'
                           }
 
 params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
@@ -296,9 +350,11 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                # 'probe_pos': [(y, x) for y in np.linspace(18, 120, 35, dtype=int) for x in np.linspace(54, 198, 49, dtype=int)] +
                #              [(y, x) for y in np.linspace(120, 222, 35, dtype=int) for x in np.linspace(22, 230, 70, dtype=int)],
                'probe_pos': [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12],
-               'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff')
+               'finite_support_mask': dxchange.read_tiff('cone_256_filled_ptycho/mask.tiff'),
+               'free_prop_cm': 'inf'
                }
 
+# params = params_adhesin_ff
 params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
