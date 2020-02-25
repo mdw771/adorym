@@ -4,6 +4,7 @@ import h5py
 from mpi4py import MPI
 
 from util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
+from array_ops import ObjectFunction, Gradient
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -27,6 +28,7 @@ class Optimizer(object):
         self.params_whole_array_dict = {}
         self.params_chunk_array_dict = {}
         self.params_chunk_array_0_dict = {}
+        self.i_batch = 0
         return
 
     def create_file_objects(self, use_checkpoint=False):
@@ -109,13 +111,15 @@ class AdamOptimizer(Optimizer):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True, shared_file_object=False):
-        if shared_file_object:
-            m = self.params_chunk_array_dict['m']
-            v = self.params_chunk_array_dict['v']
-        else:
-            m = self.params_whole_array_dict['m']
-            v = self.params_whole_array_dict['v']
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True, shared_file_object=False, m=None, v=None):
+
+        if m is None or v is None:
+            if shared_file_object:
+                m = self.params_chunk_array_dict['m']
+                v = self.params_chunk_array_dict['v']
+            else:
+                m = self.params_whole_array_dict['m']
+                v = self.params_whole_array_dict['v']
         m = (1 - b1) * g + b1 * m  # First moment estimate.
         v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
         mhat = m / (1 - b1 ** (i_batch + 1))  # Bias correction.
@@ -134,8 +138,26 @@ class AdamOptimizer(Optimizer):
         else:
             self.params_whole_array_dict['m'] = m
             self.params_whole_array_dict['v'] = v
+        self.i_batch += 1
         return x
 
+    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):
+
+        assert isinstance(obj, ObjectFunction)
+        assert isinstance(gradient, Gradient)
+        s = obj.dset.shape
+        slice_ls = range(rank, s[0], n_ranks)
+
+        for i_slice in slice_ls:
+            x = obj.dset[i_slice]
+            g = gradient.dset[i_slice]
+            m = self.params_dset_dict['m'][i_slice]
+            v = self.params_dset_dict['v'][i_slice]
+            x = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
+                                    b1=b1, b2=b2, eps=eps, verbose=verbose, shared_file_object=False,
+                                    m=m, v=v)
+            obj.dset[i_slice] = x
+        self.i_batch += 1
 
 class GDOptimizer(Optimizer):
 
@@ -156,6 +178,21 @@ class GDOptimizer(Optimizer):
         x = x - step_size * g
 
         return x
+
+    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92):
+
+        assert isinstance(obj, ObjectFunction)
+        assert isinstance(gradient, Gradient)
+        s = obj.dset.shape
+        slice_ls = range(rank, s[0], n_ranks)
+
+        for i_slice in slice_ls:
+            x = obj.dset[i_slice]
+            g = gradient.dset[i_slice]
+            x = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
+                                    dynamic_rate=dynamic_rate, first_downrate_iteration=first_downrate_iteration)
+            obj.dset[i_slice] = x
+        self.i_batch += 1
 
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):

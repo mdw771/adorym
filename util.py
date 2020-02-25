@@ -316,10 +316,15 @@ def apply_rotation(obj, coord_old, src_folder, interpolation='bilinear'):
     return obj_rot
 
 
-def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilinear', monochannel=False):
-
+def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilinear', monochannel=False, dset_2=None):
+    """
+    If another dataset is used to store the rotated object, pass the dataset object to
+    dset_2. If dset_2 is None, rotated object will overwrite the original dataset.
+    """
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
+
+    if dset_2 is None: dset_2 = dset
 
     if interpolation == 'nearest':
         coord_old_1 = np.round(coord_old[:, 0]).astype('int')
@@ -336,7 +341,7 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
         for i_slice in slice_ls:
             obj = dset[i_slice]
             obj_rot = np.reshape(obj[coord_old_1, coord_old_2], s[1:])
-            dset[i_slice] = obj_rot
+            dset_2[i_slice] = obj_rot
     else:
         coord_old_floor_1 = np.floor(coord_old_1).astype(int)
         coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
@@ -376,7 +381,7 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
                        vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
                        vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
                 obj_rot = np.reshape(vals, s[1:3])
-            dset[i_slice] = obj_rot
+            dset_2[i_slice] = obj_rot
 
     return None
 
@@ -451,18 +456,28 @@ def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, be
     return None
 
 
+def initialize_hdf5_with_constant(dset, rank, n_ranks, constant_value=0):
+
+    s = dset.shape
+    slice_ls = range(rank, s[0], n_ranks)
+
+    for i_slice in slice_ls:
+        dset[i_slice] = np.full(dset[i_slice].shape, constant_value)
+    return None
+
+
 def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
 
-    np.random.seed(rank)
     for i_slice in slice_ls:
+        slice_data = np.zeros(s[1:])
         if init_beta is not None:
-            slice_data = np.stack([init_delta[i_slice], init_beta[i_slice]], axis=-1)
+            slice_data[...] = np.stack([init_delta[i_slice], init_beta[i_slice]], axis=-1)
         else:
-            slice_data = init_delta[i_slice]
-        # slice_data[slice_data < 0] = 0
+            slice_data[...] = init_delta[i_slice]
+        slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data
     return None
 

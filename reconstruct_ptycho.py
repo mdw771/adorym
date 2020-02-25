@@ -47,7 +47,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'probe_size': (64, 64),
                   # 'learning_rate': 1., # for non-shared file mode gd
                   # 'learning_rate': 1e-8, # for shared-file mode adam
-                  'learning_rate': 1e-5, # for shared-file mode gd
+                  'learning_rate': 1, # for shared-file mode gd
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
@@ -99,7 +99,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_revert',
+                  'output_folder': 'test',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
