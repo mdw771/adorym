@@ -33,9 +33,9 @@ class LargeArray(object):
             # If dataset exists, create a pointer to it.
             self.dset = self.f['obj']
 
-    def read_chunks_from_file(self, this_pos_batch, probe_size_half, dset_2=None):
+    def read_chunks_from_file(self, this_pos_batch, probe_size, dset_2=None):
         dset = self.dset if dset_2 is None else dset_2
-        obj = get_rotated_subblocks(dset, this_pos_batch, probe_size_half,
+        obj = get_rotated_subblocks(dset, this_pos_batch, probe_size,
                                     self.full_size, monochannel=self.monochannel)
         self.arr_0 = np.copy(obj)
         return obj
@@ -48,7 +48,7 @@ class LargeArray(object):
         revert_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation,
                                monochannel=self.monochannel)
 
-    def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size_half, write_difference=True, dset_2=None):
+    def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None):
         dset = self.dset if dset_2 is None else dset_2
         if write_difference:
             if self.monochannel:
@@ -60,7 +60,7 @@ class LargeArray(object):
                 arr_channel_0 /= n_ranks
                 arr_channel_1 /= n_ranks
         write_subblocks_to_file(dset, this_pos_batch, arr_channel_0, arr_channel_1,
-                                probe_size_half, self.full_size, monochannel=self.monochannel)
+                                probe_size, self.full_size, monochannel=self.monochannel)
 
 
 class ObjectFunction(LargeArray):

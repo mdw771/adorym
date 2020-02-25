@@ -269,7 +269,7 @@ def read_all_origin_coords(src_folder, n_theta):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, src_folder, interpolation='bilinear'):
+def apply_rotation(obj, coord_old, interpolation='bilinear'):
 
     s = obj.shape
 
@@ -482,7 +482,7 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
     return None
 
 
-def get_rotated_subblocks(dset, this_pos_batch, probe_size_half, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear'):
+def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
     :return: [n_pos, y, x, z, 2]
@@ -492,8 +492,8 @@ def get_rotated_subblocks(dset, this_pos_batch, probe_size_half, whole_object_si
         if len(coords) == 2:
             # For the case of ptychography
             this_y, this_x = coords
-            line_st, line_end = (this_y - probe_size_half[0], this_y + probe_size_half[0])
-            px_st, px_end = (this_x - probe_size_half[1], this_x + probe_size_half[1])
+            line_st, line_end = (this_y, this_y + probe_size[0])
+            px_st, px_end = (this_x, this_x + probe_size[1])
         else:
             # For the case of full-field
             line_st, line_end, px_st, px_end = coords
@@ -517,7 +517,7 @@ def get_rotated_subblocks(dset, this_pos_batch, probe_size_half, whole_object_si
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_size_half, whole_object_size, monochannel=False, interpolation='bilinear'):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_size, whole_object_size, monochannel=False, interpolation='bilinear'):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
@@ -530,8 +530,8 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
         if len(coords) == 2:
             # For the case of ptychography
             this_y, this_x = coords
-            line_st, line_end = (this_y - probe_size_half[0], this_y + probe_size_half[0])
-            px_st, px_end = (this_x - probe_size_half[1], this_x + probe_size_half[1])
+            line_st, line_end = (this_y, this_y + probe_size[0])
+            px_st, px_end = (this_x, this_x + probe_size[1])
         else:
             # For the case of full-field
             line_st, line_end, px_st, px_end = coords
@@ -549,26 +549,26 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
     return
 
 
-def pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half):
+def pad_object(obj_rot, this_obj_size, probe_pos, probe_size):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
-    if probe_pos[:, 0].min() - probe_size_half[0] < 0:
-        pad_len = probe_size_half[0] - probe_pos[:, 0].min()
+    if probe_pos[:, 0].min() < 0:
+        pad_len = -probe_pos[:, 0].min()
         obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 0] = pad_len
-    if probe_pos[:, 0].max() + probe_size_half[0] > this_obj_size[0]:
-        pad_len = probe_pos[:, 0].max() + probe_size_half[0] - this_obj_size[0]
+    if probe_pos[:, 0].max() + probe_size[0] > this_obj_size[0]:
+        pad_len = probe_pos[:, 0].max() + probe_size[0] - this_obj_size[0]
         obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 1] = pad_len
-    if probe_pos[:, 1].min() - probe_size_half[1] < 0:
-        pad_len = probe_size_half[1] - probe_pos[:, 1].min()
+    if probe_pos[:, 1].min() < 0:
+        pad_len = -probe_pos[:, 1].min()
         obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 0] = pad_len
-    if probe_pos[:, 1].max() + probe_size_half[1] > this_obj_size[1]:
-        pad_len = probe_pos[:, 1].max() + probe_size_half[0] - this_obj_size[1]
+    if probe_pos[:, 1].max() + probe_size[1] > this_obj_size[1]:
+        pad_len = probe_pos[:, 1].max() + probe_size[0] - this_obj_size[1]
         obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 1] = pad_len
 
@@ -869,7 +869,7 @@ def reconstruct_hdf5_takeouts(block, repeats, sorted_ind):
     return block
 
 
-def get_rotated_subblocks_with_tilt(dset, this_pos_batch, coord_old, probe_size_half, whole_object_size, monochannel=False,
+def get_rotated_subblocks_with_tilt(dset, this_pos_batch, coord_old, probe_size, whole_object_size, monochannel=False,
                           mode='hdf5', interpolation='bilinear'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
@@ -880,9 +880,9 @@ def get_rotated_subblocks_with_tilt(dset, this_pos_batch, coord_old, probe_size_
         if len(coords) == 2:
             # For the case of ptychography
             this_y, this_x = coords
-            coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
-            coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
-            block_shape = [probe_size_half[0] * 2, probe_size_half[1] * 2, whole_object_size[-1]]
+            coord0_vec = np.arange(this_y, this_y + probe_size[0])
+            coord1_vec = np.arange(this_x, this_x + probe_size[1])
+            block_shape = [probe_size[0], probe_size[1], whole_object_size[-1]]
         else:
             # For the case of full-field
             line_st, line_end, px_st, px_end = coords
@@ -1000,7 +1000,7 @@ def get_rotated_subblocks_with_tilt(dset, this_pos_batch, coord_old, probe_size_
     return block_stack
 
 
-def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta, coord_old, coord_new, probe_size_half,
+def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta, coord_old, coord_new, probe_size,
                             whole_object_size, monochannel=False, interpolation='bilinear'):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
@@ -1009,8 +1009,8 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             this_y, this_x = coords
-            coord0_vec = np.arange(this_y - probe_size_half[0], this_y + probe_size_half[0])
-            coord1_vec = np.arange(this_x - probe_size_half[1], this_x + probe_size_half[1])
+            coord0_vec = np.arange(this_y, this_y + probe_size[0])
+            coord1_vec = np.arange(this_x, this_x + probe_size[1])
         else:
             line_st, line_end, px_st, px_end = coords
             coord0_vec = np.arange(line_st, line_end)
@@ -1078,7 +1078,7 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
         ind_new_2 = coord_new[:, 1][ind_old]
 
         # Convert x-index to local chunk frame.
-        ind_new_1 = ind_new_1 - this_x + probe_size_half[1]
+        ind_new_1 = ind_new_1 - this_x
 
         # Calculate y-axis cropping.
         obj_crop_top = max([0, -coord0_vec[0]])

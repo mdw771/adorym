@@ -75,22 +75,22 @@ class Optimizer(object):
             np.save(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'), arr)
         return
 
-    def get_params_from_file(self, this_pos_batch=None, probe_size_half=None):
+    def get_params_from_file(self, this_pos_batch=None, probe_size=None):
 
         for param_name, dset_p in self.params_dset_dict.items():
-            p = get_rotated_subblocks(dset_p, this_pos_batch, probe_size_half, self.whole_object_size[:-1])
+            p = get_rotated_subblocks(dset_p, this_pos_batch, probe_size, self.whole_object_size[:-1])
             self.params_chunk_array_dict[param_name] = p
             self.params_chunk_array_0_dict[param_name] = np.copy(p)
         return
 
-    def write_params_to_file(self, this_pos_batch=None, probe_size_half=None, n_ranks=1):
+    def write_params_to_file(self, this_pos_batch=None, probe_size=None, n_ranks=1):
 
         for param_name, p in self.params_chunk_array_dict.items():
             p = p - self.params_chunk_array_0_dict[param_name]
             p /= n_ranks
             dset_p = self.params_dset_dict[param_name]
             write_subblocks_to_file(dset_p, this_pos_batch, np.take(p, 0, axis=-1), np.take(p, 1, axis=-1),
-                                    probe_size_half, self.whole_object_size[:-1], monochannel=False)
+                                    probe_size, self.whole_object_size[:-1], monochannel=False)
         return
 
     def rotate_files(self, coords, interpolation='bilinear'):
@@ -101,7 +101,7 @@ class Optimizer(object):
     def rotate_arrays(self, coords, interpolation='bilinear'):
 
         for param_name, arr in self.params_whole_array_dict.items():
-            self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, None, interpolation=interpolation)
+            self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, interpolation=interpolation)
         return
 
 

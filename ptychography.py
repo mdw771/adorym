@@ -43,8 +43,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
         if not shared_file_object:
             obj_stack = np.stack([obj_delta, obj_beta], axis=3)
             if not two_d_mode:
-                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta],
-                                         'arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta])
                 # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
             else:
                 obj_rot = obj_stack
@@ -56,7 +55,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 i_dp += n_dp_batch
 
             # Pad if needed
-            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, probe_pos, probe_size_half)
+            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, probe_pos, probe_size)
 
             for k, pos_batch in enumerate(probe_pos_batch_ls):
                 subobj_ls = []
@@ -65,9 +64,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     pos = [int(x) for x in pos]
                     pos[0] = pos[0] + pad_arr[0, 0]
                     pos[1] = pos[1] + pad_arr[1, 0]
-                    subobj = obj_rot[pos[0] - probe_size_half[0]:pos[0] - probe_size_half[0] + probe_size[0],
-                             pos[1] - probe_size_half[1]:pos[1] - probe_size_half[1] + probe_size[1],
-                             :, :]
+                    subobj = obj_rot[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
                     subobj_ls.append(subobj)
 
                 subobj_ls = np.stack(subobj_ls)
@@ -193,7 +190,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
 
         n_pos = len(probe_pos)
         probe_pos = np.array(probe_pos)
-        probe_size_half = (np.array(probe_size) / 2).astype('int')
+        # probe_size_half = (np.array(probe_size) / 2).astype('int')
         prj_shape = original_shape
 
         if ds_level > 1:
@@ -502,11 +499,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     # ================================================================================
                     t_read_0 = time.time()
-                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size_half, dset_2=obj.dset_rot)
+                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj_delta = np.array(obj_rot[:, :, :, :, 0])
                     obj_beta = np.array(obj_rot[:, :, :, :, 1])
-                    opt.get_params_from_file(this_pos_batch, probe_size_half)
+                    opt.get_params_from_file(this_pos_batch, probe_size)
                 else:
                     obj_delta = obj.delta
                     obj_beta = obj.beta
@@ -551,7 +548,7 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 else:
                     t_grad_write_0 = time.time()
                     gradient.write_chunks_to_file(this_pos_batch, np.take(obj_grads, 0, axis=-1),
-                                                  np.take(obj_grads, 1, axis=-1), probe_size_half,
+                                                  np.take(obj_grads, 1, axis=-1), probe_size,
                                                   write_difference=False)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)
                 # ================================================================================
