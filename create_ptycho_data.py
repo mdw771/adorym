@@ -18,18 +18,19 @@ energy_ev = 5000
 # energy_ev = 800
 psize_cm = 1.e-7
 # psize_cm = 0.67e-7
-free_prop_cm = None
+free_prop_cm = 'inf'
 # phantom_path = 'cell/ptychography/phantom'
 phantom_path = 'cone_256_foam_ptycho/phantom'
 # phantom_path = 'adhesin_ptycho_2/phantom'
 # save_folder = 'cell/ptychography'
 save_folder = 'cone_256_foam_ptycho'
 # save_folder = 'adhesin_ptycho_2'
-fname = 'data_cone_256_foam_1nm.h5'
+fname = 'data_cone_256_foam_1nm_2.h5'
 # fname = 'data_adhesin_64_1nm_1um_.h5'
 # fname = 'data_cell_phase.h5'
 probe_size = [72, 72]
 # probe_size = [18, 18]
+probe_type = 'gaussian'
 probe_mag_sigma = 6
 # probe_mag_sigma = 2
 probe_phase_sigma = 6
@@ -50,6 +51,12 @@ probe_pos = [(y, x) for y in np.arange(23) * 12 for x in np.arange(23) * 12 ]
 # probe_pos = [(y, x) for y in np.linspace(18, 120, 35) for x in np.linspace(54, 198, 49)] + \
 #             [(y, x) for y in np.linspace(120, 222, 35) for x in np.linspace(22, 230, 70)]
 
+###############################################################
+# Newer versions from now on will interpret probe_pos as top-left corners,
+# instead of centers, of probe arrays in the object frame.
+probe_pos = np.array(probe_pos) - np.array(probe_size) // 2
+###############################################################
+
 create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_folder, fname, probe_pos,
-                                     probe_type='gaussian', probe_size=probe_size, theta_st=theta_st, theta_end=theta_end,
+                                     probe_type=probe_type, free_prop_cm=free_prop_cm, probe_size=probe_size, theta_st=theta_st, theta_end=theta_end,
                                      probe_mag_sigma=probe_mag_sigma, probe_phase_sigma=probe_phase_sigma, probe_phase_max=probe_phase_max, probe_circ_mask=None, fresnel_approx=True)
