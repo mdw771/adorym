@@ -591,12 +591,15 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 # update the object using gradient at 0 deg.
                 # ================================================================================
                 if shared_file_object and (i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != current_i_theta):
-                    # coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                    #                                this_i_theta, reverse=True)
+                    coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                   this_i_theta, reverse=True)
                     print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
-                    gradient.reverse_rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
-                    comm.Barrier()
+                    # dxchange.write_tiff(gradient.dset[:, :, :, 0], 'adhesin/test_shared_file/grad_prerot', dtype='float32')
+                    # gradient.reverse_rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
+                    gradient.rotate_data_in_file(coord_new, interpolation=interpolation)
+                    # dxchange.write_tiff(gradient.dset[:, :, :, 0], 'adhesin/test_shared_file/grad_postrot', dtype='float32')
+                    # comm.Barrier()
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
