@@ -99,7 +99,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_2',
+                  'output_folder': 'test_3',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -124,7 +124,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_phase_max': 0.5,
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': True,
+                  'shared_file_object': False,
                   'optimizer': 'gd',
                   'use_checkpoint': False,
                   'free_prop_cm': 'inf'
@@ -246,7 +246,7 @@ params_2d = {'fname': 'data_cone_256_1nm_marc.h5',
                     'free_prop_cm': 'inf'
                     }
 
-params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
+params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'theta_st': 0,
                     'theta_end': 0,
                     'theta_downsample': 1,
@@ -260,11 +260,11 @@ params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
                     'center': 512,
                     'energy_ev': 5000,
                     'psize_cm': 1.e-7,
-                    'minibatch_size': 1,
+                    'minibatch_size': 4488,
                     'n_batch_per_update': 1,
-                    'output_folder': 'n1e9_ref',
+                    'output_folder': 'test_np',
                     'cpu_only': True,
-                    'save_path': 'cell/ptychography',
+                    'save_path': 'cell/test',
                     'multiscale_level': 1,
                     'n_epoch_final_pass': None,
                     'save_intermediate': True,
@@ -273,14 +273,18 @@ params_2d_cell = {'fname': 'data_cell_phase_n1e9_ref.h5',
                     'initial_guess': None,
                     'n_dp_batch': 20,
                     'probe_type': 'gaussian',
-                    'probe_options': {'probe_mag_sigma': 6,
-                                      'probe_phase_sigma': 6,
-                                      'probe_phase_max': 0.5},
+                    'probe_mag_sigma': 6,
+                    'probe_phase_sigma': 6,
+                    'probe_phase_max': 0.5,
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
-                    'probe_pos': [(y, x) for y in (np.arange(33) * 10) - 36 for x in (np.arange(34) * 10) - 36],
+                    'probe_pos': [(y, x) for y in (np.arange(66) * 5) - 36 for x in (np.arange(68) * 5) - 36],
                     'finite_support_mask': None,
-                    'free_prop_cm': 'inf'
+                    'free_prop_cm': 'inf',
+                    'optimizer': 'adam',
+                    'two_d_mode': True,
+                    'shared_file_object': False,
+                    'use_checkpoint': False
                     }
 
 params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
@@ -354,10 +358,10 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-params = params_adhesin_ff
+# params = params_adhesin_ff
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
-# params = params_2d_cell
+params = params_2d_cell
 
 reconstruct_ptychography(**params)

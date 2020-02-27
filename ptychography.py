@@ -85,7 +85,6 @@ def reconstruct_ptychography(
 
         if optimize_probe_pos_offset:
             this_pos_batch = this_pos_batch + probe_pos_offset[this_i_theta]
-
         if not shared_file_object:
             obj_stack = np.stack([obj_delta, obj_beta], axis=3)
             if not two_d_mode:
@@ -228,8 +227,7 @@ def reconstruct_ptychography(
         warnings.warn('It seems that you are processing undivided fullfield data with'
                       'shared_file_object=True. In shared-file mode, all ranks must'
                       'process data from the same rotation angle in each synchronized'
-                      'batch. I am setting shared_file_object to False.')
-        shared_file_object = False
+                      'batch.')
 
     # ================================================================================
     # Set output folder name if not specified.

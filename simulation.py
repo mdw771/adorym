@@ -3,11 +3,8 @@ from six.moves import input
 
 import numpy as np
 import dxchange
-import tensorflow as tf
 import h5py
-from tensorflow.contrib.image import rotate as tf_rotate
 from scipy.ndimage import rotate as sp_rotate
-from scipy.ndimage import gaussian_filter
 from tqdm import tqdm
 
 from util import *
@@ -53,7 +50,6 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
                 exiting_ls = np.copy(exiting)
             else:
                 exiting_ls = np.vstack([exiting_ls, exiting])
-            dxchange.write_tiff(abs(exiting), 'cone_256_foam_ptycho/test', dtype='float32')
         return exiting_ls
 
     probe_pos = np.array(probe_pos)
