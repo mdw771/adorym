@@ -21,8 +21,14 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     """
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
-    def rotate_and_project(theta, obj):
+    def rotate_and_project(theta, obj, probe_pos, i_theta=None):
         obj_rot = sp_rotate(obj, theta, reshape=False, axes=(1, 2))
+
+        # Add probe_pos offset error if demanded
+        if 'pos_offset_vec' in kwargs.keys():
+            pos_offset = kwargs['pos_offset_vec'][ii]
+            probe_pos += pos_offset
+            print('Added positional error for theta ID {}: {}.'.format(i_theta, pos_offset))
 
         # pad if needed
         obj_rot, pad_arr = pad_object(obj_rot, grid_delta.shape, probe_pos, probe_size)
@@ -88,9 +94,12 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     # dxchange.write_tiff(probe_mag, os.path.join(save_path, 'probe_mag_f32'), dtype='float32', overwrite=True)
     # dxchange.write_tiff(probe_phase, os.path.join(save_path, 'probe_phase_f32'), dtype='float32', overwrite=True)
 
+    if 'pos_offset_vec' in kwargs.keys():
+        np.savetxt(os.path.join(save_path, 'pos_offset_vec.txt'), kwargs['pos_offset_vec'], fmt='%d')
+
     for ii, theta in enumerate(theta_ls):
         print('Theta: {}'.format(ii))
-        waveset_out = rotate_and_project(theta, obj)
+        waveset_out = rotate_and_project(theta, obj, probe_pos, i_theta=ii)
         dat[ii, :, :, :] = waveset_out
         dxchange.write_tiff(abs(waveset_out), os.path.join(save_path, 'diffraction_dat', 'mag_{:05d}'.format(ii)), overwrite=True, dtype='float32')
     f.close()
