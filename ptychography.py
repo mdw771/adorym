@@ -419,11 +419,11 @@ def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0,
                 # When using shared file object, we must also ensure that all ranks deal with data at the
                 # same angle at a time.
                 if not shared_file_object and n_pos % minibatch_size != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % minibatch_size)],
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
                 elif shared_file_object and n_pos % n_tot_per_batch != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-(n_pos % n_tot_per_batch)],
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                                     replace=False))
                 if i == 0:
