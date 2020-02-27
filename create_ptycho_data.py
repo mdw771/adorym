@@ -15,7 +15,7 @@ PI = 3.1415927
 # 4. Output file will be saved as a HDF5 at save_path/fname.   #
 # 5. probe_type can be 'gaussian', 'plane', or 'fixed'. If set #
 #    to 'fixed', you must supply 2D wavefield values to        #
-#    probe_init as [probe_real, probe_imag]. If set to         #
+#    probe_init as [probe_mag, probe_phase]. If set to         #
 #    'gaussian', you should specify 'probe_mag_sigma',         #
 #    'probe_phase_sigma', and 'probe_phase_max'.               #
 # 6. Delta and beta of the refractive index of the simulated   #
