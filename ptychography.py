@@ -17,19 +17,44 @@ from optimizers import *
 PI = 3.1415927
 
 
-def reconstruct_ptychography(fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
-                             n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
-                             alpha_d=None, alpha_b=None, gamma=1e-6, learning_rate=1.0,
-                             output_folder=None, minibatch_size=None, save_intermediate=False, full_intermediate=False,
-                             energy_ev=5000, psize_cm=1e-7, cpu_only=False, save_path='.',
-                             core_parallelization=True, free_prop_cm=None, optimize_probe_defocusing=False,
-                             probe_defocusing_learning_rate=1e-5,
-                             multiscale_level=1, n_epoch_final_pass=None, initial_guess=None, n_batch_per_update=1,
-                             dynamic_rate=True, probe_type='gaussian', probe_initial=None, probe_learning_rate=1e-3,
-                             pupil_function=None, probe_circ_mask=0.9, finite_support_mask_path=None,
-                             forward_algorithm='fresnel', dynamic_dropping=False, dropping_threshold=8e-5, shrink_cycle=None, shrink_threshold=1e-9,
-                             n_dp_batch=20, object_type='normal', fresnel_approx=False, pure_projection=False, two_d_mode=False,
-                             shared_file_object=True, reweighted_l1=False, optimizer='adam', interpolation='bilinear', save_stdout=False, use_checkpoint=True, binning=1, **kwargs):
+def reconstruct_ptychography(
+        # ______________________________________
+        # |Raw data and experimental parameters|________________________________
+        fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
+        energy_ev=5000, psize_cm=1e-7, free_prop_cm=None,
+        # ___________________________
+        # |Reconstruction parameters|___________________________________________
+        n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
+        gamma=1e-6, learning_rate=1.0, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
+        initial_guess=None, n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
+        # ___________________________
+        # |Finite support constraint|___________________________________________
+        finite_support_mask_path=None, shrink_cycle=None, shrink_threshold=1e-9,
+        # ___________________
+        # |Object contraints|
+        object_type='normal',
+        # _______________
+        # |Forward model|_______________________________________________________
+        forward_algorithm='fresnel', binning=1, fresnel_approx=False, pure_projection=False, two_d_mode=False,
+        probe_type='gaussian', probe_initial=None,
+        # _____
+        # |I/O|_________________________________________________________________
+        save_path='.', output_folder=None, save_intermediate=False, full_intermediate=False, use_checkpoint=True,
+        save_stdout=False,
+        # _____________
+        # |Performance|_________________________________________________________
+        cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
+        # __________________________
+        # |Object optimizer options|____________________________________________
+        optimizer='adam',
+        # _________________________
+        # |Other optimizer options|_____________________________________________
+        probe_learning_rate=1e-3,
+        optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
+        # ________________
+        # |Other settings|______________________________________________________
+        dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
+        **kwargs,):
 
     def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
 
