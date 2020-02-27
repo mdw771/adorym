@@ -29,6 +29,7 @@ class Optimizer(object):
         self.params_chunk_array_dict = {}
         self.params_chunk_array_0_dict = {}
         self.i_batch = 0
+        self.index_in_grad_returns = None
         return
 
     def create_file_objects(self, use_checkpoint=False):
@@ -103,6 +104,9 @@ class Optimizer(object):
         for param_name, arr in self.params_whole_array_dict.items():
             self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, interpolation=interpolation)
         return
+
+    def set_index_in_grad_return(self, ind):
+        self.index_in_grad_returns = ind
 
 
 class AdamOptimizer(Optimizer):

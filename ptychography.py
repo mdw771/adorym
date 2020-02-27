@@ -51,12 +51,30 @@ def reconstruct_ptychography(
         # |Other optimizer options|_____________________________________________
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
+        optimize_probe_pos_offset=False,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
         **kwargs,):
+        # ______________________________________________________________________
 
-    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch):
+    """
+    Notes:
+        1. Input data are assumed to be contained in an HDF5 under 'exchange/data', as a 4D dataset of
+           shape [n_theta, n_spots, detector_size_y, detector_size_x].
+        2. Full-field reconstruction is treated as ptychography. If the image is not divided, the programs
+           runs as if it is dealing with ptychography with only 1 spot per angle.
+        3. Full-field reconstruction with minibatch_size > 1 but without image dividing is not supported.
+           In this case, minibatch_size will be forced to be 1, so that each rank process only one
+           rotation angle's image at a time. To perform large fullfield reconstruction efficiently,
+           divide the data into sub-chunks.
+        4. Full-field reconstruction using shared_file_mode but without image dividing is not recommended
+           even if minibatch_size is 1. In shared_file_mode, all ranks process data from the same rotation
+           angle in each synchronized batch. Doing this will cause all ranks to process the same data.
+           To perform large fullfield reconstruction efficiently, divide the data into sub-chunks.
+    """
+
+    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch):
 
         if optimize_probe_defocusing:
             h_probe = get_kernel(probe_defocus_mm * 1e6, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
@@ -64,6 +82,9 @@ def reconstruct_ptychography(
             probe_complex = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(probe_complex)) * h_probe))
             probe_real = np.real(probe_complex)
             probe_imag = np.imag(probe_complex)
+
+        if optimize_probe_pos_offset:
+            this_pos_batch = this_pos_batch + probe_pos_offset[this_i_theta]
 
         if not shared_file_object:
             obj_stack = np.stack([obj_delta, obj_beta], axis=3)
@@ -192,6 +213,24 @@ def reconstruct_ptychography(
     stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder, 
                       'timestamp': timestr}
 
+    n_pos = len(probe_pos)
+    probe_pos = np.array(probe_pos)
+
+    # ================================================================================
+    # Batching check.
+    # ================================================================================
+    if minibatch_size > 1 and n_pos == 1:
+        warnings.warn('It seems that you are processing undivided fullfield data with'
+                      'minibatch > 1. A rank can only process data from the same rotation'
+                      'angle at a time. I am setting minibatch_size to 1.')
+        minibatch_size = 1
+    if shared_file_object and n_pos == 1:
+        warnings.warn('It seems that you are processing undivided fullfield data with'
+                      'shared_file_object=True. In shared-file mode, all ranks must'
+                      'process data from the same rotation angle in each synchronized'
+                      'batch. I am setting shared_file_object to False.')
+        shared_file_object = False
+
     # ================================================================================
     # Set output folder name if not specified.
     # ================================================================================
@@ -213,9 +252,6 @@ def reconstruct_ptychography(
         print_flush('Multiscale downsampling level: {}'.format(ds_level), 0, rank, **stdout_options)
         comm.Barrier()
 
-        n_pos = len(probe_pos)
-        probe_pos = np.array(probe_pos)
-        # probe_size_half = (np.array(probe_size) / 2).astype('int')
         prj_shape = original_shape
 
         if ds_level > 1:
@@ -239,7 +275,7 @@ def reconstruct_ptychography(
         comm.Barrier()
 
         # ================================================================================
-        # Create optimizers.
+        # Create object function optimizer.
         # ================================================================================
         if optimizer == 'adam':
             opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
@@ -363,22 +399,33 @@ def reconstruct_ptychography(
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
         # ================================================================================
-        # Set optimizer parameters.
+        # Create other optimizers (probe, probe defocus, probe positions, etc.).
         # ================================================================================
         opt_arg_ls = [0, 1]
         if probe_type == 'optimizable':
-            opt_arg_ls = opt_arg_ls + [2, 3]
             opt_probe = GDOptimizer([*probe_size, 2], output_folder=output_folder)
             optimizer_options_probe = {'step_size': probe_learning_rate,
                                       'dynamic_rate': True,
                                       'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
+            opt_arg_ls = opt_arg_ls + [2, 3]
+            opt_probe.set_index_in_grad_return(len(opt_arg_ls))
+
+        probe_defocus_mm = np.array(0.0)
         if optimize_probe_defocusing:
-            opt_arg_ls.append(4)
             opt_probe_defocus = GDOptimizer([1], output_folder=output_folder)
             optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
                                                'dynamic_rate': True,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
-        probe_defocus_mm = np.array(0.0)
+            opt_arg_ls.append(4)
+            opt_probe_defocus.set_index_in_grad_return(len(opt_arg_ls))
+
+        probe_pos_offset = np.zeros([n_theta, 2])
+        if optimize_probe_pos_offset:
+            opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
+            optimizer_options_probe_pos_offset = {'step_size': 0.5,
+                                                  'dynamic_rate': False}
+            opt_arg_ls.append(5)
+            opt_probe_pos_offset.set_index_in_grad_return(len(opt_arg_ls))
 
         # ================================================================================
         # Get gradient of loss function w.r.t. optimizable variables.
@@ -439,10 +486,12 @@ def reconstruct_ptychography(
             # ================================================================================
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
+                # ================================================================================
                 # Append randomly selected diffraction spots if necessary, so that a rank won't be given
                 # spots from different angles in one batch.
                 # When using shared file object, we must also ensure that all ranks deal with data at the
                 # same angle at a time.
+                # ================================================================================
                 if not shared_file_object and n_pos % minibatch_size != 0:
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     minibatch_size - (n_pos % minibatch_size),
@@ -451,16 +500,20 @@ def reconstruct_ptychography(
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                                     replace=False))
+                # ================================================================================
+                # Create task list for the current angle.
+                # ind_list_rand is in the format of [((5, 0), (5, 1), ...), ((17, 0), (17, 1), ..., (...))]
+                #                                    |___________________|   |_____|
+                #                       a batch for all ranks  _|               |_ (i_theta, i_spot)
+                #                    (minibatch_size * n_ranks)
+                # ================================================================================
                 if i == 0:
                     ind_list_rand = np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()
                 else:
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
-            # ind_list_rand is in the format of [((5, 0), (5, 1), ...), ((17, 0), (17, 1), ..., (...))]
-            #                                    |___________________|   |_____|
-            #                       a batch for all ranks  _|               |_ (i_theta, i_spot)
-            #                    (minibatch_size * n_ranks)
+
             print_flush('Allocation done in {} s.'.format(time.time() - t00), 0, rank, **stdout_options)
 
             current_i_theta = 0
@@ -543,7 +596,7 @@ def reconstruct_ptychography(
                 # Calculate object gradients.
                 # ================================================================================
                 t_grad_0 = time.time()
-                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, this_i_theta, this_pos_batch, this_prj_batch)
+                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
 
@@ -601,7 +654,7 @@ def reconstruct_ptychography(
                     probe_imag = np.take(probe_temp, 1, axis=-1)
 
                 if optimize_probe_defocusing:
-                    this_pd_grad = np.array(grads[len(opt_arg_ls) - 1])
+                    this_pd_grad = np.array(grads[opt_probe_defocus.index_in_grad_returns])
                     pd_grads = np.array(0.0)
                     comm.Allreduce(this_pd_grad, pd_grads)
                     pd_grads = pd_grads / n_ranks
@@ -609,6 +662,14 @@ def reconstruct_ptychography(
                                                                         **optimizer_options_probe_defocus)
                     print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
                                 **stdout_options)
+
+                if optimize_probe_pos_offset:
+                    this_pos_offset_grad = np.array(grads[optimize_probe_pos_offset.index_in_grad_returns])
+                    pos_offset_grads = np.zeros_like(probe_pos_offset)
+                    comm.Allreduce(this_pos_offset_grad, pos_offset_grads)
+                    pos_offset_grads = pos_offset_grads / n_ranks
+                    probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads,
+                                                                        **optimizer_options_probe_pos_offset)
 
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
