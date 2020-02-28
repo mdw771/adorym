@@ -338,6 +338,47 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'use_checkpoint': False
                     }
 
+params_cameraman = {'fname': 'data_cameraman.h5',
+                    'theta_st': 0,
+                    'theta_end': 0,
+                    'theta_downsample': 1,
+                    'n_epochs': 200,
+                    'obj_size': (256, 256, 1),
+                    'alpha_d': 0,
+                    'alpha_b': 0,
+                    'gamma': 0,
+                    'probe_size': (72, 72),
+                    'learning_rate': 4e-3,
+                    'center': 512,
+                    'energy_ev': 5000,
+                    'psize_cm': 1.e-7,
+                    'minibatch_size': 51,
+                    'n_batch_per_update': 1,
+                    'output_folder': 'test_opt',
+                    'cpu_only': True,
+                    'save_path': 'cameraman_pos_error',
+                    'multiscale_level': 1,
+                    'n_epoch_final_pass': None,
+                    'save_intermediate': True,
+                    'full_intermediate': True,
+                    'initial_guess': None,
+                    'n_dp_batch': 20,
+                    'probe_type': 'gaussian',
+                    'probe_mag_sigma': 6,
+                    'probe_phase_sigma': 6,
+                    'probe_phase_max': 0.5,
+                    'forward_algorithm': 'fresnel',
+                    'object_type': 'phase_only',
+                    'probe_pos': np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)]),
+                    'finite_support_mask': None,
+                    'free_prop_cm': 'inf',
+                    'optimizer': 'adam',
+                    'two_d_mode': True,
+                    'shared_file_object': False,
+                    'use_checkpoint': False,
+                    'optimize_all_probe_pos': True
+                    }
+
 params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
                           'theta_st': 0,
                           'theta_end': 2 * np.pi,
@@ -414,6 +455,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
-params = params_adhesin_opt_pos
+# params = params_adhesin_opt_pos
+params = params_cameraman
 
 reconstruct_ptychography(**params)

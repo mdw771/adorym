@@ -77,55 +77,61 @@ params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
                               'pos_offset_vec': pos_error
                               }
 
-pos_error = np.round(np.random.normal(0, 1.5, [500, 2])).astype(int)
-pos_error = np.clip(pos_error, -4, 4)
-params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
-                              'theta_st': 0,
-                              'theta_end': 2 * np.pi,
-                              'n_theta': 500,
-                              'theta_downsample': None,
-                              'obj_size': (64, 64, 64),
-                              'probe_size': (72, 72),
-                              'energy_ev': 800,
-                              'psize_cm': 0.67e-7,
-                              'phantom_path': 'adhesin/phantom',
-                              'minibatch_size': 23,
-                              'cpu_only': True,
-                              'save_path': 'adhesin_ptycho_pos_error',
-                              'probe_initial': None,
-                              'fresnel_approx': True,
-                              'probe_type': 'gaussian',
-                              'forward_algorithm': 'fresnel',
-                              'object_type': 'normal',
-                              'probe_pos': [(y, x) for y in np.linspace(-27, 19, 23, dtype=int) for x in np.linspace(-27, 19, 23, dtype=int)],
-                              'probe_mag_sigma': 6,
-                              'probe_phase_sigma': 6,
-                              'probe_phase_max': 0.5,
-                              'free_prop_cm': 'inf',
-                              'pos_offset_vec': pos_error
-                              }
+try:
+    probe_pos_cameraman = np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)])
+    probe_pos_cameraman_err = np.round(np.random.normal(0, 1.5, probe_pos_cameraman.shape)).astype(int)
+    probe_pos_cameraman_err = np.clip(probe_pos_cameraman_err, -4, 4)
+    probe_pos_cameraman += probe_pos_cameraman_err
+    params_cameraman_noisy_pos = {'fname': 'data_cameraman.h5',
+                                  'theta_st': 0,
+                                  'theta_end': 0,
+                                  'n_theta': 1,
+                                  'theta_downsample': None,
+                                  'obj_size': (256, 256, 1),
+                                  'probe_size': (72, 72),
+                                  'energy_ev': 5000,
+                                  'psize_cm': 1e-7,
+                                  'phantom_path': 'cameraman_pos_error/phantom',
+                                  'minibatch_size': 51,
+                                  'cpu_only': True,
+                                  'save_path': 'cameraman_pos_error',
+                                  'probe_initial': None,
+                                  'fresnel_approx': True,
+                                  'probe_type': 'gaussian',
+                                  'forward_algorithm': 'fresnel',
+                                  'object_type': 'phase_only',
+                                  'probe_pos': probe_pos_cameraman,
+                                  'probe_mag_sigma': 6,
+                                  'probe_phase_sigma': 6,
+                                  'probe_phase_max': 0.5,
+                                  'free_prop_cm': 'inf',
+                                  'pos_offset_vec': None
+                                  }
+except: pass
 
-params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
-                    'theta_st': 0,
-                    'theta_end': 2 * np.pi,
-                    'n_theta': 500,
-                    'theta_downsample': None,
-                    'obj_size': (256, 256, 256),
-                    'probe_size': (72, 72),
-                    'energy_ev': 5000,
-                    'psize_cm': 1.e-7,
-                    'phantom_path': 'cone_256_foam_ptycho/phantom',
-                    'minibatch_size': 1,
-                    'save_path': 'cone_256_foam_ptycho',
-                    'initial_guess': None,
-                    'probe_type': 'gaussian',
-                    'forward_algorithm': 'fresnel',
-                    'probe_pos': [(y, x) for y in (np.arange(23) * 12) - 36 for x in (np.arange(23) * 12) - 36],
-                    'probe_mag_sigma': 6,
-                    'probe_phase_sigma': 6,
-                    'probe_phase_max': 0.5,
-                    'free_prop_cm': 'inf'
-                    }
+try:
+    params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
+                        'theta_st': 0,
+                        'theta_end': 2 * np.pi,
+                        'n_theta': 500,
+                        'theta_downsample': None,
+                        'obj_size': (256, 256, 256),
+                        'probe_size': (72, 72),
+                        'energy_ev': 5000,
+                        'psize_cm': 1.e-7,
+                        'phantom_path': 'cone_256_foam_ptycho/phantom',
+                        'minibatch_size': 1,
+                        'save_path': 'cone_256_foam_ptycho',
+                        'initial_guess': None,
+                        'probe_type': 'gaussian',
+                        'forward_algorithm': 'fresnel',
+                        'probe_pos': [(y, x) for y in (np.arange(23) * 12) - 36 for x in (np.arange(23) * 12) - 36],
+                        'probe_mag_sigma': 6,
+                        'probe_phase_sigma': 6,
+                        'probe_phase_max': 0.5,
+                        'free_prop_cm': 'inf'
+                        }
+except: pass
 
 
 params_2d_cell = {'fname': 'data_cell_phase.h5',
@@ -153,6 +159,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     }
 
 # params = params_2d_cell
-params = params_adhesin_2_noisy_pos
+# params = params_adhesin_2_noisy_pos
+params = params_cameraman_noisy_pos
 
 create_ptychography_data_batch_numpy(**params)

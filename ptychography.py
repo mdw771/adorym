@@ -52,7 +52,8 @@ def reconstruct_ptychography(
         # |Other optimizer options|_____________________________________________
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
-        optimize_probe_pos_offset=False,
+        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -75,7 +76,9 @@ def reconstruct_ptychography(
            To perform large fullfield reconstruction efficiently, divide the data into sub-chunks.
     """
 
-    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch):
+    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+                       probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
+                       probe_pos_correction=None, this_ind_batch=None):
 
         this_pos_batch = np.round(this_pos_batch).astype(int)
         if optimize_probe_defocusing:
@@ -116,6 +119,13 @@ def reconstruct_ptychography(
                     pos[0] = pos[0] + pad_arr[0, 0]
                     pos[1] = pos[1] + pad_arr[1, 0]
                     subobj = obj_rot[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
+                    if optimize_all_probe_pos:
+                        subobj_delta = subobj[:, :, :, 0]
+                        subobj_beta = subobj[:, :, :, 1]
+                        subobj_delta = realign_image_fourier(subobj_delta, probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]], axes=(0, 1))
+                        subobj_beta = realign_image_fourier(subobj_beta, probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]], axes=(0, 1))
+                        # plt.imshow(subobj_delta._value[:, :, 0]); plt.show()
+                        subobj = np.stack([subobj_delta, subobj_beta], axis=-1)
                     subobj_ls.append(subobj)
 
                 subobj_ls = np.stack(subobj_ls)
@@ -425,11 +435,23 @@ def reconstruct_ptychography(
 
         probe_pos_offset = np.zeros([n_theta, 2])
         if optimize_probe_pos_offset:
+            assert optimize_all_probe_pos == False
             opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
-            optimizer_options_probe_pos_offset = {'step_size': 1e5,
+            optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
                                                   'dynamic_rate': False}
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_arg_ls))
             opt_arg_ls.append(5)
+
+        probe_pos_correction = None
+        if optimize_all_probe_pos:
+            assert optimize_probe_pos_offset == False
+            assert shared_file_object == False
+            probe_pos_correction = np.tile(probe_pos, [n_theta, 1, 1]).astype(float)
+            opt_probe_pos = GDOptimizer(probe_pos_correction, output_folder=output_folder)
+            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate,
+                                           'dynamic_rate': False}
+            opt_probe_pos.set_index_in_grad_return(len(opt_arg_ls))
+            opt_arg_ls.append(9)
 
         # ================================================================================
         # Get gradient of loss function w.r.t. optimizable variables.
@@ -604,7 +626,9 @@ def reconstruct_ptychography(
                 # Calculate object gradients.
                 # ================================================================================
                 t_grad_0 = time.time()
-                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm, probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch)
+                grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag,
+                                  probe_defocus_mm, probe_pos_offset, this_i_theta,
+                                  this_pos_batch, this_prj_batch, probe_pos_correction, this_ind_rank)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
 
@@ -677,6 +701,14 @@ def reconstruct_ptychography(
                     pos_offset_grads = pos_offset_grads / n_ranks
                     probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
                                                                         **optimizer_options_probe_pos_offset)
+
+                if optimize_all_probe_pos:
+                    this_all_pos_grad = np.array(grads[opt_probe_pos.index_in_grad_returns])
+                    all_pos_grads = np.zeros_like(probe_pos_correction)
+                    comm.Allreduce(this_all_pos_grad, all_pos_grads)
+                    all_pos_grads = all_pos_grads / n_ranks
+                    probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
+                                                                        **optimizer_options_probe_pos)
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
                 # rotate the gradient back, and use it to update the object at 0 deg. Then
@@ -733,8 +765,12 @@ def reconstruct_ptychography(
                                             fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
                                             dtype='float32', overwrite=True)
                     if optimize_probe_pos_offset:
-                        f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_full_angle > 0 else 'w')
+                        f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
                         f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(probe_pos_offset.flatten())))
+                        f_offset.close()
+                    elif optimize_all_probe_pos:
+                        f_offset = open(os.path.join(output_folder, 'probe_pos_correction.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
+                        f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(probe_pos_correction.flatten())))
                         f_offset.close()
 
                 comm.Barrier()
@@ -745,7 +781,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Update full-angle count.
                 # ================================================================================
-                if ind_list_rand[i_batch + 1][0, 0] != current_i_theta: i_full_angle += 1
+                if i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != current_i_theta: i_full_angle += 1
 
             # ================================================================================
             # Stopping criterion.

@@ -22,7 +22,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
         obj_rot = sp_rotate(obj, theta, reshape=False, axes=(1, 2))
 
         # Add probe_pos offset error if demanded
-        if 'pos_offset_vec' in kwargs.keys():
+        if 'pos_offset_vec' in kwargs.keys() and kwargs['pos_offset_vec'] is not None:
             pos_offset = kwargs['pos_offset_vec'][ii]
             probe_pos += pos_offset
             print('Added positional error for theta ID {}: {}.'.format(i_theta, pos_offset))
@@ -90,8 +90,10 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     # dxchange.write_tiff(probe_mag, os.path.join(save_path, 'probe_mag_f32'), dtype='float32', overwrite=True)
     # dxchange.write_tiff(probe_phase, os.path.join(save_path, 'probe_phase_f32'), dtype='float32', overwrite=True)
 
+    np.savetxt(os.path.join(save_path, 'probe_pos.txt'), probe_pos, fmt='%d')
     if 'pos_offset_vec' in kwargs.keys():
-        np.savetxt(os.path.join(save_path, 'pos_offset_vec.txt'), kwargs['pos_offset_vec'], fmt='%d')
+        if kwargs['pos_offset_vec'] is not None:
+            np.savetxt(os.path.join(save_path, 'pos_offset_vec.txt'), kwargs['pos_offset_vec'], fmt='%d')
 
     for ii, theta in enumerate(theta_ls):
         print('Theta: {}'.format(ii))
