@@ -49,7 +49,36 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um_2.h5',
                   'free_prop_cm': 'inf'
                   }
 
-pos_error = np.round(np.random.normal(0, 4, [500, 2])).astype(int)
+pos_error = np.round(np.random.normal(0, 1, [500, 2])).astype(int)
+pos_error = np.clip(pos_error, -4, 4)
+params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
+                              'theta_st': 0,
+                              'theta_end': 2 * np.pi,
+                              'n_theta': 500,
+                              'theta_downsample': None,
+                              'obj_size': (64, 64, 64),
+                              'probe_size': (72, 72),
+                              'energy_ev': 800,
+                              'psize_cm': 0.67e-7,
+                              'phantom_path': 'adhesin/phantom',
+                              'minibatch_size': 23,
+                              'cpu_only': True,
+                              'save_path': 'adhesin_ptycho_pos_error',
+                              'probe_initial': None,
+                              'fresnel_approx': True,
+                              'probe_type': 'gaussian',
+                              'forward_algorithm': 'fresnel',
+                              'object_type': 'normal',
+                              'probe_pos': [(y, x) for y in np.linspace(-27, 19, 23, dtype=int) for x in np.linspace(-27, 19, 23, dtype=int)],
+                              'probe_mag_sigma': 6,
+                              'probe_phase_sigma': 6,
+                              'probe_phase_max': 0.5,
+                              'free_prop_cm': 'inf',
+                              'pos_offset_vec': pos_error
+                              }
+
+pos_error = np.round(np.random.normal(0, 1.5, [500, 2])).astype(int)
+pos_error = np.clip(pos_error, -4, 4)
 params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
                               'theta_st': 0,
                               'theta_end': 2 * np.pi,
@@ -123,6 +152,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'free_prop_cm': 'inf'
                     }
 
-params = params_2d_cell
+# params = params_2d_cell
+params = params_adhesin_2_noisy_pos
 
 create_ptychography_data_batch_numpy(**params)

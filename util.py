@@ -169,6 +169,14 @@ def realign_image(arr, shift):
     return temp
 
 
+def realign_image_fourier(arr, shift, axes=None):
+    f_arr = np.fft.fft2(arr, axes=axes)
+    s = f_arr.shape
+    freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))
+    arr = f_arr * np.exp(-1j * 2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+    return np.real(np.fft.ifft2(arr, axes=axes))
+
+
 def exp_j(a):
 
     return np.cos(a) + 1j * np.sin(a)

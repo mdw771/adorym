@@ -130,6 +130,57 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'free_prop_cm': 'inf'
                   }
 
+params_adhesin_opt_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
+                      'theta_st': 0,
+                      'theta_end': 2 * np.pi,
+                      'theta_downsample': None,
+                      'n_epochs': 10,
+                      'obj_size': (64, 64, 64),
+                      'alpha_d': 0,
+                      'alpha_b': 0,
+                      'gamma': 0,
+                      'probe_size': (72, 72),
+                      # 'learning_rate': 1e-7, # for non-shared file mode
+                      # 'learning_rate': 1e-8, # for shared-file mode adam
+                      # 'learning_rate': 1e-3, # for shared-file mode gd
+                      'learning_rate': 1e-3, # for non-shared-file mode gd
+                      'center': 32,
+                      'energy_ev': 800,
+                      'psize_cm': 0.67e-7,
+                      'minibatch_size': 23,
+                      'n_batch_per_update': 1,
+                      'output_folder': 'test',
+                      'cpu_only': True,
+                      'save_path': 'adhesin_ptycho_pos_error',
+                      'multiscale_level': 1,
+                      'n_epoch_final_pass': None,
+                      'save_intermediate': True,
+                      'full_intermediate': True,
+                      # 'initial_guess': [np.load('adhesin_ptycho_2/phantom/grid_delta.npy'), np.load('adhesin_ptycho_2/phantom/grid_beta.npy')],
+                      'initial_guess': None,
+                      # 'probe_initial': [dxchange.read_tiff('adhesin_ptycho_2/probe_mag_defocus_10nm.tiff'), dxchange.read_tiff('adhesin_ptycho_2/probe_phase_defocus_10nm.tiff')],
+                      'probe_initial': None,
+                      'n_dp_batch': 529,
+                      'fresnel_approx': True,
+                      'probe_type': 'gaussian',
+                      'probe_learning_rate': 1e-3,
+                      'probe_learning_rate_init': 1e-3,
+                      'finite_support_mask': None,
+                      'forward_algorithm': 'fresnel',
+                      'object_type': 'normal',
+                      'probe_pos': [(y, x) for y in np.linspace(-27, 19, 23, dtype=int) for x in np.linspace(-27, 19, 23, dtype=int)],
+                      'probe_mag_sigma': 6,
+                      'probe_phase_sigma': 6,
+                      'probe_phase_max': 0.5,
+                      'optimize_probe_defocusing': False,
+                      'probe_defocusing_learning_rate': 1e-7,
+                      'shared_file_object': False,
+                      'optimizer': 'gd',
+                      'use_checkpoint': False,
+                      'free_prop_cm': 'inf',
+                      'optimize_probe_pos_offset': True,
+                      }
+
 params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
                     'theta_st': 0,
                     'theta_end': 2 * np.pi,
@@ -282,7 +333,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'finite_support_mask': None,
                     'free_prop_cm': 'inf',
                     'optimizer': 'adam',
-                    'two_d_mode': True,
+                    'two_d_mode': False,
                     'shared_file_object': False,
                     'use_checkpoint': False
                     }
@@ -362,6 +413,7 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
-params = params_2d_cell
+# params = params_2d_cell
+params = params_adhesin_opt_pos
 
 reconstruct_ptychography(**params)
