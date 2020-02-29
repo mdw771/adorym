@@ -553,7 +553,8 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
                    np.array([line_st_clip, line_end_clip, px_st_clip, px_end_clip]))) > 0:
             this_block = this_block[line_st_clip - line_st:this_block.shape[0] - (line_end - line_end_clip),
                                     px_st_clip - px_st:this_block.shape[1] - (px_end - px_end_clip), :]
-        dset[line_st_clip:line_end_clip, px_st_clip:px_end_clip, :] += this_block
+        with dset.collective:
+            dset[line_st_clip:line_end_clip, px_st_clip:px_end_clip, :] += this_block
     return
 
 

@@ -579,6 +579,7 @@ def reconstruct_ptychography(
                 # Apply offset correction
                 this_probe_pos += probe_pos_offset[this_i_theta]
                 this_pos_batch = this_probe_pos[this_ind_rank]
+                this_pos_batch_int = np.round(this_pos_batch).astype(int)
 
                 t_prj_0 = time.time()
                 this_prj_batch = prj[this_i_theta, this_ind_rank]
@@ -607,11 +608,11 @@ def reconstruct_ptychography(
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     # ================================================================================
                     t_read_0 = time.time()
-                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot)
+                    obj_rot = obj.read_chunks_from_file(this_pos_batch_int, probe_size, dset_2=obj.dset_rot)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj_delta = np.array(obj_rot[:, :, :, :, 0])
                     obj_beta = np.array(obj_rot[:, :, :, :, 1])
-                    opt.get_params_from_file(this_pos_batch, probe_size)
+                    opt.get_params_from_file(this_pos_batch_int, probe_size)
                 else:
                     obj_delta = obj.delta
                     obj_beta = obj.beta
@@ -628,7 +629,7 @@ def reconstruct_ptychography(
                 t_grad_0 = time.time()
                 grads = loss_grad(obj_delta, obj_beta, probe_real, probe_imag,
                                   probe_defocus_mm, probe_pos_offset, this_i_theta,
-                                  this_pos_batch, this_prj_batch, probe_pos_correction, this_ind_rank)
+                                  this_pos_batch_int, this_prj_batch, probe_pos_correction, this_ind_rank)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
 
@@ -656,7 +657,7 @@ def reconstruct_ptychography(
                     obj_beta = np.take(obj_temp, 1, axis=-1)
                 else:
                     t_grad_write_0 = time.time()
-                    gradient.write_chunks_to_file(this_pos_batch, np.take(obj_grads, 0, axis=-1),
+                    gradient.write_chunks_to_file(this_pos_batch_int, np.take(obj_grads, 0, axis=-1),
                                                   np.take(obj_grads, 1, axis=-1), probe_size,
                                                   write_difference=False)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)

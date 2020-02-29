@@ -99,7 +99,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_3',
+                  'output_folder': 'test',
                   'cpu_only': True,
                   'save_path': 'adhesin_ptycho_2',
                   'multiscale_level': 1,
@@ -124,7 +124,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_phase_max': 0.5,
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': False,
+                  'shared_file_object': True,
                   'optimizer': 'gd',
                   'use_checkpoint': False,
                   'free_prop_cm': 'inf'
@@ -451,11 +451,11 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                }
 
 # params = params_adhesin_ff
-# params = params_adhesin_2
+params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-params = params_cameraman
+# params = params_cameraman
 
 reconstruct_ptychography(**params)
