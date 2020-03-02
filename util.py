@@ -169,11 +169,19 @@ def realign_image(arr, shift):
     return temp
 
 
-def realign_image_fourier(arr, shift, axes=None):
+def realign_image_fourier(arr, shift, axes=(0, 1)):
+    """
+    arr is assumed to be 3D [y, x, c].
+    """
     f_arr = np.fft.fft2(arr, axes=axes)
     s = f_arr.shape
     freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))
-    arr = f_arr * np.exp(-1j * 2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+    mult = np.exp(-1j * 2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+    # Reshape for broadcasting
+    if f_arr.ndim > max(axes) + 1:
+        mult = np.reshape(mult, list(mult.shape) + [1] * (f_arr.ndim - (max(axes) + 1)))
+        mult = np.tile(mult, [1, 1] + list(f_arr.shape[max(axes) + 1:]))
+    arr = f_arr * mult
     return np.real(np.fft.ifft2(arr, axes=axes))
 
 

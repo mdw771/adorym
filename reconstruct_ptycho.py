@@ -362,6 +362,7 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'save_intermediate': True,
                     'full_intermediate': True,
                     'initial_guess': None,
+                    # 'initial_guess': [np.load('cameraman_pos_error/phantom/grid_delta.npy'), np.load('cameraman_pos_error/phantom/grid_beta.npy')],
                     'n_dp_batch': 20,
                     'probe_type': 'gaussian',
                     'probe_mag_sigma': 6,
@@ -451,11 +452,11 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                }
 
 # params = params_adhesin_ff
-params = params_adhesin_2
+# params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-# params = params_cameraman
+params = params_cameraman
 
 reconstruct_ptychography(**params)

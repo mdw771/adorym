@@ -36,7 +36,7 @@ def reconstruct_ptychography(
         object_type='normal',
         # _______________
         # |Forward model|_______________________________________________________
-        forward_algorithm='fresnel', binning=1, fresnel_approx=False, pure_projection=False, two_d_mode=False,
+        forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
         probe_type='gaussian', probe_initial=None,
         # _____
         # |I/O|_________________________________________________________________
@@ -53,7 +53,7 @@ def reconstruct_ptychography(
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-1,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -122,9 +122,9 @@ def reconstruct_ptychography(
                     if optimize_all_probe_pos:
                         subobj_delta = subobj[:, :, :, 0]
                         subobj_beta = subobj[:, :, :, 1]
-                        subobj_delta = realign_image_fourier(subobj_delta, probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]], axes=(0, 1))
-                        subobj_beta = realign_image_fourier(subobj_beta, probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]], axes=(0, 1))
-                        # plt.imshow(subobj_delta._value[:, :, 0]); plt.show()
+                        this_shift = probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]]
+                        subobj_delta = realign_image_fourier(subobj_delta, this_shift, axes=(0, 1))
+                        subobj_beta = realign_image_fourier(subobj_beta, this_shift, axes=(0, 1))
                         subobj = np.stack([subobj_delta, subobj_beta], axis=-1)
                     subobj_ls.append(subobj)
 
@@ -285,7 +285,7 @@ def reconstruct_ptychography(
             try:
                 os.makedirs(os.path.join(output_folder))
             except:
-                print('Target folder {} exists.'.format(output_folder))
+                print_flush('Target folder {} exists.'.format(output_folder), 0, rank, **stdout_options)
         comm.Barrier()
 
         # ================================================================================
@@ -446,7 +446,9 @@ def reconstruct_ptychography(
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
-            probe_pos_correction = np.tile(probe_pos, [n_theta, 1, 1]).astype(float)
+            probe_pos_correction = np.zeros([n_theta, n_pos, 2]).astype(float)
+            # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
+            # probe_pos_correction = np.random.normal(0, scale=1, size=[n_theta, n_pos, 2])
             opt_probe_pos = GDOptimizer(probe_pos_correction, output_folder=output_folder)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate,
                                            'dynamic_rate': False}
