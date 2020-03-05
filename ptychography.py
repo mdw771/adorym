@@ -1,6 +1,4 @@
-import autograd.numpy as np
-import autograd.scipy as asp
-from autograd import grad
+import numpy as np
 from mpi4py import MPI
 import dxchange
 import time
@@ -9,11 +7,14 @@ import os
 import h5py
 import warnings
 from scipy.ndimage import rotate as sp_rotate
+
 from util import *
 from misc import *
 from propagate import *
 from array_ops import *
 from optimizers import *
+import wrappers as w
+import global_settings
 
 PI = 3.1415927
 
@@ -57,7 +58,7 @@ def reconstruct_ptychography(
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
-        **kwargs,):
+        backend='autograd', **kwargs,):
         # ______________________________________________________________________
 
     """
@@ -192,6 +193,9 @@ def reconstruct_ptychography(
     n_ranks = comm.Get_size()
     rank = comm.Get_rank()
     t_zero = time.time()
+    global_settings.backend = backend
+    device_obj = None if cpu_only else 0
+    device_obj = w.get_device(device_obj)
 
     timestr = str(datetime.datetime.today())
     timestr = timestr[:timestr.find('.')]
