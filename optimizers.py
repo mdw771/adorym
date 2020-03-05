@@ -111,7 +111,7 @@ class Optimizer(object):
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, n_channel=2, output_folder='.'):
+    def __init__(self, whole_object_size, output_folder='.'):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 

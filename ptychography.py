@@ -26,8 +26,11 @@ def reconstruct_ptychography(
         # ___________________________
         # |Reconstruction parameters|___________________________________________
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
-        gamma=1e-6, learning_rate=1.0, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
+        gamma=1e-6, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
         initial_guess=None, n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
+        # __________________________
+        # |Object optimizer options|____________________________________________
+        optimizer='adam', learning_rate=1e-5,
         # ___________________________
         # |Finite support constraint|___________________________________________
         finite_support_mask_path=None, shrink_cycle=None, shrink_threshold=1e-9,
@@ -40,20 +43,17 @@ def reconstruct_ptychography(
         probe_type='gaussian', probe_initial=None,
         # _____
         # |I/O|_________________________________________________________________
-        save_path='.', output_folder=None, save_intermediate=False, full_intermediate=False, use_checkpoint=True,
+        save_path='.', output_folder=None, save_intermediate=False, save_history=False, use_checkpoint=True,
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
         cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
-        # __________________________
-        # |Object optimizer options|____________________________________________
-        optimizer='adam',
         # _________________________
         # |Other optimizer options|_____________________________________________
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -418,6 +418,7 @@ def reconstruct_ptychography(
         opt_arg_ls = [0, 1]
         if probe_type == 'optimizable':
             opt_probe = GDOptimizer([*probe_size, 2], output_folder=output_folder)
+            opt_probe_pos.create_param_arrays()
             optimizer_options_probe = {'step_size': probe_learning_rate,
                                       'dynamic_rate': True,
                                       'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
@@ -427,6 +428,7 @@ def reconstruct_ptychography(
         probe_defocus_mm = np.array(0.0)
         if optimize_probe_defocusing:
             opt_probe_defocus = GDOptimizer([1], output_folder=output_folder)
+            opt_probe_pos.create_param_arrays()
             optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
                                                'dynamic_rate': True,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
@@ -437,6 +439,7 @@ def reconstruct_ptychography(
         if optimize_probe_pos_offset:
             assert optimize_all_probe_pos == False
             opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
+            opt_probe_pos.create_param_arrays()
             optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
                                                   'dynamic_rate': False}
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_arg_ls))
@@ -447,11 +450,9 @@ def reconstruct_ptychography(
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
             probe_pos_correction = np.zeros([n_theta, n_pos, 2]).astype(float)
-            # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
-            # probe_pos_correction = np.random.normal(0, scale=1, size=[n_theta, n_pos, 2])
-            opt_probe_pos = GDOptimizer(probe_pos_correction, output_folder=output_folder)
-            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate,
-                                           'dynamic_rate': False}
+            opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
+            opt_probe_pos.create_param_arrays()
+            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
             opt_probe_pos.set_index_in_grad_return(len(opt_arg_ls))
             opt_arg_ls.append(9)
 
@@ -759,23 +760,26 @@ def reconstruct_ptychography(
                 # Save intermediate object.
                 # ================================================================================
                 if rank == 0 and save_intermediate:
+                    intermediate_fname = 'delta_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
                     if shared_file_object:
                         dxchange.write_tiff(obj.dset[:, :, :, 0],
-                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     else:
                         dxchange.write_tiff(obj.delta,
-                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     if optimize_probe_pos_offset:
                         f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
                         f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(probe_pos_offset.flatten())))
                         f_offset.close()
                     elif optimize_all_probe_pos:
-                        f_offset = open(os.path.join(output_folder, 'probe_pos_correction.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
-                        f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(probe_pos_correction.flatten())))
-                        f_offset.close()
-
+                        if not os.path.exists(os.path.join(output_folder, 'intermediate')):
+                            os.makedirs(os.path.join(output_folder, 'intermediate'))
+                        for i_theta_pos in range(n_theta):
+                            np.savetxt(os.path.join(output_folder, 'intermediate',
+                                                    'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
+                                                    probe_pos_correction[i_theta_pos])
                 comm.Barrier()
                 print_flush('Minibatch done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank, **stdout_options)
                 f_conv.write('{}\n'.format(time.time() - t_zero))
@@ -794,13 +798,12 @@ def reconstruct_ptychography(
             else:
                 if i_epoch == n_epochs - 1: cont = False
 
-            i_epoch = i_epoch + 1
-
             average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     time.time() - t0, time.time() - t_zero),
                 0, rank, **stdout_options)
+            i_epoch = i_epoch + 1
 
             # ================================================================================
             # Save reconstruction after an epoch.

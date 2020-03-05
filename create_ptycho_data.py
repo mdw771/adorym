@@ -79,8 +79,8 @@ params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
 
 try:
     probe_pos_cameraman = np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)])
-    probe_pos_cameraman_err = np.round(np.random.normal(0, 1.5, probe_pos_cameraman.shape)).astype(int)
-    probe_pos_cameraman_err = np.clip(probe_pos_cameraman_err, -4, 4)
+    probe_pos_cameraman_err = np.round(np.random.normal(0, 4, probe_pos_cameraman.shape)).astype(int)
+    probe_pos_cameraman_err = np.clip(probe_pos_cameraman_err, -10, 10)
     probe_pos_cameraman += probe_pos_cameraman_err
     params_cameraman_noisy_pos = {'fname': 'data_cameraman.h5',
                                   'theta_st': 0,
