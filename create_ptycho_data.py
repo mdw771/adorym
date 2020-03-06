@@ -133,6 +133,27 @@ try:
                         }
 except: pass
 
+try:
+    params_cone_ff = {'fname': 'data_cone_256_1nm_1um_2.h5',
+                      'theta_st': 0,
+                      'theta_end': 0,
+                      'n_theta': 1,
+                      'theta_downsample': None,
+                      'obj_size': (256, 256, 256),
+                      'probe_size': (256, 256),
+                      'energy_ev': 5000,
+                      'psize_cm': 1.e-7,
+                      'phantom_path': 'cone_256_foam/phantom',
+                      'minibatch_size': 1,
+                      'save_path': 'cone_256_foam',
+                      'initial_guess': None,
+                      'probe_type': 'plane',
+                      'forward_algorithm': 'fresnel',
+                      'probe_pos': [(0, 0)],
+                      'free_prop_cm': 1e-4
+                        }
+except: pass
+
 
 params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'theta_st': 0,
@@ -160,6 +181,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 
 # params = params_2d_cell
 # params = params_adhesin_2_noisy_pos
-params = params_cameraman_noisy_pos
+# params = params_cameraman_noisy_pos
+params = params_cone_ff
+
 
 create_ptychography_data_batch_numpy(**params)

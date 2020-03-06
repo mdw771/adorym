@@ -32,8 +32,16 @@ def gen_mesh(max, shape):
     return res
 
 
+def gen_freq_mesh(voxel_nm, shape):
+    u = np.fft.fftfreq(shape[0])
+    v = np.fft.fftfreq(shape[1])
+    vv, uu = np.meshgrid(v, u)
+    vv /= voxel_nm[1]
+    uu /= voxel_nm[0]
+    return uu, vv
+
 def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True):
-    """Get Fresnel propagation kernel for TF algorithm.
+    """Get unshifted Fresnel propagation kernel for TF algorithm.
 
     Parameters:
     -----------
@@ -42,11 +50,7 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True):
     dist : float
         Propagation distance in cm.
     """
-    k = 2 * PI / lmbda_nm
-    u_max = 1. / (2. * voxel_nm[0])
-    v_max = 1. / (2. * voxel_nm[1])
-    u, v = gen_mesh([v_max, u_max], grid_shape[0:2])
-    # H = np.exp(1j * k * dist_nm * np.sqrt(1 - lmbda_nm**2 * (u**2 + v**2)))
+    u, v = gen_freq_mesh(voxel_nm, grid_shape[0:2])
     if fresnel_approx:
         H = np.exp(1j * PI * lmbda_nm * dist_nm * (u**2 + v**2))
     else:
@@ -78,12 +82,12 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
     x, y = np.meshgrid(x, y)
     try:
         h = np.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * np.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
-        H = np.fft.fftshift(np.fft.fft2(h)) * voxel_nm[0] * voxel_nm[1]
+        H = np.fft.fft2(h) * voxel_nm[0] * voxel_nm[1]
         # dxchange.write_tiff(x, '2d_512/monitor_output/x', dtype='float32', overwrite=True)
     except:
         h = tf.exp(1j * k * dist_nm) / (1j * lmbda_nm * dist_nm) * tf.exp(1j * k / (2 * dist_nm) * (x ** 2 + y ** 2))
         # h = tf.convert_to_tensor(h, dtype='complex64')
-        H = np.fft.fftshift(np.fft.fft2(h)) * voxel_nm[0] * voxel_nm[1]
+        H = np.fft.fft2(h) * voxel_nm[0] * voxel_nm[1]
 
     return H
 
@@ -96,7 +100,7 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
     grid_shape = obj_batch_shape[1:]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
     wavefront = np.zeros([minibatch_size, obj_batch_shape[1], obj_batch_shape[2]], dtype='complex64')
-    wavefront += (probe_real + 1j * probe_imag)
+    wavefront += probe_real + 1j * probe_imag
 
     lmbda_nm = 1240. / energy_ev
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
@@ -125,11 +129,10 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
             wavefront = wavefront * c
             if i < n_slice - 1 and not pure_projection:
                 if i_bin == binning:
-                    wavefront = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+                    wavefront = np.fft.ifft2(np.fft.fft2(wavefront) * h)
                 else:
                     h1 = get_kernel(delta_nm * i_bin, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
-                    wavefront = np.fft.ifft2(
-                        np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h1, axes=[1, 2]))
+                    wavefront = np.fft.ifft2(np.fft.fft2(wavefront) * h1)
 
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
@@ -143,8 +146,9 @@ def multislice_propagate_batch_numpy(grid_delta_batch, grid_beta_batch, probe_re
             algorithm = 'TF'
             if algorithm == 'TF':
                 h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+                wavefront = np.fft.ifft2(np.fft.fft2(wavefront) * h)
             else:
                 h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-                wavefront = np.fft.ifft2(np.fft.ifftshift(np.fft.fftshift(np.fft.fft2(wavefront), axes=[1, 2]) * h, axes=[1, 2]))
+                wavefront = np.fft.ifft2(np.fft.fft2(wavefront) * h)
     return wavefront
+

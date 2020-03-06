@@ -452,12 +452,12 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-# params = params_adhesin_ff
+params = params_adhesin_ff
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-params = params_cameraman
+# params = params_cameraman
 
 reconstruct_ptychography(**params)
