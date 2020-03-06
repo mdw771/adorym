@@ -1,9 +1,12 @@
-import autograd.numpy as np
+import numpy as np
 import os
 import h5py
 from mpi4py import MPI
+import gc
 
 from util import *
+import wrappers as w
+from global_settings import backend
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -38,6 +41,7 @@ class LargeArray(object):
         obj = get_rotated_subblocks(dset, this_pos_batch, probe_size,
                                     self.full_size, monochannel=self.monochannel)
         self.arr_0 = np.copy(obj)
+        obj = w.create_variable(obj)
         return obj
 
     def rotate_data_in_file(self, coords, interpolation='bilinear', dset_2=None):
@@ -50,6 +54,8 @@ class LargeArray(object):
 
     def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None):
         dset = self.dset if dset_2 is None else dset_2
+        arr_channel_0 = w.to_numpy(arr_channel_0)
+        if arr_channel_1 is not None: arr_channel_1 = w.to_numpy(arr_channel_1)
         if write_difference:
             if self.monochannel:
                 arr_channel_0 = arr_channel_0 - self.arr_0
@@ -89,16 +95,21 @@ class ObjectFunction(LargeArray):
             self.f_rot = h5py.File(os.path.join(self.output_folder, 'intermediate_obj_rot.h5'), 'w')
         self.dset_rot = self.f_rot.create_dataset('obj', shape=self.full_size, dtype='float64')
 
-
-    def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None):
-        self.delta, self.beta = \
+    def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None, device=None):
+        temp_delta, temp_beta = \
             initialize_object(self.full_size[:-1], dset=None, ds_level=self.ds_level, object_type=self.object_type,
                               initial_guess=initial_guess, output_folder=self.output_folder, rank=rank,
                               n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
                               shared_file_object=False, not_first_level=not_first_level)
+        self.delta = w.create_variable(temp_delta, device=device)
+        self.beta = w.create_variable(temp_beta, device=device)
+        del temp_delta
+        del temp_beta
+        gc.collect()
 
-    def initialize_array_with_values(self, obj_delta, obj_beta):
-        self.delta, self.beta = obj_delta, obj_beta
+    def initialize_array_with_values(self, obj_delta, obj_beta, device=None):
+        self.delta = w.create_variable(obj_delta, device=device)
+        self.beta = w.create_variable(obj_beta, device=device)
 
     def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None):
         initialize_object(self.full_size[:-1], dset=self.dset, ds_level=self.ds_level, object_type=self.object_type,
@@ -150,8 +161,8 @@ class Mask(LargeArray):
     def create_file_object(self, use_checkpoint=False):
         super(Mask, self).create_file_object('intermediate_mask.h5', use_checkpoint=use_checkpoint)
 
-    def initialize_array_with_values(self, mask):
-        self.mask = mask
+    def initialize_array_with_values(self, mask, device=None):
+        self.mask = w.create_variable(mask, requires_grad=False, device=device)
 
     def initialize_file_object(self):
         # arr is a memmap.

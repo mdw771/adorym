@@ -1,10 +1,12 @@
-import autograd.numpy as np
+import numpy as np
 import os
 import h5py
 from mpi4py import MPI
 
 from util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
 from array_ops import ObjectFunction, Gradient
+import wrappers as w
+import global_settings
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -51,16 +53,17 @@ class Optimizer(object):
                 self.params_dset_dict[param_name] = dset_p
         return
 
-    def create_param_arrays(self):
+    def create_param_arrays(self, device=None):
 
         if len(self.params_list) > 0:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = np.zeros(self.whole_object_size)
+                self.params_whole_array_dict[param_name] = w.zeros(self.whole_object_size, device=device)
         return
 
-    def restore_param_arrays_from_checkpoint(self):
+    def restore_param_arrays_from_checkpoint(self, device=None):
 
         arr = np.load(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'))
+        arr = w.create_variable(arr, device=device)
         if len(self.params_list) > 0:
             for i, param_name in enumerate(self.params_list):
                 self.params_whole_array_dict[param_name] = arr[i]
@@ -72,8 +75,8 @@ class Optimizer(object):
             arr = []
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
-            arr = np.stack(arr)
-            np.save(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'), arr)
+            arr = w.stack(arr)
+            np.save(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size=None):
@@ -87,6 +90,7 @@ class Optimizer(object):
     def write_params_to_file(self, this_pos_batch=None, probe_size=None, n_ranks=1):
 
         for param_name, p in self.params_chunk_array_dict.items():
+            p = w.to_numpy(p)
             p = p - self.params_chunk_array_0_dict[param_name]
             p /= n_ranks
             dset_p = self.params_dset_dict[param_name]
@@ -111,7 +115,7 @@ class Optimizer(object):
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, n_channel=2, output_folder='.'):
+    def __init__(self, whole_object_size, output_folder='.'):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
@@ -128,14 +132,14 @@ class AdamOptimizer(Optimizer):
         v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
         mhat = m / (1 - b1 ** (i_batch + 1))  # Bias correction.
         vhat = v / (1 - b2 ** (i_batch + 1))
-        d = step_size * mhat / (np.sqrt(vhat) + eps)
+        d = step_size * mhat / (w.sqrt(vhat) + eps)
         x = x - d
         if verbose:
             try:
-                print_flush('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))), 0,
+                print_flush('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))), 0,
                             comm.Get_rank())
             except:
-                print('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))))
+                print('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))))
         if shared_file_object:
             self.params_chunk_array_dict['m'] = m
             self.params_chunk_array_dict['v'] = v
@@ -152,6 +156,8 @@ class AdamOptimizer(Optimizer):
         s = obj.dset.shape
         slice_ls = range(rank, s[0], n_ranks)
 
+        backend_temp = global_settings.backend
+        global_settings.backend = 'autograd'
         for i_slice in slice_ls:
             x = obj.dset[i_slice]
             g = gradient.dset[i_slice]
@@ -162,6 +168,7 @@ class AdamOptimizer(Optimizer):
                                     m=m, v=v)
             obj.dset[i_slice] = x
         self.i_batch += 1
+        global_settings.backend = backend_temp
 
 class GDOptimizer(Optimizer):
 
@@ -170,7 +177,6 @@ class GDOptimizer(Optimizer):
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92):
-        g = np.array(g)
         if dynamic_rate:
             threshold_iteration = first_downrate_iteration
             i = 1
@@ -190,6 +196,8 @@ class GDOptimizer(Optimizer):
         s = obj.dset.shape
         slice_ls = range(rank, s[0], n_ranks)
 
+        backend_temp = global_settings.backend
+        global_settings.backend = 'autograd'
         for i_slice in slice_ls:
             x = obj.dset[i_slice]
             g = gradient.dset[i_slice]
@@ -197,6 +205,7 @@ class GDOptimizer(Optimizer):
                                     dynamic_rate=dynamic_rate, first_downrate_iteration=first_downrate_iteration)
             obj.dset[i_slice] = x
         self.i_batch += 1
+        global_settings.backend = backend_temp
 
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):
