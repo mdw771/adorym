@@ -54,7 +54,7 @@ def reconstruct_ptychography(
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=0.1,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
