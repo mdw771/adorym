@@ -95,9 +95,9 @@ try:
                                   'minibatch_size': 51,
                                   'cpu_only': True,
                                   'save_path': 'cameraman_pos_error',
-                                  'probe_initial': None,
+                                  'probe_initial': [dxchange.read_tiff('cameraman_pos_error/probe_mag.tiff'), dxchange.read_tiff('cameraman_pos_error/probe_phase.tiff')],
                                   'fresnel_approx': True,
-                                  'probe_type': 'gaussian',
+                                  'probe_type': 'fixed',
                                   'forward_algorithm': 'fresnel',
                                   'object_type': 'phase_only',
                                   'probe_pos': probe_pos_cameraman,
@@ -181,8 +181,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 
 # params = params_2d_cell
 # params = params_adhesin_2_noisy_pos
-# params = params_cameraman_noisy_pos
-params = params_cone_ff
+params = params_cameraman_noisy_pos
+# params = params_cone_ff
 
 
 create_ptychography_data_batch_numpy(**params)

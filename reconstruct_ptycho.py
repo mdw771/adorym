@@ -354,7 +354,7 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'psize_cm': 1.e-7,
                     'minibatch_size': 2601,
                     'n_batch_per_update': 1,
-                    'output_folder': 'test_opt_2',
+                    'output_folder': 'test_opt_3',
                     'cpu_only': True,
                     'save_path': 'cameraman_pos_error',
                     'multiscale_level': 1,
@@ -364,10 +364,11 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'initial_guess': None,
                     # 'initial_guess': [np.load('cameraman_pos_error/phantom/grid_delta.npy'), np.load('cameraman_pos_error/phantom/grid_beta.npy')],
                     'n_dp_batch': 20,
-                    'probe_type': 'gaussian',
+                    'probe_type': 'fixed',
                     'probe_mag_sigma': 6,
                     'probe_phase_sigma': 6,
                     'probe_phase_max': 0.5,
+                    'probe_initial': [np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_mag.tiff')), np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_phase.tiff'))],
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
                     'probe_pos': np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)]),
@@ -452,12 +453,12 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-params = params_adhesin_ff
+# params = params_adhesin_ff
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-# params = params_cameraman
+params = params_cameraman
 
 reconstruct_ptychography(**params)

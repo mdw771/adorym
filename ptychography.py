@@ -7,6 +7,7 @@ import time
 import datetime
 import os
 import h5py
+import gc
 import warnings
 from scipy.ndimage import rotate as sp_rotate
 from util import *
@@ -53,7 +54,7 @@ def reconstruct_ptychography(
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -91,8 +92,8 @@ def reconstruct_ptychography(
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
             axis_offset = 1 if obj_delta.ndim == 4 else 0
-            obj_delta = realign_image_fourier(obj_delta, this_offset, axes=(axis_offset, axis_offset + 1))
-            obj_beta = realign_image_fourier(obj_beta, this_offset, axes=(axis_offset, axis_offset + 1))
+            probe_real = realign_image_fourier(probe_real, this_offset, axes=(0, 1))
+            probe_imag = realign_image_fourier(probe_imag, this_offset, axes=(0, 1))
 
         if not shared_file_object:
             obj_stack = np.stack([obj_delta, obj_beta], axis=3)
@@ -113,24 +114,32 @@ def reconstruct_ptychography(
 
             for k, pos_batch in enumerate(probe_pos_batch_ls):
                 subobj_ls = []
+                probe_real_ls = []
+                probe_imag_ls = []
                 for j in range(len(pos_batch)):
                     pos = pos_batch[j]
                     # pos = [int(x) for x in pos]
                     pos[0] = pos[0] + pad_arr[0, 0]
                     pos[1] = pos[1] + pad_arr[1, 0]
                     subobj = obj_rot[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
-                    if optimize_all_probe_pos:
-                        subobj_delta = subobj[:, :, :, 0]
-                        subobj_beta = subobj[:, :, :, 1]
-                        this_shift = probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]]
-                        subobj_delta = realign_image_fourier(subobj_delta, this_shift, axes=(0, 1))
-                        subobj_beta = realign_image_fourier(subobj_beta, this_shift, axes=(0, 1))
-                        subobj = np.stack([subobj_delta, subobj_beta], axis=-1)
                     subobj_ls.append(subobj)
+                    if optimize_all_probe_pos:
+                        this_shift = probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]]
+                        probe_real_shifted = realign_image_fourier(probe_real, this_shift, axes=(0, 1))
+                        probe_imag_shifted = realign_image_fourier(probe_imag, this_shift, axes=(0, 1))
+                        probe_real_ls.append(probe_real_shifted)
+                        probe_imag_ls.append(probe_imag_shifted)
 
                 subobj_ls = np.stack(subobj_ls)
-                exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real,
-                                                           probe_imag, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+                if optimize_all_probe_pos:
+                    probe_real_ls = np.stack(probe_real_ls)
+                    probe_imag_ls = np.stack(probe_imag_ls)
+                else:
+                    probe_real_ls = probe_real
+                    probe_imag_ls = probe_imag
+                gc.collect()
+                exiting = multislice_propagate_batch_numpy(subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real_ls,
+                                                           probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                                            obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                                            fresnel_approx=fresnel_approx, pure_projection=pure_projection)
                 exiting_ls.append(exiting)
