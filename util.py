@@ -283,9 +283,10 @@ def read_all_origin_coords(src_folder, n_theta):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, interpolation='bilinear'):
+def apply_rotation(obj, coord_old, interpolation='bilinear', device=None):
 
     s = obj.shape
+    coord_old = w.create_variable(coord_old, device=device, requires_grad=False)
 
     if interpolation == 'nearest':
         coord_old_1 = w.round_and_cast(coord_old[:, 0])
@@ -301,10 +302,10 @@ def apply_rotation(obj, coord_old, interpolation='bilinear'):
     if interpolation == 'nearest':
         obj_rot = w.reshape(obj[:, coord_old_1, coord_old_2], s)
     else:
-        coord_old_floor_1 = w.floor_and_cast(coord_old_1)
-        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1)
-        coord_old_floor_2 = w.floor_and_cast(coord_old_2)
-        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2)
+        coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64')
+        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64')
+        coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64')
+        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64')
         # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
         # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
         coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[1] - 1)
@@ -570,20 +571,20 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size):
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
-    if w.min(probe_pos[:, 0]) < 0:
-        pad_len = -int(w.min(probe_pos[:, 0]))
+    if min(probe_pos[:, 0]) < 0:
+        pad_len = -int(min(probe_pos[:, 0]))
         obj_rot = w.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 0] = pad_len
-    if w.max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
-        pad_len = int(w.max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
+    if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
+        pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
         obj_rot = w.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 1] = pad_len
-    if w.min(probe_pos[:, 1]) < 0:
-        pad_len = -int(w.min(probe_pos[:, 1]))
+    if min(probe_pos[:, 1]) < 0:
+        pad_len = -int(min(probe_pos[:, 1]))
         obj_rot = w.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 0] = pad_len
-    if w.max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-        pad_len = int(w.max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+    if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
+        pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
         obj_rot = w.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 1] = pad_len
 

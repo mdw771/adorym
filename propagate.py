@@ -89,7 +89,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
 
 def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
-                               pure_projection=False, binning=1):
+                               pure_projection=False, binning=1, device=None):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -107,12 +107,14 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     else:
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
     h_real, h_imag = np.real(h), np.imag(h)
+    h_real = w.create_variable(h_real, requires_grad=False, device=device)
+    h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
 
     for i in range(n_slice):
         if i % binning == 0:
             i_bin = 0
-            delta_slice = w.zeros([minibatch_size, *grid_shape[:2]])
-            beta_slice = w.zeros([minibatch_size, *grid_shape[:2]])
+            delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device)
+            beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device)
         delta_slice += grid_delta_batch[:, :, :, i]
         beta_slice += grid_beta_batch[:, :, :, i]
         i_bin += 1
@@ -127,6 +129,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                 else:
                     h1 = get_kernel(delta_nm * i_bin, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
                     h1_real, h1_imag = w.real(h1), w.imag(h1)
+                    h1_real = w.create_variable(h1_real, requires_grad=False, device=device)
+                    h1_imag = w.create_variable(h1_imag, requires_grad=False, device=device)
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h1_real, h1_imag)
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
@@ -142,6 +146,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
             else:
                 h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
             h_real, h_imag = np.real(h), np.imag(h)
+            h_real = w.create_variable(h_real, requires_grad=False, device=device)
+            h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
             probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
     return probe_real, probe_imag
 

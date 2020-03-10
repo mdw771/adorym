@@ -83,7 +83,8 @@ def reconstruct_ptychography(
                        probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
                        probe_pos_correction=None, this_ind_batch=None):
 
-        this_pos_batch = w.round_and_cast(this_pos_batch)
+        this_pos_batch = np.round(this_pos_batch).astype(int)
+        this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=device_obj)
         if optimize_probe_defocusing:
             h_probe = get_kernel(probe_defocus_mm * 1e6, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
             h_probe_real, h_probe_imag = w.real(h_probe), w.imag(h_probe)
@@ -97,7 +98,7 @@ def reconstruct_ptychography(
         if not shared_file_object:
             obj_stack = w.stack([obj_delta, obj_beta], axis=3)
             if not two_d_mode:
-                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta])
+                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta], device=device_obj)
                 # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
             else:
                 obj_rot = obj_stack
@@ -141,7 +142,7 @@ def reconstruct_ptychography(
                     subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real_ls,
                     probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                     obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
-                    fresnel_approx=fresnel_approx, pure_projection=pure_projection)
+                    fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
         else:
@@ -163,7 +164,8 @@ def reconstruct_ptychography(
                                                               obj_batch_shape=[len(pos_batch), *probe_size,
                                                                                this_obj_size[-1]],
                                                               fresnel_approx=fresnel_approx,
-                                                              pure_projection=pure_projection)
+                                                              pure_projection=pure_projection,
+                                                              device=device_obj)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
                 pos_ind += len(pos_batch)
@@ -415,8 +417,8 @@ def reconstruct_ptychography(
         probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                              save_stdout=save_stdout, output_folder=output_folder, timestr=timestr,
                              save_path=save_path, fname=fname, **kwargs)
-        probe_real = w.create_variable(probe_real)
-        probe_imag = w.create_variable(probe_imag)
+        probe_real = w.create_variable(probe_real, device=device_obj)
+        probe_imag = w.create_variable(probe_imag, device=device_obj)
 
         # ================================================================================
         # generate Fresnel kernel.
@@ -579,7 +581,8 @@ def reconstruct_ptychography(
                     obj.f.flush()
                 else:
                     save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
-                                    obj_array=np.stack([obj.delta, obj.beta], axis=-1), optimizer=opt)
+                                    obj_array=w.to_numpy(w.stack([obj.delta, obj.beta], axis=-1)),
+                                    optimizer=opt)
 
                 # ================================================================================
                 # Get scan position, rotation angle indices, and raw data for current batch.
@@ -665,7 +668,7 @@ def reconstruct_ptychography(
                     this_obj_grads = w.stack(grads[:2], axis=-1)
                     obj_grads = w.zeros_like(this_obj_grads)
                     comm.Barrier()
-                    comm.Allreduce(this_obj_grads, obj_grads)
+                    obj_grads = comm.allreduce(this_obj_grads)
                 obj_grads = obj_grads / n_ranks
 
                 # ================================================================================

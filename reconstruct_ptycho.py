@@ -45,8 +45,8 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'alpha_b': 0,
                   'gamma': 0,
                   'probe_size': (64, 64),
-                  # 'learning_rate': 1., # for non-shared file mode gd
-                  'learning_rate': 1e-7, # for non-shared-file mode adam
+                  'learning_rate': 1., # for non-shared file mode gd
+                  # 'learning_rate': 1e-7, # for non-shared-file mode adam
                   # 'learning_rate': 1e-6, # for shared-file mode adam
                   # 'learning_rate': 1, # for shared-file mode gd
                   'center': 32,
@@ -55,7 +55,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'minibatch_size': 1,
                   'n_batch_per_update': 1,
                   'output_folder': 'test_backend',
-                  'cpu_only': True,
+                  'cpu_only': False,
                   'save_path': 'adhesin',
                   'multiscale_level': 1,
                   'n_epoch_final_pass': None,
@@ -77,8 +77,9 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
                   'shared_file_object': False,
-                  'optimizer': 'adam',
+                  'optimizer': 'gd',
                   'use_checkpoint': False,
+                  'backend': 'pytorch'
                   }
 
 
@@ -454,8 +455,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-# params = params_adhesin_ff
-params = params_adhesin_2
+params = params_adhesin_ff
+# params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
