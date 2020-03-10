@@ -55,7 +55,7 @@ def reconstruct_ptychography(
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -305,8 +305,7 @@ def reconstruct_ptychography(
         # ================================================================================
         if optimizer == 'adam':
             opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
-            optimizer_options_obj = {'step_size': learning_rate,
-                                     'shared_file_object': shared_file_object}
+            optimizer_options_obj = {'step_size': learning_rate, 'verbose': False}
         elif optimizer == 'gd':
             opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
             optimizer_options_obj = {'step_size': learning_rate,
@@ -462,9 +461,9 @@ def reconstruct_ptychography(
             assert shared_file_object == False
             probe_pos_correction = w.zeros([n_theta, n_pos, 2]).astype(float)
             # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
-            opt_probe_pos = GDOptimizer(probe_pos_correction, output_folder=output_folder)
-            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate,
-                                           'dynamic_rate': False}
+            opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
+            opt_probe_pos.create_param_arrays()
+            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
             opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(9)
 
@@ -787,9 +786,12 @@ def reconstruct_ptychography(
                         f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
                         f_offset.close()
                     elif optimize_all_probe_pos:
-                        f_offset = open(os.path.join(output_folder, 'probe_pos_correction.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
-                        f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_correction).flatten())))
-                        f_offset.close()
+                        if not os.path.exists(os.path.join(output_folder, 'intermediate')):
+                            os.makedirs(os.path.join(output_folder, 'intermediate'))
+                        for i_theta_pos in range(n_theta):
+                            np.savetxt(os.path.join(output_folder, 'intermediate',
+                                                    'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
+                                                    w.to_numpy(probe_pos_correction[i_theta_pos]))
 
                 comm.Barrier()
                 print_flush('Minibatch done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank, **stdout_options)

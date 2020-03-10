@@ -128,10 +128,9 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                     h1 = get_kernel(delta_nm * i_bin, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
                     h1_real, h1_imag = w.real(h1), w.imag(h1)
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h1_real, h1_imag)
-
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
-            probe_real, probe_imag = w.fftshift(w.fft2(probe_real, probe_imag), axes=[1, 2])
+            probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2])
         else:
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)

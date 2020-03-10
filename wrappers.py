@@ -7,6 +7,7 @@ from global_settings import backend
 engine_dict = {}
 try:
     import autograd.numpy as anp
+    import autograd as ag
     engine_dict['autograd'] = anp
 except:
     warnings.warn('Autograd backend is not available.')
@@ -76,13 +77,16 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True):
 
 
 def to_numpy(var):
-    if backend == 'autograd':
-        return var._value
-    elif backend == 'pytorch':
-        if var.device.type == 'cpu':
-            return var.data.numpy()
-        else:
-            return var.cpu().data.numpy()
+    if isinstance(var, np.ndarray):
+        return var
+    else:
+        if backend == 'autograd':
+            return var._value
+        elif backend == 'pytorch':
+            if var.device.type == 'cpu':
+                return var.data.numpy()
+            else:
+                return var.cpu().data.numpy()
 
 
 def get_device(index=None, backend='autograd'):
@@ -99,7 +103,7 @@ def get_device(index=None, backend='autograd'):
 
 def prepare_loss_node(loss, opt_args_ls=None):
     if backend == 'autograd':
-        return anp.grad(loss, opt_args_ls)
+        return ag.grad(loss, opt_args_ls)
     elif backend == 'pytorch':
         return loss
 
@@ -108,7 +112,7 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
     if backend == 'autograd':
         # For Autograd, loss_node is the grad function that takes the loss function arguments and
         # returns the gradients.
-        return loss_node(**kwargs)
+        return loss_node(*list(kwargs.values()))
     elif backend == 'pytorch':
         # For PyTorch, loss_node is the loss function itself.
         l = loss_node(**kwargs)
@@ -205,24 +209,43 @@ def fft2(var_real, var_imag, axes=(-2, -1)):
     if backend == 'autograd':
         var = var_real + 1j * var_imag
         var = anp.fft.fft2(var, axes=axes)
-        return var.real, var.imag
+        return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
         var = tc.fft(var, signal_ndim=2)
         var_real, var_imag = tc.split(var, 1, dim=-1)
-        return var_real.squeeze(), var_imag.squeeze()
+        slicer = [slice(None)] * (var_real.ndim - 1) + [0]
+        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
 def ifft2(var_real, var_imag, axes=(-2, -1)):
     if backend == 'autograd':
         var = var_real + 1j * var_imag
         var = anp.fft.ifft2(var, axes=axes)
-        return var.real, var.imag
+        return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
         var = tc.ifft(var, signal_ndim=2)
         var_real, var_imag = tc.split(var, 1, dim=-1)
-        return var_real.squeeze(), var_imag.squeeze()
+        slicer = [slice(None)] * (var_real.ndim - 1) + [0]
+        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+
+
+def fft2_and_shift(var_real, var_imag, axes=(-2, -1)):
+    if backend == 'autograd':
+        var = var_real + 1j * var_imag
+        var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes), axes=axes)
+        return anp.real(var), anp.imag(var)
+    elif backend == 'pytorch':
+        var = tc.stack([var_real, var_imag], dim=-1)
+        var = tc.fft(var, signal_ndim=2)
+        var_real, var_imag = tc.split(var, 1, dim=-1)
+        slicer = [slice(None)] * (var_real.ndim - 1) + [0]
+        var_real = var_real[tuple(slicer)]
+        var_imag = var_imag[tuple(slicer)]
+        var_real = fftshift(var_real, axes=axes)
+        var_imag = fftshift(var_imag, axes=axes)
+        return var_real, var_imag
 
 
 def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag):
@@ -281,10 +304,12 @@ def ifftshift(var, axes=(1, 2)):
 def split_channel(var):
     if backend == 'autograd':
         var0, var1 = anp.split(var, var.shape[-1], axis=-1)
-        return anp.squeeze(var0), anp.squeeze(var1)
+        slicer = [slice(None)] * (var.ndim - 1) + [0]
+        return var0[tuple(slicer)], var1[tuple(slicer)]
     elif backend == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
-        return var0.squeeze(), var1.squeeze()
+        slicer = [slice(None)] * (var.ndim - 1) + [0]
+        return var0[tuple(slicer)], var1[tuple(slicer)]
    
     
 def clip(var, a1, a2):
@@ -383,7 +408,7 @@ def pad(var, pad_len, mode='constant'):
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
     """
     if backend == 'autograd':
-        return np.pad(var, pad_len, mode=mode)
+        return anp.pad(var, pad_len, mode=mode)
     elif backend == 'pytorch':
         pad_len = [x for y in pad_len[::-1] for x in y]
         return tc.nn.functional.pad(var, pad_len, mode=mode)
@@ -397,14 +422,14 @@ def sum(var):
 
 def roll(var, shifts, axes=0):
     if backend == 'autograd':
-        return np.roll(var, shifts, axes=axes)
+        return anp.roll(var, shifts, axes=axes)
     elif backend == 'pytorch':
         return tc.roll(var, shifts, dims=axes)
 
 
-def arctan2(var):
+def arctan2(var1, var2):
     func = getattr(engine_dict[backend], func_mapping_dict['arctan2'][backend])
-    arr = func(var)
+    arr = func(var1, var2)
     return arr
 
 

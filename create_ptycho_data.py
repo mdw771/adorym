@@ -92,7 +92,7 @@ try:
                                   'energy_ev': 5000,
                                   'psize_cm': 1e-7,
                                   'phantom_path': 'cameraman_pos_error/phantom',
-                                  'minibatch_size': 51,
+                                  'minibatch_size': 2601,
                                   'cpu_only': True,
                                   'save_path': 'cameraman_pos_error',
                                   'probe_initial': None,
