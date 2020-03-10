@@ -46,15 +46,15 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'gamma': 0,
                   'probe_size': (64, 64),
                   # 'learning_rate': 1., # for non-shared file mode gd
-                  # 'learning_rate': 1e-7, # for non-shared-file mode adam
-                  'learning_rate': 1e-6, # for shared-file mode adam
+                  'learning_rate': 1e-7, # for non-shared-file mode adam
+                  # 'learning_rate': 1e-6, # for shared-file mode adam
                   # 'learning_rate': 1, # for shared-file mode gd
                   'center': 32,
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 1,
                   'n_batch_per_update': 1,
-                  'output_folder': 'test_shared_file',
+                  'output_folder': 'test_backend',
                   'cpu_only': True,
                   'save_path': 'adhesin',
                   'multiscale_level': 1,
@@ -76,7 +76,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'probe_pos': [(0, 0)],
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': True,
+                  'shared_file_object': False,
                   'optimizer': 'adam',
                   'use_checkpoint': False,
                   }
@@ -355,7 +355,7 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'psize_cm': 1.e-7,
                     'minibatch_size': 2601,
                     'n_batch_per_update': 1,
-                    'output_folder': 'test_opt_4',
+                    'output_folder': 'test_temp',
                     'cpu_only': True,
                     'save_path': 'cameraman_pos_error',
                     'multiscale_level': 1,
@@ -454,8 +454,8 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-params = params_adhesin_ff
-# params = params_adhesin_2
+# params = params_adhesin_ff
+params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell

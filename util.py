@@ -1,4 +1,4 @@
-import autograd.numpy as np
+import numpy as np
 import dxchange
 import h5py
 import matplotlib.pyplot as plt
@@ -21,6 +21,7 @@ from scipy.special import erf
 
 from constants import *
 from interpolation import *
+import wrappers as w
 
 
 comm = MPI.COMM_WORLD
@@ -169,25 +170,22 @@ def realign_image(arr, shift):
     return temp
 
 
-def realign_image_fourier(arr, shift, axes=(0, 1)):
+def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1)):
     """
-    arr is assumed to be 3D [y, x, c].
+    Returns real and imaginary parts as a list.
     """
-    f_arr = np.fft.fft2(arr, axes=axes)
-    s = f_arr.shape
+    f_real, f_imag = w.fft2(a_real, a_imag, axes=axes)
+    s = f_real.shape
     freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))
-    mult = np.exp(-1j * 2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+    mult_real, mult_imag = w.exp_complex(0, -2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
     # Reshape for broadcasting
-    if f_arr.ndim > max(axes) + 1:
-        mult = np.reshape(mult, list(mult.shape) + [1] * (f_arr.ndim - (max(axes) + 1)))
-        mult = np.tile(mult, [1, 1] + list(f_arr.shape[max(axes) + 1:]))
-    arr = f_arr * mult
-    return np.real(np.fft.ifft2(arr, axes=axes))
-
-
-def exp_j(a):
-
-    return np.cos(a) + 1j * np.sin(a)
+    if len(s) > max(axes) + 1:
+        mult_real = w.reshape(mult_real, list(mult_real.shape) + [1] * (len(s) - (max(axes) + 1)))
+        mult_real = w.tile(mult_real, [1, 1] + list(s[max(axes) + 1:]))
+        mult_imag = w.reshape(mult_imag, list(mult_imag.shape) + [1] * (len(s) - (max(axes) + 1)))
+        mult_imag = w.tile(mult_imag, [1, 1] + list(s[max(axes) + 1:]))
+    a_real, a_imag = (f_real * mult_real - f_imag * mult_imag, f_real * mult_imag + f_imag * mult_real)
+    return w.ifft2(a_real, a_imag, axes=axes)
 
 
 def create_batches(arr, batch_size):
@@ -290,29 +288,29 @@ def apply_rotation(obj, coord_old, interpolation='bilinear'):
     s = obj.shape
 
     if interpolation == 'nearest':
-        coord_old_1 = np.round(coord_old[:, 0]).astype('int')
-        coord_old_2 = np.round(coord_old[:, 1]).astype('int')
+        coord_old_1 = w.round_and_cast(coord_old[:, 0])
+        coord_old_2 = w.round_and_cast(coord_old[:, 1])
     else:
         coord_old_1 = coord_old[:, 0]
         coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old_1 = np.clip(coord_old_1, 0, s[1] - 1)
-    coord_old_2 = np.clip(coord_old_2, 0, s[2] - 1)
+    coord_old_1 = w.clip(coord_old_1, 0, s[1] - 1)
+    coord_old_2 = w.clip(coord_old_2, 0, s[2] - 1)
 
     if interpolation == 'nearest':
-        obj_rot = np.reshape(obj[:, coord_old_1, coord_old_2], s)
+        obj_rot = w.reshape(obj[:, coord_old_1, coord_old_2], s)
     else:
-        coord_old_floor_1 = np.floor(coord_old_1).astype(int)
-        coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
-        coord_old_floor_2 = np.floor(coord_old_2).astype(int)
-        coord_old_ceil_2 = np.ceil(coord_old_2).astype(int)
+        coord_old_floor_1 = w.floor_and_cast(coord_old_1)
+        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1)
+        coord_old_floor_2 = w.floor_and_cast(coord_old_2)
+        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2)
         # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
         # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
-        coord_old_floor_1 = np.clip(coord_old_floor_1, 0, s[1] - 1)
-        coord_old_floor_2 = np.clip(coord_old_floor_2, 0, s[2] - 1)
-        coord_old_ceil_1 = np.clip(coord_old_ceil_1, 0, s[1] - 1)
-        coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
+        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[1] - 1)
+        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[2] - 1)
+        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[1] - 1)
+        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[2] - 1)
         integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
         integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
 
@@ -326,8 +324,8 @@ def apply_rotation(obj, coord_old, interpolation='bilinear'):
                    vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
                    vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
                    vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-            obj_rot.append(np.reshape(vals, s[:-1]))
-        obj_rot = np.stack(obj_rot, axis=-1)
+            obj_rot.append(w.reshape(vals, s[:-1]))
+        obj_rot = w.stack(obj_rot, axis=-1)
 
     return obj_rot
 
@@ -572,21 +570,21 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size):
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
-    if probe_pos[:, 0].min() < 0:
-        pad_len = -probe_pos[:, 0].min()
-        obj_rot = np.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
+    if w.min(probe_pos[:, 0]) < 0:
+        pad_len = -int(w.min(probe_pos[:, 0]))
+        obj_rot = w.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 0] = pad_len
-    if probe_pos[:, 0].max() + probe_size[0] > this_obj_size[0]:
-        pad_len = probe_pos[:, 0].max() + probe_size[0] - this_obj_size[0]
-        obj_rot = np.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+    if w.max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
+        pad_len = int(w.max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
+        obj_rot = w.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[0, 1] = pad_len
-    if probe_pos[:, 1].min() < 0:
-        pad_len = -probe_pos[:, 1].min()
-        obj_rot = np.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
+    if w.min(probe_pos[:, 1]) < 0:
+        pad_len = -int(w.min(probe_pos[:, 1]))
+        obj_rot = w.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 0] = pad_len
-    if probe_pos[:, 1].max() + probe_size[1] > this_obj_size[1]:
-        pad_len = probe_pos[:, 1].max() + probe_size[0] - this_obj_size[1]
-        obj_rot = np.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
+    if w.max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
+        pad_len = int(w.max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+        obj_rot = w.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
         pad_arr[1, 1] = pad_len
 
     return obj_rot, pad_arr
@@ -598,9 +596,9 @@ def total_variation_3d(arr, axis_offset=0):
     :param arr: 3D Tensor.
     :return: Scalar.
     """
-    res = np.sum(np.abs(np.roll(arr, 1, axis=0 + axis_offset) - arr))
-    res = res + np.sum(np.abs(np.roll(arr, 1, axis=1 + axis_offset) - arr))
-    res = res + np.sum(np.abs(np.roll(arr, 1, axis=2 + axis_offset) - arr))
+    res = w.sum(w.abs(w.roll(arr, 1, axes=0 + axis_offset) - arr))
+    res = res + w.sum(w.abs(w.roll(arr, 1, axes=1 + axis_offset) - arr))
+    res = res + w.sum(w.abs(w.roll(arr, 1, axes=2 + axis_offset) - arr))
     res /= arr.size
     return res
 
