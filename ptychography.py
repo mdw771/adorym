@@ -54,7 +54,7 @@ def reconstruct_ptychography(
         probe_learning_rate=1e-3,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=0.1,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=0.01,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -302,8 +302,7 @@ def reconstruct_ptychography(
         # ================================================================================
         if optimizer == 'adam':
             opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
-            optimizer_options_obj = {'step_size': learning_rate,
-                                     'shared_file_object': shared_file_object}
+            optimizer_options_obj = {'step_size': learning_rate, 'verbose': False}
         elif optimizer == 'gd':
             opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
             optimizer_options_obj = {'step_size': learning_rate,
