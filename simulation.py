@@ -9,6 +9,7 @@ from tqdm import tqdm
 
 from util import *
 from propagate import *
+import global_settings
 
 
 def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_path, fname, probe_pos,
@@ -30,6 +31,8 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
         # pad if needed
         obj_rot, pad_arr = pad_object(obj_rot, grid_delta.shape, probe_pos, probe_size)
 
+        e_real_ls = []
+        e_imag_ls = []
         for k, pos_batch in tqdm(enumerate(probe_pos_batches)):
             grid_delta_ls = []
             grid_beta_ls = []
@@ -42,15 +45,15 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
                 grid_beta_ls.append(subobj[:, :, :, 1])
             grid_delta_ls = np.array(grid_delta_ls)
             grid_beta_ls = np.array(grid_beta_ls)
-            exiting = multislice_propagate_batch(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
+            e_real, e_imag = multislice_propagate_batch(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
                                                  psize_cm, free_prop_cm=free_prop_cm,
                                                  obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]],
                                                  fresnel_approx=fresnel_approx)
-            if k == 0:
-                exiting_ls = np.copy(exiting)
-            else:
-                exiting_ls = np.vstack([exiting_ls, exiting])
-        return exiting_ls
+            e_real_ls.append(e_real)
+            e_imag_ls.append(e_imag)
+        e_real_ls = np.concatenate(e_real_ls, 0)
+        e_imag_ls = np.concatenate(e_imag_ls, 0)
+        return e_real_ls, e_imag_ls
 
     probe_pos = np.array(probe_pos)
     n_pos = len(probe_pos)
@@ -97,7 +100,8 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
 
     for ii, theta in enumerate(theta_ls):
         print('Theta: {}'.format(ii))
-        waveset_out = rotate_and_project(theta, obj, probe_pos, i_theta=ii)
+        waveset_out_real, waveset_out_imag = rotate_and_project(theta, obj, probe_pos, i_theta=ii)
+        waveset_out = waveset_out_real + waveset_out_imag * 1j
         dat[ii, :, :, :] = waveset_out
         dxchange.write_tiff(abs(waveset_out), os.path.join(save_path, 'diffraction_dat', 'mag_{:05d}'.format(ii)), overwrite=True, dtype='float32')
     f.close()

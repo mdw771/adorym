@@ -46,8 +46,8 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'gamma': 0,
                   'probe_size': (64, 64),
                   # 'learning_rate': 1., # for non-shared file mode gd
-                  'learning_rate': 1e-7, # for non-shared-file mode adam
-                  # 'learning_rate': 1e-6, # for shared-file mode adam
+                  # 'learning_rate': 1e-7, # for non-shared-file mode adam
+                  'learning_rate': 1e-6, # for shared-file mode adam
                   # 'learning_rate': 1, # for shared-file mode gd
                   'center': 32,
                   'energy_ev': 800,
@@ -76,7 +76,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'probe_pos': [(0, 0)],
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': False,
+                  'shared_file_object': True,
                   'optimizer': 'adam',
                   'use_checkpoint': False,
                   'backend': 'pytorch'
@@ -126,7 +126,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'probe_phase_max': 0.5,
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': True,
+                  'shared_file_object': False,
                   'optimizer': 'gd',
                   'use_checkpoint': False,
                   'free_prop_cm': 'inf'
@@ -340,7 +340,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'use_checkpoint': False
                     }
 
-params_cameraman = {'fname': 'data_cameraman.h5',
+params_cameraman = {'fname': 'data_cameraman_err_3.h5',
                     'theta_st': 0,
                     'theta_end': 0,
                     'theta_downsample': 1,
@@ -354,7 +354,7 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'center': 512,
                     'energy_ev': 5000,
                     'psize_cm': 1.e-7,
-                    'minibatch_size': 2601,
+                    'minibatch_size': 2704,
                     'n_batch_per_update': 1,
                     'output_folder': 'test_temp',
                     'cpu_only': True,
@@ -370,10 +370,10 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'probe_mag_sigma': 6,
                     'probe_phase_sigma': 6,
                     'probe_phase_max': 0.5,
-                    'probe_initial': [np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_mag.tiff')), np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_phase.tiff'))],
+                    'probe_initial': [np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_mag_true.tiff')), np.squeeze(dxchange.read_tiff('cameraman_pos_error/probe_phase_true.tiff'))],
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
-                    'probe_pos': np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)]),
+                    'probe_pos': np.array([(y, x) for y in np.arange(-10, 246, 5) for x in np.arange(-10, 246, 5)]),
                     'finite_support_mask': None,
                     'free_prop_cm': 'inf',
                     'optimizer': 'adam',
@@ -381,7 +381,8 @@ params_cameraman = {'fname': 'data_cameraman.h5',
                     'shared_file_object': False,
                     'use_checkpoint': False,
                     'optimize_all_probe_pos': True,
-                    'save_history': True
+                    'save_history': True,
+                    'backend': 'pytorch'
                     }
 
 params_cone_marc_noisy = {'fname': 'data_cone_256_1nm_marc_n2e5.h5',
@@ -455,12 +456,12 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-params = params_adhesin_ff
+# params = params_adhesin_ff
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-# params = params_cameraman
+params = params_cameraman
 
 reconstruct_ptychography(**params)

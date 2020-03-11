@@ -36,12 +36,12 @@ class LargeArray(object):
             # If dataset exists, create a pointer to it.
             self.dset = self.f['obj']
 
-    def read_chunks_from_file(self, this_pos_batch, probe_size, dset_2=None):
+    def read_chunks_from_file(self, this_pos_batch, probe_size, dset_2=None, device=None):
         dset = self.dset if dset_2 is None else dset_2
         obj = get_rotated_subblocks(dset, this_pos_batch, probe_size,
                                     self.full_size, monochannel=self.monochannel)
         self.arr_0 = np.copy(obj)
-        obj = w.create_variable(obj)
+        obj = w.create_variable(obj, device=device)
         return obj
 
     def rotate_data_in_file(self, coords, interpolation='bilinear', dset_2=None):

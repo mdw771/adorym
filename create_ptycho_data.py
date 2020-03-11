@@ -78,9 +78,9 @@ params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
                               }
 
 try:
-    probe_pos_cameraman = np.array([(y, x) for y in np.arange(0, 251, 5) for x in np.arange(0, 251, 5)])
-    probe_pos_cameraman_err = np.round(np.random.normal(0, 4, probe_pos_cameraman.shape)).astype(int)
-    probe_pos_cameraman_err = np.clip(probe_pos_cameraman_err, -10, 10)
+    probe_pos_cameraman = np.array([(y, x) for y in np.arange(-10, 246, 5) for x in np.arange(-10, 246, 5)])
+    probe_pos_cameraman_err = np.round(np.random.normal(0, 1, probe_pos_cameraman.shape)).astype(int)
+    probe_pos_cameraman_err = np.clip(probe_pos_cameraman_err, -3, 3)
     probe_pos_cameraman += probe_pos_cameraman_err
     params_cameraman_noisy_pos = {'fname': 'data_cameraman.h5',
                                   'theta_st': 0,
@@ -92,7 +92,7 @@ try:
                                   'energy_ev': 5000,
                                   'psize_cm': 1e-7,
                                   'phantom_path': 'cameraman_pos_error/phantom',
-                                  'minibatch_size': 2601,
+                                  'minibatch_size': 2704,
                                   'cpu_only': True,
                                   'save_path': 'cameraman_pos_error',
                                   'probe_initial': [dxchange.read_tiff('cameraman_pos_error/probe_mag.tiff'), dxchange.read_tiff('cameraman_pos_error/probe_phase.tiff')],

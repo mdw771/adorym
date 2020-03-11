@@ -38,7 +38,7 @@ def reconstruct_ptychography(
         # |Finite support constraint|___________________________________________
         finite_support_mask_path=None, shrink_cycle=None, shrink_threshold=1e-9,
         # ___________________
-        # |Object contraints|
+        # |Object contraints|___________________________________________________
         object_type='normal',
         # _______________
         # |Forward model|_______________________________________________________
@@ -171,7 +171,7 @@ def reconstruct_ptychography(
                 pos_ind += len(pos_batch)
         ex_real_ls = w.concatenate(ex_real_ls, 0)
         ex_imag_ls = w.concatenate(ex_imag_ls, 0)
-        loss = w.mean((w.sqrt(ex_real_ls ** 2 + ex_imag_ls ** 2) - w.abs(this_prj_batch)) ** 2)
+        loss = w.mean((w.norm(ex_real_ls, ex_imag_ls) - w.abs(this_prj_batch)) ** 2)
         # dxchange.write_tiff(abs(exiting_ls._value[0]), output_folder + '/det/det', dtype='float32', overwrite=True)
         # raise
 
@@ -451,7 +451,7 @@ def reconstruct_ptychography(
             opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(4)
 
-        probe_pos_offset = w.zeros([n_theta, 2])
+        probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True)
         if optimize_probe_pos_offset:
             assert optimize_all_probe_pos == False
             opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
@@ -465,7 +465,7 @@ def reconstruct_ptychography(
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
-            probe_pos_correction = w.zeros([n_theta, n_pos, 2]).astype(float)
+            probe_pos_correction = w.zeros([n_theta, n_pos, 2], requires_grad=True)
             # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
             opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
             opt_probe_pos.create_param_arrays()
@@ -627,7 +627,7 @@ def reconstruct_ptychography(
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     # ================================================================================
                     t_read_0 = time.time()
-                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot)
+                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj_delta = obj_rot[:, :, :, :, 0]
                     obj_beta = obj_rot[:, :, :, :, 1]
@@ -663,10 +663,10 @@ def reconstruct_ptychography(
                 # ranks.
                 # ================================================================================
                 if shared_file_object:
-                    obj_grads = np.stack(grads[:2], axis=-1)
+                    obj_grads = w.stack(grads[:2], axis=-1)
                 else:
                     this_obj_grads = w.stack(grads[:2], axis=-1)
-                    obj_grads = w.zeros_like(this_obj_grads)
+                    obj_grads = w.zeros_like(this_obj_grads, requires_grad=False)
                     comm.Barrier()
                     obj_grads = comm.allreduce(this_obj_grads)
                 obj_grads = obj_grads / n_ranks
@@ -681,8 +681,7 @@ def reconstruct_ptychography(
                     obj_delta, obj_beta = w.split_channel(obj_temp)
                 else:
                     t_grad_write_0 = time.time()
-                    gradient.write_chunks_to_file(this_pos_batch, np.take(obj_grads, 0, axis=-1),
-                                                  np.take(obj_grads, 1, axis=-1), probe_size,
+                    gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
                                                   write_difference=False)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)
                 # ================================================================================
@@ -702,8 +701,8 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if probe_type == 'optimizable':
                     this_probe_grads = w.stack(grads[2:4], axis=-1)
-                    probe_grads = w.zeros_like(this_probe_grads)
-                    comm.Allreduce(this_probe_grads, probe_grads)
+                    probe_grads = w.zeros_like(this_probe_grads, requires_grad=False)
+                    probe_grads = comm.allreduce(this_probe_grads)
                     probe_grads = probe_grads / n_ranks
                     probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
                     probe_real, probe_imag = w.split_channel(probe_temp)
@@ -711,7 +710,7 @@ def reconstruct_ptychography(
                 if optimize_probe_defocusing:
                     this_pd_grad = grads[opt_probe_defocus.index_in_grad_returns]
                     pd_grads = w.create_variable(0.0)
-                    comm.Allreduce(this_pd_grad, pd_grads)
+                    pd_grads = comm.Allreduce(this_pd_grad)
                     pd_grads = pd_grads / n_ranks
                     probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
                                                                         **optimizer_options_probe_defocus)
@@ -720,16 +719,16 @@ def reconstruct_ptychography(
 
                 if optimize_probe_pos_offset:
                     this_pos_offset_grad = grads[opt_probe_pos_offset.index_in_grad_returns]
-                    pos_offset_grads = w.zeros_like(probe_pos_offset)
-                    comm.Allreduce(this_pos_offset_grad, pos_offset_grads)
+                    pos_offset_grads = w.zeros_like(probe_pos_offset, requires_grad=False)
+                    pos_offset_grads = comm.allreduce(this_pos_offset_grad)
                     pos_offset_grads = pos_offset_grads / n_ranks
                     probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
                                                                         **optimizer_options_probe_pos_offset)
 
                 if optimize_all_probe_pos:
                     this_all_pos_grad = grads[opt_probe_pos.index_in_grad_returns]
-                    all_pos_grads = w.zeros_like(probe_pos_correction)
-                    comm.Allreduce(this_all_pos_grad, all_pos_grads)
+                    all_pos_grads = w.zeros_like(probe_pos_correction, requires_grad=False)
+                    all_pos_grads = comm.allreduce(this_all_pos_grad)
                     all_pos_grads = all_pos_grads / n_ranks
                     probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
                                                                         **optimizer_options_probe_pos)
@@ -787,7 +786,7 @@ def reconstruct_ptychography(
                                             dtype='float32', overwrite=True)
                     else:
                         dxchange.write_tiff(w.to_numpy(obj.delta),
-                                            fname=os.path.join(output_folder, 'intermediate', 'current'.format(ds_level)),
+                                            fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     if optimize_probe_pos_offset:
                         f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')

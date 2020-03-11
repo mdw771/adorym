@@ -113,8 +113,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     for i in range(n_slice):
         if i % binning == 0:
             i_bin = 0
-            delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device)
-            beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device)
+            delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
+            beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
         delta_slice += grid_delta_batch[:, :, :, i]
         beta_slice += grid_beta_batch[:, :, :, i]
         i_bin += 1

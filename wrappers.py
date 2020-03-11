@@ -125,29 +125,29 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
 # ________________
 # |Maths functions|_____________________________________________________________
 
-def zeros(shape, dtype=None, device=None):
+def zeros(shape, dtype=None, device=None, requires_grad=True):
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(shape, device=device, **kwargs)
+        arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(shape, **kwargs)
     return arr
 
 
-def ones(shape, dtype=None, device=None):
+def ones(shape, dtype=None, device=None, requires_grad=True):
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(shape, device=device, **kwargs)
+        arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(shape, **kwargs)
     return arr
 
 
-def zeros_like(var, dtype=None, device=None):
+def zeros_like(var, dtype=None, device=None, requires_grad=True):
     """
     :param var: ADVariable or tensor.
     """
@@ -155,7 +155,7 @@ def zeros_like(var, dtype=None, device=None):
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros_like'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(var, device=device, **kwargs)
+        arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(var, **kwargs)
     return arr
@@ -180,6 +180,11 @@ def cos(var):
 
 
 def exp_complex(var_real, var_imag):
+    if global_settings.backend == 'pytorch':
+        if not isinstance(var_real, tc.Tensor):
+            var_real = tc.tensor(var_real)
+        if not isinstance(var_imag, tc.Tensor):
+            var_real = tc.tensor(var_imag)
     e = exp(var_real)
     return e * cos(var_imag), e * sin(var_imag)
 
@@ -450,3 +455,9 @@ def arctan2(var1, var2):
     arr = func(var1, var2)
     return arr
 
+
+def norm(var_real, var_imag):
+    if global_settings.backend == 'autograd':
+        return abs(var_real + 1j * var_imag)
+    elif global_settings.backend == 'pytorch':
+        return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
