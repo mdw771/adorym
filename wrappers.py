@@ -126,20 +126,24 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
 # |Maths functions|_____________________________________________________________
 
 def zeros(shape, dtype=None, device=None):
+    kwargs = {}
+    if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(shape, device=device)
+        arr = func(shape, device=device, **kwargs)
     else:
-        arr = func(shape)
+        arr = func(shape, **kwargs)
     return arr
 
 
 def ones(shape, dtype=None, device=None):
+    kwargs = {}
+    if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(shape, device=device)
+        arr = func(shape, device=device, **kwargs)
     else:
-        arr = func(shape)
+        arr = func(shape, **kwargs)
     return arr
 
 
@@ -147,11 +151,13 @@ def zeros_like(var, dtype=None, device=None):
     """
     :param var: ADVariable or tensor.
     """
+    kwargs = {}
+    if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros_like'][global_settings.backend])
     if global_settings.backend == 'pytorch':
-        arr = func(var, device=device)
+        arr = func(var, device=device, **kwargs)
     else:
-        arr = func(var)
+        arr = func(var, **kwargs)
     return arr
 
 

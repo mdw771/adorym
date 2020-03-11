@@ -319,11 +319,11 @@ def reconstruct_ptychography(
         else:
             if use_checkpoint:
                 try:
-                    opt.restore_param_arrays_from_checkpoint()
+                    opt.restore_param_arrays_from_checkpoint(device=device_obj)
                 except:
-                    opt.create_param_arrays()
+                    opt.create_param_arrays(device=device_obj)
             else:
-                opt.create_param_arrays()
+                opt.create_param_arrays(device=device_obj)
 
         # ================================================================================
         # Read rotation data.
