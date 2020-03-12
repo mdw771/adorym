@@ -19,7 +19,6 @@ import glob
 from scipy.special import erf
 
 from adorym.constants import *
-from adorym.util import *
 import adorym.wrappers as w
 
 
@@ -151,27 +150,3 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     return probe_real, probe_imag
 
 
-def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
-
-    f = h5py.File(data_fname, 'r')
-    dat = f['exchange/data'][...]
-    # NOTE: this is for toy model
-    wavefront = np.mean(np.abs(dat), axis=0)
-    lmbda_nm = 1.24 / energy_ev
-    h = get_kernel(-dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
-    wavefront = np.fft.fftshift(np.fft.fft2(wavefront)) * h
-    wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
-    return wavefront
-
-
-def create_probe_initial_guess_ptycho(data_fname, noise=True):
-
-    f = h5py.File(data_fname, 'r')
-    dat = f['exchange/data'][...]
-    wavefront = np.mean(np.abs(dat), axis=(0, 1))
-    wavefront = abs(np.fft.ifftshift(np.fft.ifft2(wavefront)))
-    if noise:
-        wavefront_mean = np.mean(wavefront)
-        wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)
-        wavefront = np.clip(wavefront, 0, None)
-    return wavefront
