@@ -170,15 +170,15 @@ def realign_image(arr, shift):
     return temp
 
 
-def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1)):
+def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1), device=None):
     """
     Returns real and imaginary parts as a list.
     """
     f_real, f_imag = w.fft2(a_real, a_imag, axes=axes)
     s = f_real.shape
     freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))
-    freq_x = w.create_variable(freq_x, requires_grad=False)
-    freq_y = w.create_variable(freq_y, requires_grad=False)
+    freq_x = w.create_variable(freq_x, requires_grad=False, device=device)
+    freq_y = w.create_variable(freq_y, requires_grad=False, device=device)
     mult_real, mult_imag = w.exp_complex(0., -2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
     # Reshape for broadcasting
     if len(s) > max(axes) + 1:

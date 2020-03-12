@@ -26,6 +26,7 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'stack':       {'autograd': 'stack',      'tensorflow': 'stack',      'pytorch': 'stack'},
                      'concatenate': {'autograd': 'concatenate','tensorflow': 'cat',        'pytorch': 'cat'},
                      'exp':         {'autograd': 'exp',        'tensorflow': 'exp',        'pytorch': 'exp'},
+                     'log':         {'autograd': 'log',        'tensorflow': 'log',        'pytorch': 'log'},
                      'round':       {'autograd': 'round',      'tensorflow': 'round',      'pytorch': 'round'},
                      'clip':        {'autograd': 'clip',       'tensorflow': 'clip',       'pytorch': 'clamp'},
                      'reshape':     {'autograd': 'reshape',    'tensorflow': 'reshape',    'pytorch': 'reshape'},
@@ -163,6 +164,12 @@ def zeros_like(var, dtype=None, device=None, requires_grad=True):
 
 def exp(var):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['exp'][global_settings.backend])
+    arr = func(var)
+    return arr
+
+
+def log(var):
+    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['log'][global_settings.backend])
     arr = func(var)
     return arr
 

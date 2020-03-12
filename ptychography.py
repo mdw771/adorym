@@ -17,6 +17,7 @@ from optimizers import *
 from differentiator import *
 import wrappers as w
 import global_settings
+from forward_model import *
 
 PI = 3.1415927
 
@@ -25,7 +26,7 @@ def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
         fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
-        energy_ev=5000, psize_cm=1e-7, free_prop_cm=None,
+        energy_ev=5000, psize_cm=1e-7, free_prop_cm=None, raw_data_type='magnitude',
         # ___________________________
         # |Reconstruction parameters|___________________________________________
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
@@ -43,7 +44,7 @@ def reconstruct_ptychography(
         # _______________
         # |Forward model|_______________________________________________________
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
-        probe_type='gaussian', probe_initial=None,
+        probe_type='gaussian', probe_initial=None, loss_function_type='lsq',
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False, use_checkpoint=True,
@@ -78,127 +79,6 @@ def reconstruct_ptychography(
            angle in each synchronized batch. Doing this will cause all ranks to process the same data.
            To perform large fullfield reconstruction efficiently, divide the data into sub-chunks.
     """
-
-    def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
-                       probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
-                       probe_pos_correction=None, this_ind_batch=None):
-
-        this_pos_batch = np.round(this_pos_batch).astype(int)
-        this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=device_obj)
-        if optimize_probe_defocusing:
-            h_probe = get_kernel(probe_defocus_mm * 1e6, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
-            h_probe_real, h_probe_imag = w.real(h_probe), w.imag(h_probe)
-            probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_probe_real, h_probe_imag)
-
-        if optimize_probe_pos_offset:
-            this_offset = probe_pos_offset[this_i_theta]
-            axis_offset = 1 if obj_delta.ndim == 4 else 0
-            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1))
-
-        if not shared_file_object:
-            obj_stack = w.stack([obj_delta, obj_beta], axis=3)
-            if not two_d_mode:
-                obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta], device=device_obj)
-                # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
-            else:
-                obj_rot = obj_stack
-            probe_pos_batch_ls = []
-            ex_real_ls = []
-            ex_imag_ls = []
-            i_dp = 0
-            while i_dp < minibatch_size:
-                probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
-                i_dp += n_dp_batch
-
-            # Pad if needed
-            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size)
-
-            for k, pos_batch in enumerate(probe_pos_batch_ls):
-                subobj_ls = []
-                probe_real_ls = []
-                probe_imag_ls = []
-                for j in range(len(pos_batch)):
-                    pos = pos_batch[j]
-                    # pos = [int(x) for x in pos]
-                    pos[0] = pos[0] + pad_arr[0, 0]
-                    pos[1] = pos[1] + pad_arr[1, 0]
-                    subobj = obj_rot[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
-                    subobj_ls.append(subobj)
-                    if optimize_all_probe_pos:
-                        this_shift = probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]]
-                        probe_real_shifted, probe_imag_shifted = realign_image_fourier(probe_real, probe_imag, this_shift, axes=(0, 1))
-                        probe_real_ls.append(probe_real_shifted)
-                        probe_imag_ls.append(probe_imag_shifted)
-
-                subobj_ls = w.stack(subobj_ls)
-                if optimize_all_probe_pos:
-                    probe_real_ls = w.stack(probe_real_ls)
-                    probe_imag_ls = w.stack(probe_imag_ls)
-                else:
-                    probe_real_ls = probe_real
-                    probe_imag_ls = probe_imag
-                gc.collect()
-                ex_real, ex_imag = multislice_propagate_batch(
-                    subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real_ls,
-                    probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
-                    obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
-                    fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj)
-                ex_real_ls.append(ex_real)
-                ex_imag_ls.append(ex_imag)
-        else:
-            probe_pos_batch_ls = []
-            ex_real_ls = []
-            ex_imag_ls = []
-            i_dp = 0
-            while i_dp < minibatch_size:
-                probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
-                i_dp += n_dp_batch
-
-            pos_ind = 0
-            for k, pos_batch in enumerate(probe_pos_batch_ls):
-                subobj_ls_delta = obj_delta[pos_ind:pos_ind + len(pos_batch), :, :, :]
-                subobj_ls_beta = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
-                ex_real, ex_imag = multislice_propagate_batch(subobj_ls_delta, subobj_ls_beta, probe_real,
-                                                              probe_imag, energy_ev, psize_cm * ds_level, kernel=h,
-                                                              free_prop_cm=free_prop_cm,
-                                                              obj_batch_shape=[len(pos_batch), *probe_size,
-                                                                               this_obj_size[-1]],
-                                                              fresnel_approx=fresnel_approx,
-                                                              pure_projection=pure_projection,
-                                                              device=device_obj)
-                ex_real_ls.append(ex_real)
-                ex_imag_ls.append(ex_imag)
-                pos_ind += len(pos_batch)
-        ex_real_ls = w.concatenate(ex_real_ls, 0)
-        ex_imag_ls = w.concatenate(ex_imag_ls, 0)
-        loss = w.mean((w.norm(ex_real_ls, ex_imag_ls) - w.abs(this_prj_batch)) ** 2)
-        # dxchange.write_tiff(abs(exiting_ls._value[0]), output_folder + '/det/det', dtype='float32', overwrite=True)
-        # raise
-
-        # Regularization
-        if reweighted_l1:
-            if alpha_d not in [None, 0]:
-                loss = loss + alpha_d * w.mean(weight_l1 * w.abs(obj_delta))
-            if alpha_b not in [None, 0]:
-                loss = loss + alpha_b * w.mean(weight_l1 * w.abs(obj_beta))
-        else:
-            if alpha_d not in [None, 0]:
-                loss = loss + alpha_d * w.mean(w.abs(obj_delta))
-            if alpha_b not in [None, 0]:
-                loss = loss + alpha_b * w.mean(w.abs(obj_beta))
-        if gamma not in [None, 0]:
-            if shared_file_object:
-                loss = loss + gamma * total_variation_3d(obj_delta, axis_offset=1)
-            else:
-                loss = loss + gamma * total_variation_3d(obj_delta, axis_offset=0)
-
-        # Write convergence data
-        global current_loss
-        current_loss = float(w.to_numpy(loss))
-        f_conv.write('{},{},{},'.format(i_epoch, i_batch, current_loss))
-        f_conv.flush()
-
-        return loss
 
     comm = MPI.COMM_WORLD
     n_ranks = comm.Get_size()
@@ -304,26 +184,12 @@ def reconstruct_ptychography(
         comm.Barrier()
 
         # ================================================================================
-        # Create object function optimizer.
+        # generate Fresnel kernel.
         # ================================================================================
-        if optimizer == 'adam':
-            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
-            optimizer_options_obj = {'step_size': learning_rate, 'verbose': False}
-        elif optimizer == 'gd':
-            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
-            optimizer_options_obj = {'step_size': learning_rate,
-                                     'dynamic_rate': True,
-                                     'first_downrate_iteration': 20}
-        if shared_file_object:
-            opt.create_file_objects(use_checkpoint=use_checkpoint)
-        else:
-            if use_checkpoint:
-                try:
-                    opt.restore_param_arrays_from_checkpoint(device=device_obj)
-                except:
-                    opt.create_param_arrays(device=device_obj)
-            else:
-                opt.create_param_arrays(device=device_obj)
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
+        lmbda_nm = 1240. / energy_ev
+        delta_nm = voxel_nm[-1]
+        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
         # ================================================================================
         # Read rotation data.
@@ -384,6 +250,41 @@ def reconstruct_ptychography(
                 obj.beta = obj_beta
 
         # ================================================================================
+        # Create object function optimizer.
+        # ================================================================================
+        if optimizer == 'adam':
+            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
+            optimizer_options_obj = {'step_size': learning_rate, 'verbose': False}
+        elif optimizer == 'gd':
+            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
+            optimizer_options_obj = {'step_size': learning_rate,
+                                     'dynamic_rate': True,
+                                     'first_downrate_iteration': 20}
+        if shared_file_object:
+            opt.create_file_objects(use_checkpoint=use_checkpoint)
+        else:
+            if use_checkpoint:
+                try:
+                    opt.restore_param_arrays_from_checkpoint(device=device_obj)
+                except:
+                    opt.create_param_arrays(device=device_obj)
+            else:
+                opt.create_param_arrays(device=device_obj)
+
+        # ================================================================================
+        # Create forward model class.
+        # ================================================================================
+        forward_model = PtychographyModel(loss_function_type=loss_function_type,
+                                          shared_file_object=shared_file_object,
+                                          device=device_obj, common_vars_dict=locals(),
+                                          raw_data_type=raw_data_type)
+        if reweighted_l1:
+            forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
+        else:
+            if alpha_d not in [0, None]: forward_model.add_l1_norm(alpha_d, alpha_b)
+        if gamma not in [0, None]: forward_model.add_tv(gamma)
+
+        # ================================================================================
         # Create gradient class.
         # ================================================================================
         gradient = Gradient(obj)
@@ -421,14 +322,6 @@ def reconstruct_ptychography(
         probe_imag = w.create_variable(probe_imag, device=device_obj)
 
         # ================================================================================
-        # generate Fresnel kernel.
-        # ================================================================================
-        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
-        lmbda_nm = 1240. / energy_ev
-        delta_nm = voxel_nm[-1]
-        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
-
-        # ================================================================================
         # Create other optimizers (probe, probe defocus, probe positions, etc.).
         # ================================================================================
         opt_args_ls = [0, 1]
@@ -444,18 +337,18 @@ def reconstruct_ptychography(
         probe_defocus_mm = w.create_variable(0.0)
         if optimize_probe_defocusing:
             opt_probe_defocus = GDOptimizer([1], output_folder=output_folder)
-            opt_probe_pos.create_param_arrays()
+            opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
                                                'dynamic_rate': True,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
             opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(4)
 
-        probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True)
+        probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
         if optimize_probe_pos_offset:
             assert optimize_all_probe_pos == False
             opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
-            opt_probe_pos.create_param_arrays()
+            opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
                                                   'dynamic_rate': False}
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
@@ -465,10 +358,10 @@ def reconstruct_ptychography(
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
-            probe_pos_correction = w.zeros([n_theta, n_pos, 2], requires_grad=True)
+            probe_pos_correction = w.zeros([n_theta, n_pos, 2], requires_grad=True, device=device_obj)
             # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
             opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
-            opt_probe_pos.create_param_arrays()
+            opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
             opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(9)
@@ -477,6 +370,7 @@ def reconstruct_ptychography(
         # Get gradient of loss function w.r.t. optimizable variables.
         # ================================================================================
         diff = Differentiator()
+        calculate_loss = forward_model.get_loss_function()
         diff.create_loss_node(calculate_loss, opt_args_ls)
 
         # ================================================================================
@@ -592,16 +486,16 @@ def reconstruct_ptychography(
                     n_supp = n_tot_per_batch - len(ind_list_rand[i_batch])
                     ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
 
-                this_ind_batch = ind_list_rand[i_batch]
-                this_i_theta = this_ind_batch[rank * minibatch_size, 0]
-                this_ind_rank = np.sort(this_ind_batch[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+                this_ind_batch_allranks = ind_list_rand[i_batch]
+                this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
+                this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
                 print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
 
                 # Apply offset correction
-                this_pos_batch = probe_pos[this_ind_rank]
+                this_pos_batch = probe_pos[this_ind_batch]
 
                 t_prj_0 = time.time()
-                this_prj_batch = prj[this_i_theta, this_ind_rank]
+                this_prj_batch = prj[this_i_theta, this_ind_batch]
                 print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank, **stdout_options)
 
                 # ================================================================================
@@ -636,25 +530,24 @@ def reconstruct_ptychography(
                     obj_delta = obj.delta
                     obj_beta = obj.beta
 
-                # Update weight for reweighted L1
-                if shared_file_object:
-                    weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
-                else:
-                    if i_batch % 10 == 0: weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
+                # ================================================================================
+                # Update weight for reweighted l1 if necessary
+                # ================================================================================
+                if reweighted_l1:
+                    if shared_file_object:
+                        weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
+                    else:
+                        if i_batch % 10 == 0: weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
+                    forward_model.update_l1_weight(weight_l1)
 
                 # ================================================================================
                 # Calculate object gradients.
                 # ================================================================================
                 t_grad_0 = time.time()
-                grads = diff.get_gradients(obj_delta=obj_delta, obj_beta=obj_beta,
-                                           probe_real=probe_real, probe_imag=probe_imag,
-                                           probe_defocus_mm=probe_defocus_mm,
-                                           probe_pos_offset=probe_pos_offset,
-                                           this_i_theta=this_i_theta,
-                                           this_pos_batch=this_pos_batch,
-                                           this_prj_batch=this_prj_batch,
-                                           probe_pos_correction=probe_pos_correction,
-                                           this_ind_batch=this_ind_rank)
+                grad_func_args = {}
+                for arg in forward_model.argument_ls:
+                    grad_func_args[arg] = locals()[arg]
+                grads = diff.get_gradients(**grad_func_args)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
 
@@ -801,8 +694,9 @@ def reconstruct_ptychography(
                                                     w.to_numpy(probe_pos_correction[i_theta_pos]))
 
                 comm.Barrier()
+                current_loss = forward_model.current_loss
                 print_flush('Minibatch done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank, **stdout_options)
-                f_conv.write('{}\n'.format(time.time() - t_zero))
+                f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
                 f_conv.flush()
 
                 # ================================================================================

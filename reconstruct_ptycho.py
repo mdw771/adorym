@@ -79,7 +79,8 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'shared_file_object': True,
                   'optimizer': 'adam',
                   'use_checkpoint': False,
-                  'backend': 'pytorch'
+                  'backend': 'pytorch',
+                  'reweighted_l1': True
                   }
 
 
@@ -357,7 +358,7 @@ params_cameraman = {'fname': 'data_cameraman_err_3.h5',
                     'minibatch_size': 2704,
                     'n_batch_per_update': 1,
                     'output_folder': 'test_temp',
-                    'cpu_only': True,
+                    'cpu_only': False,
                     'save_path': 'cameraman_pos_error',
                     'multiscale_level': 1,
                     'n_epoch_final_pass': None,
@@ -456,12 +457,12 @@ params_cone = {'fname': 'data_cone_256_1nm_marc.h5',
                'free_prop_cm': 'inf'
                }
 
-# params = params_adhesin_ff
+params = params_adhesin_ff
 # params = params_adhesin_2
 # params = params_cone_marc
 # params = params_cone_marc_theta
 # params = params_2d_cell
 # params = params_adhesin_opt_pos
-params = params_cameraman
+# params = params_cameraman
 
 reconstruct_ptychography(**params)
