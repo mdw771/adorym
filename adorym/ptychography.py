@@ -326,7 +326,7 @@ def reconstruct_ptychography(
         opt_args_ls = [0, 1]
         if probe_type == 'optimizable':
             opt_probe = GDOptimizer([*probe_size, 2], output_folder=output_folder)
-            opt_probe_pos.create_param_arrays()
+            opt_probe.create_param_arrays(device=device_obj)
             optimizer_options_probe = {'step_size': probe_learning_rate,
                                       'dynamic_rate': True,
                                       'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
