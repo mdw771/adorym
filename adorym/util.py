@@ -110,7 +110,10 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         else:
             print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
                         output_folder=output_folder, timestamp=timestr)
-            probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname))
+            probe_guess_kwargs = {}
+            if 'raw_data_type' in kwargs.keys():
+                probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
+            probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
             probe_real = probe_init.real
             probe_imag = probe_init.imag
         if pupil_function is not None:
@@ -127,10 +130,11 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
     return probe_real, probe_imag
 
 
-def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
+def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm, raw_data_type='intensity'):
 
     f = h5py.File(data_fname, 'r')
     dat = f['exchange/data'][...]
+    if raw_data_type == 'intensity': dat = np.sqrt(dat)
     # NOTE: this is for toy model
     wavefront = np.mean(np.abs(dat), axis=0)
     lmbda_nm = 1.24 / energy_ev
@@ -140,10 +144,11 @@ def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
     return wavefront
 
 
-def create_probe_initial_guess_ptycho(data_fname, noise=False):
+def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='intensity'):
 
     f = h5py.File(data_fname, 'r')
     dat = f['exchange/data'][...]
+    if raw_data_type == 'intensity': dat = np.sqrt(dat)
     wavefront = np.mean(np.abs(dat), axis=(0, 1))
     wavefront = abs(np.fft.ifftshift(np.fft.ifft2(wavefront)))
     if noise:
