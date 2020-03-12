@@ -2,7 +2,7 @@ import warnings
 import os
 import numpy as np
 
-import global_settings
+import adorym.global_settings as global_settings
 
 engine_dict = {}
 try:

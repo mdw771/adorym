@@ -2,9 +2,9 @@ import numpy as np
 
 import gc
 
-import wrappers as w
-from util import *
-from propagate import multislice_propagate_batch, get_kernel
+import adorym.wrappers as w
+from adorym.util import *
+from adorym.propagate import multislice_propagate_batch, get_kernel
 
 class ForwardModel(object):
 

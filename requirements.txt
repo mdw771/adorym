@@ -1,0 +1,7 @@
+python
+numpy
+pytorch
+autograd
+h5py
+dxchange
+mpi4py

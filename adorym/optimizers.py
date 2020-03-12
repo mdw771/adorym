@@ -3,10 +3,10 @@ import os
 import h5py
 from mpi4py import MPI
 
-from util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
-from array_ops import ObjectFunction, Gradient
-import wrappers as w
-import global_settings
+from adorym.util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
+from adorym.array_ops import ObjectFunction, Gradient
+import adorym.wrappers as w
+import adorym.global_settings as global_settings
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()

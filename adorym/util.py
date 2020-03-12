@@ -19,9 +19,8 @@ import pickle
 import glob
 from scipy.special import erf
 
-from constants import *
-from interpolation import *
-import wrappers as w
+from adorym.constants import *
+import adorym.wrappers as w
 
 
 comm = MPI.COMM_WORLD
@@ -661,8 +660,8 @@ def fourier_shell_correlation(obj, ref, step_size=1, save_path='fsc', save_mask=
         os.makedirs(save_path)
 
     radius_max = int(min(obj.shape) / 2)
-    f_obj = np.fft.fftshift(fftn(obj))
-    f_ref = np.fft.fftshift(fftn(ref))
+    f_obj = np.fft.fftshift(np.fft.fftn(obj))
+    f_ref = np.fft.fftshift(np.fft.fftn(ref))
     f_prod = f_obj * np.conjugate(f_ref)
     f_obj_2 = np.real(f_obj * np.conjugate(f_obj))
     f_ref_2 = np.real(f_ref * np.conjugate(f_ref))
@@ -699,8 +698,8 @@ def fourier_ring_correlation(obj, ref, step_size=1, save_path='frc', save_mask=F
         os.makedirs(save_path)
 
     radius_max = int(min(obj.shape) / 2)
-    f_obj = np.fft.fftshift(fft2(obj))
-    f_ref = np.fft.fftshift(fft2(ref))
+    f_obj = np.fft.fftshift(np.fft.fft2(obj))
+    f_ref = np.fft.fftshift(np.fft.fft2(ref))
     f_prod = f_obj * np.conjugate(f_ref)
     f_obj_2 = np.real(f_obj * np.conjugate(f_obj))
     f_ref_2 = np.real(f_ref * np.conjugate(f_ref))
@@ -771,32 +770,6 @@ def mag_phase_to_real_imag(mag, phase):
 
     a = mag * np.exp(1j * phase)
     return a.real, a.imag
-
-
-def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm):
-
-    f = h5py.File(data_fname, 'r')
-    dat = f['exchange/data'][...]
-    # NOTE: this is for toy model
-    wavefront = np.mean(np.abs(dat), axis=0)
-    lmbda_nm = 1.24 / energy_ev
-    h = get_kernel(-dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
-    wavefront = np.fft.fftshift(np.fft.fft2(wavefront)) * h
-    wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
-    return wavefront
-
-
-def create_probe_initial_guess_ptycho(data_fname, noise=True):
-
-    f = h5py.File(data_fname, 'r')
-    dat = f['exchange/data'][...]
-    wavefront = np.mean(np.abs(dat), axis=(0, 1))
-    wavefront = abs(np.fft.ifftshift(np.fft.ifft2(wavefront)))
-    if noise:
-        wavefront_mean = np.mean(wavefront)
-        wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)
-        wavefront = np.clip(wavefront, 0, None)
-    return wavefront
 
 
 def multidistance_ctf(prj_ls, dist_cm_ls, psize_cm, energy_kev, kappa=50, sigma_cut=0.01, alpha_1=5e-4, alpha_2=1e-16):

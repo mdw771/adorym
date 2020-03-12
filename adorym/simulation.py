@@ -7,9 +7,9 @@ import h5py
 from scipy.ndimage import rotate as sp_rotate
 from tqdm import tqdm
 
-from util import *
-from propagate import *
-import global_settings
+from adorym.util import *
+from adorym.propagate import *
+import adorym.global_settings as global_settings
 
 
 def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_path, fname, probe_pos,

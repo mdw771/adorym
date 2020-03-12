@@ -4,9 +4,8 @@ import h5py
 from mpi4py import MPI
 import gc
 
-from util import *
-import wrappers as w
-from global_settings import backend
+from adorym.util import *
+import adorym.wrappers as w
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()

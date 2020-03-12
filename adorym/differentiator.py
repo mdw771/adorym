@@ -1,6 +1,6 @@
 import numpy as np
 
-import wrappers as w
+import adorym.wrappers as w
 
 class Differentiator(object):
 

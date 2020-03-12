@@ -7,17 +7,16 @@ import os
 import h5py
 import gc
 import warnings
-from scipy.ndimage import rotate as sp_rotate
 
-from util import *
-from misc import *
-from propagate import *
-from array_ops import *
-from optimizers import *
-from differentiator import *
-import wrappers as w
-import global_settings
-from forward_model import *
+from adorym.util import *
+from adorym.misc import *
+from adorym.propagate import *
+from adorym.array_ops import *
+from adorym.optimizers import *
+from adorym.differentiator import *
+import adorym.wrappers as w
+import adorym.global_settings
+from adorym.forward_model import *
 
 PI = 3.1415927
 

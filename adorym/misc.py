@@ -1,5 +1,5 @@
 import os
-import autograd.numpy as np
+import numpy as np
 
 SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_size',
