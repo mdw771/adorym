@@ -24,7 +24,6 @@ import adorym.wrappers as w
 from adorym.propagate import *
 
 
-
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
 rank = comm.Get_rank()
@@ -35,45 +34,41 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
                       shared_file_object=True, not_first_level=False):
 
     if not shared_file_object:
-        if not_first_level == False:
-            if initial_guess is None:
-                print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
-                            save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
+        if rank == 0:
+            if not_first_level == False:
+                if initial_guess is None:
+                    print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
+                                save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+                    obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
+                    obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
+                    obj_delta[obj_delta < 0] = 0
+                    obj_beta[obj_beta < 0] = 0
+                else:
+                    print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+                                output_folder=output_folder, timestamp=timestr)
+                    sys.stdout.flush()
+                    obj_delta = np.array(initial_guess[0])
+                    obj_beta = np.array(initial_guess[1])
+            else:
+                print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+                            output_folder=output_folder, timestamp=timestr)
+                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_delta = upsample_2x(obj_delta)
+                obj_beta = upsample_2x(obj_beta)
+                obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
+                obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
                 obj_delta[obj_delta < 0] = 0
                 obj_beta[obj_beta < 0] = 0
-            else:
-                print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
-                            output_folder=output_folder, timestamp=timestr)
-                sys.stdout.flush()
-                obj_delta = np.array(initial_guess[0])
-                obj_beta = np.array(initial_guess[1])
+            if object_type == 'phase_only':
+                obj_beta[...] = 0
+            elif object_type == 'absorption_only':
+                obj_delta[...] = 0
         else:
-            print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
-                        output_folder=output_folder, timestamp=timestr)
-            obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            obj_delta = upsample_2x(obj_delta)
-            obj_beta = upsample_2x(obj_beta)
-            obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-            obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
-            obj_delta[obj_delta < 0] = 0
-            obj_beta[obj_beta < 0] = 0
-        if object_type == 'phase_only':
-            obj_beta[...] = 0
-        elif object_type == 'absorption_only':
-            obj_delta[...] = 0
-        np.save('init_delta_temp.npy', obj_delta)
-        np.save('init_beta_temp.npy', obj_beta)
-        obj_delta = np.zeros(this_obj_size)
-        obj_beta = np.zeros(this_obj_size)
-        obj_delta[:, :, :] = np.load('init_delta_temp.npy', allow_pickle=True)
-        obj_beta[:, :, :] = np.load('init_beta_temp.npy', allow_pickle=True)
-        comm.Barrier()
-        if rank == 0:
-            os.remove('init_delta_temp.npy')
-            os.remove('init_beta_temp.npy')
+            obj_delta = None
+            obj_beta = None
+        obj_delta = comm.bcast(obj_delta, root=0)
+        obj_beta = comm.bcast(obj_beta, root=0)
         return obj_delta, obj_beta
     else:
         if initial_guess is None:
