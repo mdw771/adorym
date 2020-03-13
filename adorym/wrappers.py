@@ -57,6 +57,16 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
 # _____________
 # |Flow control|_____________________________________________________________
 
+class EmptyWith(object):
+    def __init__(self):
+        pass
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_value, tb):
+        pass
+
 def create_variable(arr, dtype=None, device=None, requires_grad=True):
     """
     Create a variable wrapper.
@@ -163,39 +173,51 @@ def collect_gpu_garbage():
 
 def get_allocated_tensors():
 
-    # def _getr(slist, olist, seen):
-    #     for e in slist:
-    #         if id(e) in seen:
-    #             continue
-    #         seen[id(e)] = None
-    #         olist.append(e)
-    #         tl = gc.get_referents(e)
-    #         if tl:
-    #             _getr(tl, olist, seen)
-    #
-    # # The public function.
-    # def get_all_objects():
-    #     """Return a list of all live Python
-    #     objects, not including the list itself."""
-    #     gcl = gc.get_objects()
-    #     olist = []
-    #     seen = {}
-    #     # Just in case:
-    #     seen[id(gcl)] = None
-    #     seen[id(olist)] = None
-    #     seen[id(seen)] = None
-    #     # _getr does the real work.
-    #     _getr(gcl, olist, seen)
-    #     return olist
+    def _getr(slist, olist, seen):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            olist.append(e)
+            tl = gc.get_referents(e)
+            if tl:
+                _getr(tl, olist, seen)
+
+    def get_all_objects():
+        """Return a list of all live Python
+        objects, not including the list itself."""
+        gcl = gc.get_objects()
+        olist = []
+        seen = {}
+        # Just in case:
+        seen[id(gcl)] = None
+        seen[id(olist)] = None
+        seen[id(seen)] = None
+        # _getr does the real work.
+        _getr(gcl, olist, seen)
+        return olist
 
     if global_settings.backend == 'pytorch':
-        objects = gc.get_objects()
+        objects = get_all_objects()
         for obj in objects:
             try:
                 if tc.is_tensor(obj) or (hasattr(obj, 'data') and tc.is_tensor(obj.data)):
                     print(type(obj), obj.shape, obj.device)
             except:
                 pass
+
+def no_grad():
+    if global_settings.backend == 'pytorch':
+        return tc.no_grad()
+    else:
+        return EmptyWith()
+
+def reattach(var):
+    if global_settings.backend == 'pytorch':
+        var.requires_grad_()
+        return var
+    else:
+        return var
 
 # ________________
 # |Maths functions|_____________________________________________________________

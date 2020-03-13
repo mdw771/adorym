@@ -100,15 +100,15 @@ class ObjectFunction(LargeArray):
                               initial_guess=initial_guess, output_folder=self.output_folder, rank=rank,
                               n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
                               shared_file_object=False, not_first_level=not_first_level)
-        self.delta = w.create_variable(temp_delta, device=device)
-        self.beta = w.create_variable(temp_beta, device=device)
+        self.delta = w.create_variable(temp_delta, device=device, requires_grad=True)
+        self.beta = w.create_variable(temp_beta, device=device, requires_grad=True)
         del temp_delta
         del temp_beta
         gc.collect()
 
     def initialize_array_with_values(self, obj_delta, obj_beta, device=None):
-        self.delta = w.create_variable(obj_delta, device=device)
-        self.beta = w.create_variable(obj_beta, device=device)
+        self.delta = w.create_variable(obj_delta, device=device, requires_grad=True)
+        self.beta = w.create_variable(obj_beta, device=device, requires_grad=True)
 
     def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None):
         initialize_object(self.full_size[:-1], dset=self.dset, ds_level=self.ds_level, object_type=self.object_type,
@@ -119,8 +119,11 @@ class ObjectFunction(LargeArray):
     def apply_finite_support_mask_to_array(self, mask):
         assert isinstance(mask, Mask)
         if not self.shared_file_object:
-            self.delta *= mask.mask
-            self.beta *= mask.mask
+            with w.no_grad():
+                self.delta *= mask.mask
+                self.beta *= mask.mask
+            w.reattach(self.delta)
+            w.reattach(self.beta)
 
     def apply_finite_support_mask_to_file(self, mask):
         assert isinstance(mask, Mask)
@@ -132,6 +135,12 @@ class ObjectFunction(LargeArray):
                 obj_arr[:, :, 0] *= mask_arr
                 obj_arr[:, :, 1] *= mask_arr
                 self.dset[i_slice] = obj_arr
+
+    def update_object(self, obj_delta, obj_beta):
+        self.delta.detach()
+        self.beta.detach()
+        self.delta = obj_delta
+        self.beta = obj_beta
 
 
 class Gradient(ObjectFunction):

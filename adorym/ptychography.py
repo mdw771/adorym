@@ -520,30 +520,36 @@ def reconstruct_ptychography(
                     t_read_0 = time.time()
                     obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
-                    obj_delta = obj_rot[:, :, :, :, 0]
-                    obj_beta = obj_rot[:, :, :, :, 1]
+                    obj.delta = obj_rot[:, :, :, :, 0]
+                    obj.beta = obj_rot[:, :, :, :, 1]
                     opt.get_params_from_file(this_pos_batch, probe_size)
-                else:
-                    obj_delta = obj.delta
-                    obj_beta = obj.beta
+                # else:
+                #     obj_delta = obj.delta
+                #     obj_beta = obj.beta
 
                 # ================================================================================
                 # Update weight for reweighted l1 if necessary
                 # ================================================================================
                 if reweighted_l1:
                     if shared_file_object:
-                        weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
+                        weight_l1 = w.max(obj.delta) / (w.abs(obj.delta) + 1e-8)
                     else:
-                        if i_batch % 10 == 0: weight_l1 = w.max(obj_delta) / (w.abs(obj_delta) + 1e-8)
+                        if i_batch % 10 == 0: weight_l1 = w.max(obj.delta) / (w.abs(obj.delta) + 1e-8)
                     forward_model.update_l1_weight(weight_l1)
 
                 # ================================================================================
                 # Calculate object gradients.
                 # ================================================================================
+                # After gradient is calculated, any modification to optimizable arrays must be
+                # inside a no_grad() block!
+                # ================================================================================
                 t_grad_0 = time.time()
                 grad_func_args = {}
                 for arg in forward_model.argument_ls:
-                    grad_func_args[arg] = locals()[arg]
+                    if arg == 'obj_delta': grad_func_args[arg] = obj.delta
+                    elif arg == 'obj_beta': grad_func_args[arg] = obj.beta
+                    else:
+                        grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
@@ -565,63 +571,78 @@ def reconstruct_ptychography(
                 # Update object function with optimizer if not shared_file_object; otherwise,
                 # just save the gradient chunk into the gradient file.
                 # ================================================================================
-                if not shared_file_object:
-                    obj_temp = opt.apply_gradient(w.stack([obj_delta, obj_beta], axis=-1), obj_grads, i_full_angle,
-                                                            **optimizer_options_obj)
-                    obj_delta, obj_beta = w.split_channel(obj_temp)
-                else:
-                    t_grad_write_0 = time.time()
-                    gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
-                                                  write_difference=False)
-                    print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)
-                del obj_grads, obj_temp
+                with w.no_grad():
+                    if not shared_file_object:
+                        obj_temp = opt.apply_gradient(w.stack([obj.delta, obj.beta], axis=-1), obj_grads, i_full_angle,
+                                                                **optimizer_options_obj)
+                        obj.delta, obj.beta = w.split_channel(obj_temp)
+                        del obj_temp
+                    else:
+                        t_grad_write_0 = time.time()
+                        gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
+                                                      write_difference=False)
+                        print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)
+                    del obj_grads
+                w.reattach(obj.delta)
+                w.reattach(obj.beta)
 
                 # ================================================================================
                 # Nonnegativity and phase/absorption-only constraints for non-shared-file-mode,
                 # and update arrays in instance.
                 # ================================================================================
-                if not shared_file_object:
-                    obj_delta = w.clip(obj_delta, 0, None)
-                    obj_beta = w.clip(obj_beta, 0, None)
-                    if object_type == 'absorption_only': obj_delta *= 0
-                    if object_type == 'phase_only': obj_beta *= 0
-                    obj.delta = obj_delta
-                    obj.beta = obj_beta
+                with w.no_grad():
+                    if not shared_file_object:
+                        obj.delta = w.clip(obj.delta, 0, None)
+                        obj.beta = w.clip(obj.beta, 0, None)
+                        if object_type == 'absorption_only': obj.delta *= 0
+                        if object_type == 'phase_only': obj.beta *= 0
+                w.reattach(obj.delta)
+                w.reattach(obj.beta)
 
                 # ================================================================================
                 # Optimize probe and other parameters if necessary.
                 # ================================================================================
                 if probe_type == 'optimizable':
-                    probe_grads = w.stack(grads[2:4], axis=-1)
-                    probe_grads = comm.allreduce(probe_grads)
-                    probe_grads = probe_grads / n_ranks
-                    probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
-                    probe_real, probe_imag = w.split_channel(probe_temp)
-                    del probe_grads, probe_temp
+                    with w.no_grad():
+                        probe_grads = w.stack(grads[2:4], axis=-1)
+                        probe_grads = comm.allreduce(probe_grads)
+                        probe_grads = probe_grads / n_ranks
+                        probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
+                        probe_real, probe_imag = w.split_channel(probe_temp)
+                        del probe_grads, probe_temp
+                    w.reattach(probe_real)
+                    w.reattach(probe_imag)
 
                 if optimize_probe_defocusing:
-                    this_pd_grad = grads[opt_probe_defocus.index_in_grad_returns]
-                    pd_grads = w.create_variable(0.0)
-                    pd_grads = comm.Allreduce(this_pd_grad)
-                    pd_grads = pd_grads / n_ranks
-                    probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
-                                                                        **optimizer_options_probe_defocus)
-                    print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
-                                **stdout_options)
+                    with w.no_grad():
+                        this_pd_grad = grads[opt_probe_defocus.index_in_grad_returns]
+                        pd_grads = w.create_variable(0.0)
+                        pd_grads = comm.Allreduce(this_pd_grad)
+                        pd_grads = pd_grads / n_ranks
+                        probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
+                                                                            **optimizer_options_probe_defocus)
+                        print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
+                                    **stdout_options)
+                    w.reattach(probe_defocus_mm)
 
                 if optimize_probe_pos_offset:
-                    pos_offset_grads = grads[opt_probe_pos_offset.index_in_grad_returns]
-                    pos_offset_grads = comm.allreduce(pos_offset_grads)
-                    pos_offset_grads = pos_offset_grads / n_ranks
-                    probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
-                                                                        **optimizer_options_probe_pos_offset)
+                    with w.no_grad():
+                        pos_offset_grads = grads[opt_probe_pos_offset.index_in_grad_returns]
+                        pos_offset_grads = comm.allreduce(pos_offset_grads)
+                        pos_offset_grads = pos_offset_grads / n_ranks
+                        probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
+                                                                            **optimizer_options_probe_pos_offset)
+                    w.reattach(probe_pos_offset)
 
                 if optimize_all_probe_pos:
-                    all_pos_grads = grads[opt_probe_pos.index_in_grad_returns]
-                    all_pos_grads = comm.allreduce(all_pos_grads)
-                    all_pos_grads = all_pos_grads / n_ranks
-                    probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
-                                                                        **optimizer_options_probe_pos)
+                    with w.no_grad():
+                        all_pos_grads = grads[opt_probe_pos.index_in_grad_returns]
+                        all_pos_grads = comm.allreduce(all_pos_grads)
+                        all_pos_grads = all_pos_grads / n_ranks
+                        probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
+                                                                            **optimizer_options_probe_pos)
+                    w.reattach(probe_pos_correction)
+
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
                 # rotate the gradient back, and use it to update the object at 0 deg. Then
@@ -694,10 +715,7 @@ def reconstruct_ptychography(
                 current_loss = forward_model.current_loss
                 print_flush('Minibatch done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank, **stdout_options)
 
-                del obj_delta, obj_beta, this_prj_batch
-                # w.collect_gpu_garbage()
                 gc.collect()
-                # w.get_allocated_tensors()
                 if not cpu_only:
                     print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
                         w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), 0, rank, **stdout_options)
@@ -717,7 +735,6 @@ def reconstruct_ptychography(
             else:
                 if i_epoch == n_epochs - 1: cont = False
 
-            average_loss = 0
             print_flush(
                 'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     time.time() - t0, time.time() - t_zero),
