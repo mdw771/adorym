@@ -1,0 +1,2 @@
+Max error = 10, sigma = 4;
+Max error = 3, sigma = 1;

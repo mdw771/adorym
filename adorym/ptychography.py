@@ -123,7 +123,7 @@ def reconstruct_ptychography(
                       'timestamp': timestr}
 
     n_pos = len(probe_pos)
-    probe_pos = np.array(probe_pos)
+    probe_pos = np.array(probe_pos).astype(float)
 
     # ================================================================================
     # Batching check.
@@ -352,11 +352,11 @@ def reconstruct_ptychography(
             opt_args_ls.append(5)
 
         probe_pos_int = np.round(probe_pos).astype(int)
-        probe_pos_correction = w.create_variable(probe_pos - probe_pos_int, requires_grad=optimize_all_probe_pos, device=device_obj)
+        probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                                                 requires_grad=optimize_all_probe_pos, device=device_obj)
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
-            # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
             opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
             opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
