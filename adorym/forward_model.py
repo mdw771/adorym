@@ -155,6 +155,7 @@ class PtychographyModel(ForwardModel):
                     fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
+            del subobj_ls, probe_real_ls, probe_imag_ls
         else:
             probe_pos_batch_ls = []
             ex_real_ls = []
@@ -203,6 +204,8 @@ class PtychographyModel(ForwardModel):
                     loss = w.mean(w.norm(ex_real_ls, ex_imag_ls) ** 2 - w.abs(this_prj_batch) * w.log(w.norm(ex_real_ls, ex_imag_ls) ** 2))
             loss = loss + self.get_regularization_value(obj_delta, obj_beta)
             self.current_loss = float(w.to_numpy(loss))
+            del ex_real_ls, ex_imag_ls
+            del this_prj_batch
             return loss
         return calculate_loss
 

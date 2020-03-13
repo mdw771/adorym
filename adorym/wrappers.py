@@ -1,5 +1,6 @@
 import warnings
 import os
+import gc
 import numpy as np
 
 import adorym.global_settings as global_settings
@@ -122,7 +123,79 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
         dx_ls = []
         for i, node in enumerate(kwargs_ls):
             if i in opt_args_ls: dx_ls.append(node)
-        return tag.grad(l, dx_ls, retain_graph=True)
+        grads = tag.grad(l, dx_ls, retain_graph=True, create_graph=False)
+        # grads = []
+        # l.backward(retain_graph=True)
+        # for n in dx_ls:
+        #     print(n.grad)
+        #     grads.append(n.grad)
+        l.detach()
+        del l
+
+        return grads
+
+
+def get_gpu_memory_usage_mb():
+    if global_settings.backend == 'autograd':
+        return 0
+    elif global_settings.backend == 'pytorch':
+        return tc.cuda.memory_allocated() / 1024 ** 2
+
+
+def get_gpu_memory_cache_mb():
+    if global_settings.backend == 'autograd':
+        return 0
+    elif global_settings.backend == 'pytorch':
+        return tc.cuda.memory_cached() / 1024 ** 2
+
+
+def get_peak_gpu_memory_usage_mb():
+    if global_settings.backend == 'autograd':
+        return 0
+    elif global_settings.backend == 'pytorch':
+        return tc.cuda.max_memory_allocated() / 1024 ** 2
+
+def collect_gpu_garbage():
+    if global_settings.backend == 'autograd':
+        pass
+    elif global_settings.backend == 'pytorch':
+        tc.cuda.empty_cache()
+
+def get_allocated_tensors():
+
+    def _getr(slist, olist, seen):
+        for e in slist:
+            if id(e) in seen:
+                continue
+            seen[id(e)] = None
+            olist.append(e)
+            tl = gc.get_referents(e)
+            if tl:
+                _getr(tl, olist, seen)
+
+    # The public function.
+    def get_all_objects():
+        """Return a list of all live Python
+        objects, not including the list itself."""
+        gcl = gc.get_objects()
+        olist = []
+        seen = {}
+        # Just in case:
+        seen[id(gcl)] = None
+        seen[id(olist)] = None
+        seen[id(seen)] = None
+        # _getr does the real work.
+        _getr(gcl, olist, seen)
+        return olist
+
+    if global_settings.backend == 'pytorch':
+        objects = get_all_objects()
+        for obj in objects:
+            try:
+                if tc.is_tensor(obj) or (hasattr(obj, 'data') and tc.is_tensor(obj.data)):
+                    print(type(obj), obj.shape, obj.device)
+            except:
+                pass
 
 # ________________
 # |Maths functions|_____________________________________________________________

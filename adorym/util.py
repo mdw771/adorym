@@ -1157,3 +1157,5 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
             dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old] += vals_delta
 
     return
+
+

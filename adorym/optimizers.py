@@ -147,6 +147,7 @@ class AdamOptimizer(Optimizer):
             self.params_whole_array_dict['m'] = m
             self.params_whole_array_dict['v'] = v
         self.i_batch += 1
+        del mhat, vhat
         return x
 
     def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):
