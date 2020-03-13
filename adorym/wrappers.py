@@ -40,6 +40,7 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'abs':         {'autograd': 'abs',        'tensorflow': 'abs',        'pytorch': 'abs'},
                      'sum':         {'autograd': 'sum',        'tensorflow': 'reduce_sum', 'pytorch': 'sum'},
                      'arctan2':     {'autograd': 'arctan2',    'tensorflow': 'atan2',      'pytorch': 'atan2'},
+                     'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',      'pytorch': 'nonzero'},
                      }
 
 dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float'},
@@ -460,6 +461,12 @@ def roll(var, shifts, axes=0):
 def arctan2(var1, var2):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['arctan2'][global_settings.backend])
     arr = func(var1, var2)
+    return arr
+
+
+def nonzero(var):
+    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['nonzero'][global_settings.backend])
+    arr = func(var)
     return arr
 
 

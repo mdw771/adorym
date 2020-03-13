@@ -70,7 +70,7 @@ class PtychographyModel(ForwardModel):
 
     def predict(self, obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
-                probe_pos_correction=None, this_ind_batch=None):
+                probe_pos_correction, this_ind_batch):
 
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']
@@ -132,7 +132,7 @@ class PtychographyModel(ForwardModel):
                     pos[1] = pos[1] + pad_arr[1, 0]
                     subobj = obj_rot[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
                     subobj_ls.append(subobj)
-                    if optimize_all_probe_pos:
+                    if optimize_all_probe_pos or len(w.nonzero(probe_pos_correction > 1e-3)) > 0:
                         this_shift = probe_pos_correction[this_i_theta, this_ind_batch[k * n_dp_batch + j]]
                         probe_real_shifted, probe_imag_shifted = realign_image_fourier(probe_real, probe_imag,
                                                                                        this_shift, axes=(0, 1),
@@ -186,10 +186,10 @@ class PtychographyModel(ForwardModel):
     def get_loss_function(self):
         def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
-                           probe_pos_correction=None, this_ind_batch=None):
+                           probe_pos_correction, this_ind_batch):
             ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
-                           probe_pos_correction=probe_pos_correction, this_ind_batch=this_ind_batch)
+                           probe_pos_correction, this_ind_batch)
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':

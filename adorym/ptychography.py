@@ -351,11 +351,11 @@ def reconstruct_ptychography(
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(5)
 
-        probe_pos_correction = None
+        probe_pos_int = np.round(probe_pos).astype(int)
+        probe_pos_correction = w.create_variable(probe_pos - probe_pos_int, requires_grad=optimize_all_probe_pos, device=device_obj)
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
-            probe_pos_correction = w.zeros([n_theta, n_pos, 2], requires_grad=True, device=device_obj)
             # probe_pos_correction = np.full([n_theta, n_pos, 2], 5).astype(float)
             opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
             opt_probe_pos.create_param_arrays(device=device_obj)
@@ -489,7 +489,7 @@ def reconstruct_ptychography(
                 print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
 
                 # Apply offset correction
-                this_pos_batch = probe_pos[this_ind_batch]
+                this_pos_batch = probe_pos_int[this_ind_batch]
 
                 t_prj_0 = time.time()
                 this_prj_batch = prj[this_i_theta, this_ind_batch]
