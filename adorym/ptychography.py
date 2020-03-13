@@ -574,7 +574,7 @@ def reconstruct_ptychography(
                     gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
                                                   write_difference=False)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank, **stdout_options)
-                del obj_grads
+                del obj_grads, obj_temp
 
                 # ================================================================================
                 # Nonnegativity and phase/absorption-only constraints for non-shared-file-mode,

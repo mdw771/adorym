@@ -163,33 +163,33 @@ def collect_gpu_garbage():
 
 def get_allocated_tensors():
 
-    def _getr(slist, olist, seen):
-        for e in slist:
-            if id(e) in seen:
-                continue
-            seen[id(e)] = None
-            olist.append(e)
-            tl = gc.get_referents(e)
-            if tl:
-                _getr(tl, olist, seen)
-
-    # The public function.
-    def get_all_objects():
-        """Return a list of all live Python
-        objects, not including the list itself."""
-        gcl = gc.get_objects()
-        olist = []
-        seen = {}
-        # Just in case:
-        seen[id(gcl)] = None
-        seen[id(olist)] = None
-        seen[id(seen)] = None
-        # _getr does the real work.
-        _getr(gcl, olist, seen)
-        return olist
+    # def _getr(slist, olist, seen):
+    #     for e in slist:
+    #         if id(e) in seen:
+    #             continue
+    #         seen[id(e)] = None
+    #         olist.append(e)
+    #         tl = gc.get_referents(e)
+    #         if tl:
+    #             _getr(tl, olist, seen)
+    #
+    # # The public function.
+    # def get_all_objects():
+    #     """Return a list of all live Python
+    #     objects, not including the list itself."""
+    #     gcl = gc.get_objects()
+    #     olist = []
+    #     seen = {}
+    #     # Just in case:
+    #     seen[id(gcl)] = None
+    #     seen[id(olist)] = None
+    #     seen[id(seen)] = None
+    #     # _getr does the real work.
+    #     _getr(gcl, olist, seen)
+    #     return olist
 
     if global_settings.backend == 'pytorch':
-        objects = get_all_objects()
+        objects = gc.get_objects()
         for obj in objects:
             try:
                 if tc.is_tensor(obj) or (hasattr(obj, 'data') and tc.is_tensor(obj.data)):
