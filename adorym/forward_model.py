@@ -88,6 +88,7 @@ class PtychographyModel(ForwardModel):
         pure_projection = self.common_vars['pure_projection']
         n_dp_batch = self.common_vars['n_dp_batch']
         free_prop_cm = self.common_vars['free_prop_cm']
+        beamstop = self.common_vars['beamstop']
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
@@ -182,6 +183,10 @@ class PtychographyModel(ForwardModel):
                 pos_ind += len(pos_batch)
         ex_real_ls = w.concatenate(ex_real_ls, 0)
         ex_imag_ls = w.concatenate(ex_imag_ls, 0)
+        if beamstop is not None:
+            beamstop_mask, beamstop_value = beamstop
+            ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+            ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):

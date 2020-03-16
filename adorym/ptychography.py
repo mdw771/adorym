@@ -328,6 +328,12 @@ def reconstruct_ptychography(
                 mask.initialize_array_with_values(mask_arr, device=device_obj)
 
         # ================================================================================
+        # Instantize beamstop if provided.
+        # ================================================================================
+        if beamstop is not None:
+            beamstop = [w.create_variable(beamstop[i], device=device_obj, requires_grad=False) for i in range(len(beamstop))]
+
+        # ================================================================================
         # Initialize probe functions.
         # ================================================================================
         print_flush('Initialzing probe...', 0, rank, **stdout_options)
