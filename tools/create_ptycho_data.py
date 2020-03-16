@@ -1,4 +1,4 @@
-from simulation import *
+from adorym.simulation import *
 
 PI = 3.1415927
 
