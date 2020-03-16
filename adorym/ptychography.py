@@ -24,8 +24,8 @@ PI = 3.1415927
 def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
-        fname, probe_pos, probe_size, obj_size, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
-        energy_ev=5000, psize_cm=1e-7, free_prop_cm=None, raw_data_type='magnitude',
+        fname, obj_size, probe_size=None, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
+        energy_ev=None, psize_cm=None, free_prop_cm=None, raw_data_type='magnitude',
         # ___________________________
         # |Reconstruction parameters|___________________________________________
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
@@ -43,7 +43,7 @@ def reconstruct_ptychography(
         # _______________
         # |Forward model|_______________________________________________________
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
-        probe_type='gaussian', probe_initial=None, loss_function_type='lsq',
+        probe_type='gaussian', probe_initial=None, loss_function_type='lsq', beamstop=None,
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False, use_checkpoint=True,
@@ -102,6 +102,10 @@ def reconstruct_ptychography(
     print_flush('Reading data...', 0, rank)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
+
+    # ================================================================================
+    # Get metadata.
+    # ================================================================================
     if n_theta is None:
         n_theta = prj.shape[0]
     if two_d_mode:
@@ -112,7 +116,20 @@ def reconstruct_ptychography(
         theta = theta[::theta_downsample]
         prj_theta_ind = prj_theta_ind[::theta_downsample]
         n_theta = len(theta)
+
     original_shape = [n_theta, *prj.shape[1:]]
+
+    if probe_pos is None:
+        probe_pos = f['metadata/probe_pos_px']
+
+    if probe_size is None:
+        probe_size = prj.shape[-2:]
+
+    if energy_ev is None:
+        energy_ev = float(f['metadata/energy_ev'][0])
+
+    if psize_cm is None:
+        psize_cm = float(f['metadata/psize_cm'][0])
 
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
     print_flush('Data shape: {}'.format(original_shape), 0, rank)
