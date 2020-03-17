@@ -338,9 +338,15 @@ def reconstruct_ptychography(
         # Initialize probe functions.
         # ================================================================================
         print_flush('Initialzing probe...', 0, rank, **stdout_options)
-        probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
-                             save_stdout=save_stdout, output_folder=output_folder, timestr=timestr,
-                             save_path=save_path, fname=fname, raw_data_type=raw_data_type, **kwargs)
+        if rank == 0:
+            probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
+                                 save_stdout=save_stdout, output_folder=output_folder, timestr=timestr,
+                                 save_path=save_path, fname=fname, raw_data_type=raw_data_type, beamstop=beamstop, **kwargs)
+        else:
+            probe_real = None
+            probe_imag = None
+        probe_real = comm.bcast(probe_real, root=0)
+        probe_imag = comm.bcast(probe_imag, root=0)
         probe_real = w.create_variable(probe_real, device=device_obj)
         probe_imag = w.create_variable(probe_imag, device=device_obj)
 

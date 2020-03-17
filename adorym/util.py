@@ -10,7 +10,7 @@ from math import ceil, floor
 
 try:
     import sys
-    from scipy.ndimage import gaussian_filter
+    from scipy.ndimage import gaussian_filter, uniform_filter
     from scipy.ndimage import fourier_shift
 except:
     warnings.warn('Some dependencies are screwed up.')
@@ -108,6 +108,8 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
             probe_guess_kwargs = {}
             if 'raw_data_type' in kwargs.keys():
                 probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
+            if 'beamstop' in kwargs.keys():
+                probe_guess_kwargs['beamstop'] = [w.to_numpy(i) for i in kwargs['beamstop']]
             probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
             probe_real = probe_init.real
             probe_imag = probe_init.imag
@@ -139,13 +141,29 @@ def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm, raw_dat
     return wavefront
 
 
-def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='intensity'):
+def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='intensity', beamstop=None):
 
     f = h5py.File(data_fname, 'r')
     dat = f['exchange/data'][...]
-    if raw_data_type == 'intensity': dat = np.sqrt(dat)
+    if raw_data_type == 'intensity':
+        dat = np.sqrt(dat)
     wavefront = np.mean(np.abs(dat), axis=(0, 1))
-    wavefront = abs(np.fft.ifftshift(np.fft.ifft2(wavefront)))
+    if beamstop is not None:
+        beamstop_mask = beamstop[0]
+        xx, yy =  np.meshgrid(range(beamstop_mask.shape[1]), range(beamstop_mask.shape[0]))
+        stop_center_y = np.sum(beamstop_mask * yy) / np.sum(beamstop_mask)
+        stop_center_x = np.sum(beamstop_mask * xx) / np.sum(beamstop_mask)
+        sigma = np.sqrt(np.count_nonzero(beamstop_mask) / PI)
+        gaussian_filler = np.exp(((yy - stop_center_y) ** 2 + (xx - stop_center_x) ** 2) / (-4 * sigma ** 2))
+        edge_mask = uniform_filter(beamstop_mask, size=3) - beamstop_mask
+        edge_mask[edge_mask > 0] = 1
+        edge_mask[edge_mask < 0] = 0
+        edge_val = np.sum(edge_mask * wavefront) / np.sum(edge_mask)
+        # Scale up the Gaussian filler to match edge values around the beamstop
+        gaussian_filler *= (edge_val * np.exp(0.25))
+        wavefront = wavefront * (1 - beamstop_mask) + gaussian_filler * beamstop_mask
+        # dxchange.write_tiff(wavefront, 'wavefront_initial_guess', dtype='float32', overwrite=True)
+    wavefront = np.fft.ifftshift(np.fft.ifft2(wavefront))
     if noise:
         wavefront_mean = np.mean(wavefront)
         wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)

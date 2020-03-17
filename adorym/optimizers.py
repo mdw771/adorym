@@ -137,7 +137,7 @@ class AdamOptimizer(Optimizer):
         if verbose:
             try:
                 print_flush('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))), 0,
-                            comm.Get_rank())
+                            comm.Get_rank(), save_stdout=False)
             except:
                 print('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))))
         if shared_file_object:
@@ -185,7 +185,7 @@ class GDOptimizer(Optimizer):
                 threshold_iteration += first_downrate_iteration * 2 ** i
                 i += 1
                 step_size /= 2.
-                print_flush('  -- Step size halved.', 0, comm.Get_rank())
+                print_flush('  -- Step size halved.', 0, comm.Get_rank(), save_stdout=False)
         x = x - step_size * g
 
         return x
@@ -223,7 +223,7 @@ def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, 
     x = x - d
     if verbose:
         try:
-            print_flush('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))), 0, comm.Get_rank())
+            print_flush('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))), 0, comm.Get_rank(), save_stdout=False)
         except:
             print('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))))
     return x, m, v
@@ -239,7 +239,7 @@ def apply_gradient_gd(x, g, step_size=0.001, dynamic_rate=True, i_batch=0, first
             threshold_iteration += first_downrate_iteration * 2 ** i
             i += 1
             step_size /= 2.
-            print_flush('  -- Step size halved.', 0, comm.Get_rank())
+            print_flush('  -- Step size halved.', 0, comm.Get_rank(), save_stdout=False)
     x = x - step_size * g
 
     return x
