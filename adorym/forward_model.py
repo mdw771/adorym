@@ -88,7 +88,6 @@ class PtychographyModel(ForwardModel):
         pure_projection = self.common_vars['pure_projection']
         n_dp_batch = self.common_vars['n_dp_batch']
         free_prop_cm = self.common_vars['free_prop_cm']
-        beamstop = self.common_vars['beamstop']
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
@@ -186,10 +185,12 @@ class PtychographyModel(ForwardModel):
         ex_real_ls = w.concatenate(ex_real_ls, 0)
         ex_imag_ls = w.concatenate(ex_imag_ls, 0)
 
-        if beamstop is not None:
-            beamstop_mask, beamstop_value = beamstop
-            ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
-            ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+        # if beamstop is not None:
+        #     beamstop_mask, beamstop_value = beamstop
+        #     beamstop_mask[beamstop_mask >= 1e-5] = 1
+        #     beamstop_mask[beamstop_mask < 1e-5] = 0
+            # ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+            # ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
 
         if rank == 0 and debug:
             ex_real_val = w.to_numpy(ex_real_ls)
@@ -205,7 +206,20 @@ class PtychographyModel(ForwardModel):
             ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
                            probe_pos_correction, this_ind_batch)
+
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+
+            beamstop = self.common_vars['beamstop']
+            if beamstop is not None:
+                beamstop_mask, beamstop_value = beamstop
+                beamstop_mask[beamstop_mask >= 1e-5] = 1
+                beamstop_mask[beamstop_mask < 1e-5] = 0
+                beamstop_mask = w.cast(beamstop_mask, 'bool')
+                beamstop_mask_stack = w.tile(beamstop_mask, [len(ex_real_ls), 1, 1])
+                ex_real_ls = w.reshape(ex_real_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                ex_imag_ls = w.reshape(ex_imag_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':
                     loss = w.mean((w.norm(ex_real_ls, ex_imag_ls) - w.abs(this_prj_batch)) ** 2)
