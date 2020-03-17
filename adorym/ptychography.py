@@ -46,7 +46,8 @@ def reconstruct_ptychography(
         probe_type='gaussian', probe_initial=None, loss_function_type='lsq', beamstop=None,
         # _____
         # |I/O|_________________________________________________________________
-        save_path='.', output_folder=None, save_intermediate=False, save_history=False, use_checkpoint=True,
+        save_path='.', output_folder=None, save_intermediate=False, save_history=False,
+        store_checkpoint=True, use_checkpoint=True,
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
@@ -489,14 +490,15 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save checkpoint.
                 # ================================================================================
-                if shared_file_object:
-                    save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True,
-                                    obj_array=None, optimizer=opt)
-                    obj.f.flush()
-                else:
-                    save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
-                                    obj_array=w.to_numpy(w.stack([obj.delta, obj.beta], axis=-1)),
-                                    optimizer=opt)
+                if rank == 0 and store_checkpoint:
+                    if shared_file_object:
+                        save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True,
+                                        obj_array=None, optimizer=opt)
+                        obj.f.flush()
+                    else:
+                        save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
+                                        obj_array=w.to_numpy(w.stack([obj.delta, obj.beta], axis=-1)),
+                                        optimizer=opt)
 
                 # ================================================================================
                 # Get scan position, rotation angle indices, and raw data for current batch.
