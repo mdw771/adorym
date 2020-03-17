@@ -80,7 +80,8 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'optimizer': 'adam',
                   'store_checkpoint': True,
                   'use_checkpoint': False,
-                  'free_prop_cm': 'inf'
+                  'free_prop_cm': 'inf',
+                  'debug': True
                   }
 
 params = params_adhesin_2

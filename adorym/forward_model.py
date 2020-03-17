@@ -92,6 +92,8 @@ class PtychographyModel(ForwardModel):
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
+        debug = self.common_vars['debug']
+        output_folder = self.common_vars['output_folder']
 
         this_pos_batch = np.round(this_pos_batch).astype(int)
         if optimize_probe_defocusing:
@@ -187,6 +189,11 @@ class PtychographyModel(ForwardModel):
             beamstop_mask, beamstop_value = beamstop
             ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
             ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+        if rank == 0 and debug:
+            ex_real_val = w.to_numpy(ex_real_ls)
+            ex_imag_val = w.to_numpy(ex_imag_ls)
+            dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
+            dxchange.write_tiff(np.arctan2(ex_real_val, ex_imag_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):

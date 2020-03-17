@@ -54,14 +54,14 @@ def reconstruct_ptychography(
         cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
         # _________________________
         # |Other optimizer options|_____________________________________________
-        probe_learning_rate=1e-3,
+        probe_learning_rate=1e-5,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
-        backend='autograd', **kwargs,):
+        backend='autograd', debug=False, **kwargs,):
         # ______________________________________________________________________
 
     """
@@ -719,6 +719,17 @@ def reconstruct_ptychography(
                     else:
                         dxchange.write_tiff(w.to_numpy(obj.delta),
                                             fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            dtype='float32', overwrite=True)
+                    if probe_type == 'optimizable':
+                        probe_real_val = w.to_numpy(probe_real)
+                        probe_imag_val = w.to_numpy(probe_imag)
+                        intermediate_fname = 'probe_mag_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
+                        dxchange.write_tiff(np.sqrt(probe_real_val ** 2 + probe_imag_val ** 2),
+                                            os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            dtype='float32', overwrite=True)
+                        intermediate_fname = 'probe_phase_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
+                        dxchange.write_tiff(np.arctan2(probe_real_val, probe_imag_val),
+                                            os.path.join(output_folder, 'intermediate', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     if optimize_probe_pos_offset:
                         f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
