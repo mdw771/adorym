@@ -144,7 +144,7 @@ class PtychographyModel(ForwardModel):
                         probe_imag_ls.append(probe_imag_shifted)
 
                 subobj_ls = w.stack(subobj_ls)
-                if optimize_all_probe_pos:
+                if optimize_all_probe_pos or len(w.nonzero(probe_pos_correction > 1e-3)) > 0:
                     probe_real_ls = w.stack(probe_real_ls)
                     probe_imag_ls = w.stack(probe_imag_ls)
                 else:
@@ -185,10 +185,12 @@ class PtychographyModel(ForwardModel):
                 pos_ind += len(pos_batch)
         ex_real_ls = w.concatenate(ex_real_ls, 0)
         ex_imag_ls = w.concatenate(ex_imag_ls, 0)
+
         if beamstop is not None:
             beamstop_mask, beamstop_value = beamstop
             ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
             ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+
         if rank == 0 and debug:
             ex_real_val = w.to_numpy(ex_real_ls)
             ex_imag_val = w.to_numpy(ex_imag_ls)
