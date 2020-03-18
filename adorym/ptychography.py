@@ -750,32 +750,32 @@ def reconstruct_ptychography(
                     intermediate_fname = 'delta_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
                     if shared_file_object:
                         dxchange.write_tiff(obj.dset[:, :, :, 0],
-                                            fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            fname=os.path.join(output_folder, 'intermediate', 'delta', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     else:
                         dxchange.write_tiff(w.to_numpy(obj.delta),
-                                            fname=os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            fname=os.path.join(output_folder, 'intermediate', 'delta', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     if probe_type == 'optimizable':
                         probe_real_val = w.to_numpy(probe_real)
                         probe_imag_val = w.to_numpy(probe_imag)
                         intermediate_fname = 'probe_mag_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
                         dxchange.write_tiff(np.sqrt(probe_real_val ** 2 + probe_imag_val ** 2),
-                                            os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            os.path.join(output_folder, 'intermediate', 'probe_mag', intermediate_fname),
                                             dtype='float32', overwrite=True)
                         intermediate_fname = 'probe_phase_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
                         dxchange.write_tiff(np.arctan2(probe_real_val, probe_imag_val),
-                                            os.path.join(output_folder, 'intermediate', intermediate_fname),
+                                            os.path.join(output_folder, 'intermediate', 'probe_phase', intermediate_fname),
                                             dtype='float32', overwrite=True)
                     if optimize_probe_pos_offset:
                         f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
                         f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
                         f_offset.close()
                     elif optimize_all_probe_pos:
-                        if not os.path.exists(os.path.join(output_folder, 'intermediate')):
+                        if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
                             os.makedirs(os.path.join(output_folder, 'intermediate'))
                         for i_theta_pos in range(n_theta):
-                            np.savetxt(os.path.join(output_folder, 'intermediate',
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
                                                     'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
                                                     w.to_numpy(probe_pos_correction[i_theta_pos]))
 

@@ -3,8 +3,15 @@ import glob
 import re
 import pandas as pd
 import numpy as np
+import argparse
+import os
 
-flist = glob.glob('loss_rank_*.txt')
+parser = argparse.ArgumentParser()
+parser.add_argument('--dir', default='.')
+args = parser.parse_args()
+src_dir = args.dir
+
+flist = glob.glob(os.path.join(src_dir, 'loss_rank_*.txt'))
 flist.sort()
 
 d0 = pd.read_csv(flist[0])
@@ -22,4 +29,4 @@ loss_table = np.mean(loss_table, axis=1)
 plt.semilogy(loss_table)
 plt.ylabel('Loss')
 plt.xlabel('Batch index')
-plt.savefig('loss.png',format='png')
+plt.savefig(os.path.join(src_dir, 'loss.png'),format='png')
