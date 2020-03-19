@@ -31,7 +31,8 @@ rank = comm.Get_rank()
 
 def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                       output_folder=None, rank=0, n_ranks=1, save_stdout=False, timestr='',
-                      shared_file_object=True, not_first_level=False):
+                      shared_file_object=True, not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+                      unknown_type='delta_beta'):
 
     if not shared_file_object:
         if rank == 0:
@@ -39,10 +40,8 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
                 if initial_guess is None:
                     print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
                                 save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                    obj_delta = np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                    obj_beta = np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
-                    obj_delta[obj_delta < 0] = 0
-                    obj_beta[obj_beta < 0] = 0
+                    obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+                    obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
                 else:
                     print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                                 output_folder=output_folder, timestamp=timestr)
@@ -52,18 +51,35 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
             else:
                 print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                             output_folder=output_folder, timestamp=timestr)
-                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+                if unknown_type == 'delta_beta':
+                    obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+                    obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+                elif unknown_type == 'real_imag':
+                    obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'obj_mag_ds_{}.tiff'.format(ds_level * 2)))
+                    obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'obj_phase_ds_{}.tiff'.format(ds_level * 2)))
                 obj_delta = upsample_2x(obj_delta)
                 obj_beta = upsample_2x(obj_beta)
-                obj_delta += np.random.normal(size=this_obj_size, loc=8.7e-7, scale=1e-7)
-                obj_beta += np.random.normal(size=this_obj_size, loc=5.1e-8, scale=1e-8)
+                obj_delta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+                obj_beta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
+
+            # Apply specified constraints.
+            if object_type == 'phase_only':
+                if unknown_type == 'delta_beta':
+                    obj_beta[...] = 0
+                elif unknown_type == 'real_imag':
+                    obj_delta[...] = 1
+            elif object_type == 'absorption_only':
+                if unknown_type == 'delta_beta':
+                    obj_delta[...] = 0
+                elif unknown_type == 'real_imag':
+                    obj_beta[...] = 0
+
+            # Apply nonnegativity or convert to real/imag.
+            if unknown_type == 'delta_beta':
                 obj_delta[obj_delta < 0] = 0
                 obj_beta[obj_beta < 0] = 0
-            if object_type == 'phase_only':
-                obj_beta[...] = 0
-            elif object_type == 'absorption_only':
-                obj_delta[...] = 0
+            elif unknown_type == 'real_imag':
+                obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
         else:
             obj_delta = None
             obj_beta = None
@@ -74,10 +90,15 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
         if initial_guess is None:
             print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout,
                         output_folder=output_folder, timestamp=timestr)
-            initialize_hdf5_with_gaussian(dset, rank, n_ranks, 8.7e-7, 1e-7, 5.1e-8, 1e-8)
+            initialize_hdf5_with_gaussian(dset, rank, n_ranks,
+                                          random_guess_means_sigmas[0], random_guess_means_sigmas[2],
+                                          random_guess_means_sigmas[1], random_guess_means_sigmas[3],
+                                          unknown_type=unknown_type)
         else:
             print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                         timestamp=timestr)
+            if unknown_type == 'real_imag':
+                initial_guess = mag_phase_to_real_imag(*initial_guess)
             initialize_hdf5_with_arrays(dset, rank, n_ranks, initial_guess[0], initial_guess[1])
         print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                     timestamp=timestr)
@@ -108,7 +129,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
             probe_guess_kwargs = {}
             if 'raw_data_type' in kwargs.keys():
                 probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
-            if 'beamstop' in kwargs.keys():
+            if 'beamstop' in kwargs.keys() and kwargs['beamstop'] is not None:
                 probe_guess_kwargs['beamstop'] = [w.to_numpy(i) for i in kwargs['beamstop']]
             probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
             probe_real = probe_init.real
@@ -503,7 +524,7 @@ def revert_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilin
     return None
 
 
-def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma):
+def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma, unknown_type='delta_beta'):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
@@ -512,6 +533,8 @@ def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, be
     for i_slice in slice_ls:
         slice_delta = np.random.normal(size=[s[1], s[2]], loc=delta_mu, scale=delta_sigma)
         slice_beta = np.random.normal(size=[s[1], s[2]], loc=beta_mu, scale=beta_sigma)
+        if unknown_type == 'real_imag':
+            slice_delta, slice_beta = mag_phase_to_real_imag(slice_delta, slice_beta)
         slice_data = np.stack([slice_delta, slice_beta], axis=-1)
         slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data
@@ -1172,7 +1195,63 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
                 np.stack([vals_delta, vals_beta], axis=-1)
         else:
             dset[max([0, coord0_vec[0]]):min([whole_object_size[0], coord0_vec[-1] + 1]), ind_old] += vals_delta
-
     return
 
 
+def output_object(obj, shared_file_object, output_folder, unknown_type='delta_beta',
+                  full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
+
+    if shared_file_object:
+        obj0 = obj.dset[:, :, :, 0]
+        obj1 = obj.dset[:, :, :, 1]
+    else:
+        obj0 = w.to_numpy(obj.delta)
+        obj1 = w.to_numpy(obj.beta)
+
+    if unknown_type == 'delta_beta':
+        if full_output:
+            fname0 = 'delta_ds_{}'.format(ds_level)
+            fname1 = 'beta_ds_{}'.format(ds_level)
+        else:
+            if save_history:
+                fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
+            else:
+                fname0 = 'delta'
+        dxchange.write_tiff(obj0, os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
+        if full_output:
+            dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+
+    elif unknown_type == 'real_imag':
+        if full_output:
+            fname0 = 'obj_mag_ds_{}'.format(ds_level)
+            fname1 = 'obj_phase_ds_{}'.format(ds_level)
+        else:
+            if save_history:
+                fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
+                fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
+            else:
+                fname0 = 'obj_mag'
+                fname1 = 'obj_phase'
+        dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
+        dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+
+
+def output_probe(probe_real, probe_imag, output_folder,
+                  full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
+
+    probe_real = w.to_numpy(probe_real)
+    probe_imag = w.to_numpy(probe_imag)
+    if full_output:
+        fname0 = 'probe_mag_ds_{}'.format(ds_level)
+        fname1 = 'probe_phase_ds_{}'.format(ds_level)
+    else:
+        if save_history:
+            fname0 = 'probe_mag_{}_{}'.format(i_epoch, i_batch)
+            fname1 = 'probe_phase_{}_{}'.format(i_epoch, i_batch)
+        else:
+            fname0 = 'probe_mag'.format(i_epoch, i_batch)
+            fname1 = 'probe_phase'.format(i_epoch, i_batch)
+    dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
+                        fname=os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
+    dxchange.write_tiff(np.arctan2(probe_imag, probe_real),
+                        fname=os.path.join(output_folder, fname1), dtype='float32', overwrite=True)

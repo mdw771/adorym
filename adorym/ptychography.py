@@ -31,8 +31,12 @@ def reconstruct_ptychography(
         # |Reconstruction parameters|___________________________________________
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
         gamma=1e-6, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
-        initial_guess=None, n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
+        initial_guess=None,
+        # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
+        random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+        n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
         update_scheme='immediate', # Choose from 'immediate' or 'per angle'
+        unknown_type='delta_beta', # Choose from 'delta_beta' or 'real_imag'
         # __________________________
         # |Object optimizer options|____________________________________________
         optimizer='adam', # Choose from 'gd' or 'adam'
@@ -43,6 +47,7 @@ def reconstruct_ptychography(
         # ___________________
         # |Object contraints|___________________________________________________
         object_type='normal', # Choose from 'normal', 'phase_only', or 'absorption_only
+        non_negativity=True,
         # _______________
         # |Forward model|_______________________________________________________
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
@@ -264,11 +269,13 @@ def reconstruct_ptychography(
             obj.create_temporary_file_object()
             if needs_initialize:
                 obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
-                                           not_first_level=not_first_level, initial_guess=initial_guess)
+                                           not_first_level=not_first_level, initial_guess=initial_guess,
+                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
         else:
             if needs_initialize:
                 obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
-                                     not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj)
+                                     not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
             else:
                 obj.delta = obj_delta
                 obj.beta = obj_beta
@@ -661,7 +668,7 @@ def reconstruct_ptychography(
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
-                    if not shared_file_object:
+                    if not shared_file_object and non_negativity and unknown_type != 'real_imag':
                         obj.delta = w.clip(obj.delta, 0, None)
                         obj.beta = w.clip(obj.beta, 0, None)
                         if object_type == 'absorption_only': obj.delta *= 0
@@ -727,9 +734,9 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if mask is not None:
                     if not shared_file_object:
-                        obj.apply_finite_support_mask_to_array(mask)
+                        obj.apply_finite_support_mask_to_array(mask, unknown_type=unknown_type, device=device_obj)
                     else:
-                        obj.apply_finite_support_mask_to_file(mask)
+                        obj.apply_finite_support_mask_to_file(mask, unknown_type=unknown_type, device=device_obj)
                     print_flush('  Mask applied.', 0, rank, **stdout_options)
 
                 # ================================================================================
@@ -747,33 +754,20 @@ def reconstruct_ptychography(
                 # Save intermediate object.
                 # ================================================================================
                 if rank == 0 and save_intermediate:
-                    intermediate_fname = 'delta_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
-                    if shared_file_object:
-                        dxchange.write_tiff(obj.dset[:, :, :, 0],
-                                            fname=os.path.join(output_folder, 'intermediate', 'delta', intermediate_fname),
-                                            dtype='float32', overwrite=True)
-                    else:
-                        dxchange.write_tiff(w.to_numpy(obj.delta),
-                                            fname=os.path.join(output_folder, 'intermediate', 'delta', intermediate_fname),
-                                            dtype='float32', overwrite=True)
+                    output_object(obj, shared_file_object, os.path.join(output_folder, 'intermediate', 'object'),
+                                  unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                  save_history=save_history)
                     if probe_type == 'optimizable':
-                        probe_real_val = w.to_numpy(probe_real)
-                        probe_imag_val = w.to_numpy(probe_imag)
-                        intermediate_fname = 'probe_mag_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
-                        dxchange.write_tiff(np.sqrt(probe_real_val ** 2 + probe_imag_val ** 2),
-                                            os.path.join(output_folder, 'intermediate', 'probe_mag', intermediate_fname),
-                                            dtype='float32', overwrite=True)
-                        intermediate_fname = 'probe_phase_{}_{}'.format(i_epoch, i_batch) if save_history else 'delta'
-                        dxchange.write_tiff(np.arctan2(probe_real_val, probe_imag_val),
-                                            os.path.join(output_folder, 'intermediate', 'probe_phase', intermediate_fname),
-                                            dtype='float32', overwrite=True)
+                        output_probe(probe_real, probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
+                                     full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                     save_history=save_history)
                     if optimize_probe_pos_offset:
                         f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
                         f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
                         f_offset.close()
                     elif optimize_all_probe_pos:
                         if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
-                            os.makedirs(os.path.join(output_folder, 'intermediate'))
+                            os.makedirs(os.path.join(output_folder, 'intermediate', 'probe_pos'))
                         for i_theta_pos in range(n_theta):
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
                                                     'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
@@ -817,31 +811,9 @@ def reconstruct_ptychography(
             # Save reconstruction after an epoch.
             # ================================================================================
             if rank == 0:
-                if shared_file_object:
-                    dxchange.write_tiff(obj.dset[:, :, :, 0],
-                                        fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(obj.dset[:, :, :, 1],
-                                        fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(np.sqrt(w.to_numpy(probe_real) ** 2 + w.to_numpy(probe_imag) ** 2),
-                                        fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(np.arctan2(w.to_numpy(probe_imag), w.to_numpy(probe_real)),
-                                        fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                else:
-                    dxchange.write_tiff(w.to_numpy(obj.delta),
-                                        fname=os.path.join(output_folder, 'delta_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(w.to_numpy(obj.beta),
-                                        fname=os.path.join(output_folder, 'beta_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(w.to_numpy(w.sqrt(probe_real ** 2 + probe_imag ** 2)),
-                                        fname=os.path.join(output_folder, 'probe_mag_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
-                    dxchange.write_tiff(w.to_numpy(w.arctan2(probe_imag, probe_real)),
-                                        fname=os.path.join(output_folder, 'probe_phase_ds_{}'.format(ds_level)),
-                                        dtype='float32', overwrite=True)
+                output_object(obj, shared_file_object, output_folder, unknown_type,
+                              full_output=True, ds_level=ds_level)
+                output_probe(probe_real, probe_imag, output_folder,
+                             full_output=True, ds_level=ds_level)
             print_flush('Current iteration finished.', 0, rank, **stdout_options)
         comm.Barrier()

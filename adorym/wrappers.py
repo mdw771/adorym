@@ -258,6 +258,20 @@ def zeros_like(var, dtype=None, device=None, requires_grad=True):
     return arr
 
 
+def ones_like(var, dtype=None, device=None, requires_grad=True):
+    """
+    :param var: ADVariable or tensor.
+    """
+    kwargs = {}
+    if dtype is not None: kwargs['dtype'] = dtype
+    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones_like'][global_settings.backend])
+    if global_settings.backend == 'pytorch':
+        arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
+    else:
+        arr = func(var, **kwargs)
+    return arr
+
+
 def exp(var):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['exp'][global_settings.backend])
     arr = func(var)

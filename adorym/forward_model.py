@@ -17,6 +17,7 @@ class ForwardModel(object):
         self.current_loss = 0
         self.common_vars = common_vars_dict
         self.raw_data_type = raw_data_type
+        self.unknown_type = common_vars_dict['unknown_type']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -54,9 +55,14 @@ class ForwardModel(object):
                                                self.regularizer_dict[name]['weight_l1'],
                                                device=self.device)
             elif name == 'tv':
-                reg += tv(obj_delta, obj_beta,
-                          self.regularizer_dict[name]['gamma'],
-                          self.shared_file_object, device=self.device)
+                if self.unknown_type == 'delta_beta':
+                    reg += tv(obj_delta, obj_beta,
+                              self.regularizer_dict[name]['gamma'],
+                              self.shared_file_object, device=self.device)
+                elif self.unknown_type == 'real_imag':
+                    reg += tv(w.arctan2(obj_beta, obj_delta), None,
+                              self.regularizer_dict[name]['gamma'],
+                              self.shared_file_object, device=self.device)
         return reg
 
 
@@ -93,6 +99,7 @@ class PtychographyModel(ForwardModel):
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
         debug = self.common_vars['debug']
         output_folder = self.common_vars['output_folder']
+        unknown_type = self.common_vars['unknown_type']
 
         this_pos_batch = np.round(this_pos_batch).astype(int)
         if optimize_probe_defocusing:
@@ -154,7 +161,8 @@ class PtychographyModel(ForwardModel):
                     subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1], probe_real_ls,
                     probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                     obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
-                    fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj)
+                    fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
+                    type=unknown_type)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
             del subobj_ls, probe_real_ls, probe_imag_ls
@@ -178,7 +186,8 @@ class PtychographyModel(ForwardModel):
                                                                                this_obj_size[-1]],
                                                               fresnel_approx=fresnel_approx,
                                                               pure_projection=pure_projection,
-                                                              device=device_obj)
+                                                              device=device_obj,
+                                                              type=unknown_type)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
                 pos_ind += len(pos_batch)
@@ -207,9 +216,10 @@ class PtychographyModel(ForwardModel):
                            probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
                            probe_pos_correction, this_ind_batch)
 
+            beamstop = self.common_vars['beamstop']
+
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
 
-            beamstop = self.common_vars['beamstop']
             if beamstop is not None:
                 beamstop_mask, beamstop_value = beamstop
                 beamstop_mask[beamstop_mask >= 1e-5] = 1

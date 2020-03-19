@@ -94,12 +94,14 @@ class ObjectFunction(LargeArray):
             self.f_rot = h5py.File(os.path.join(self.output_folder, 'intermediate_obj_rot.h5'), 'w')
         self.dset_rot = self.f_rot.create_dataset('obj', shape=self.full_size, dtype='float64')
 
-    def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None, device=None):
+    def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None, device=None,
+                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
         temp_delta, temp_beta = \
             initialize_object(self.full_size[:-1], dset=None, ds_level=self.ds_level, object_type=self.object_type,
                               initial_guess=initial_guess, output_folder=self.output_folder, rank=rank,
                               n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
-                              shared_file_object=False, not_first_level=not_first_level)
+                              shared_file_object=False, not_first_level=not_first_level,
+                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
         self.delta = w.create_variable(temp_delta, device=device, requires_grad=True)
         self.beta = w.create_variable(temp_beta, device=device, requires_grad=True)
         del temp_delta
@@ -110,30 +112,45 @@ class ObjectFunction(LargeArray):
         self.delta = w.create_variable(obj_delta, device=device, requires_grad=True)
         self.beta = w.create_variable(obj_beta, device=device, requires_grad=True)
 
-    def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None):
+    def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
+                               random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
         initialize_object(self.full_size[:-1], dset=self.dset, ds_level=self.ds_level, object_type=self.object_type,
                           initial_guess=initial_guess, output_folder=self.output_folder, rank=rank,
                           n_ranks=n_ranks, save_stdout=save_stdout, timestr=timestr,
-                          shared_file_object=True, not_first_level=not_first_level)
+                          shared_file_object=True, not_first_level=not_first_level, random_guess_means_sigmas=random_guess_means_sigmas,
+                          unknown_type=unknown_type)
 
-    def apply_finite_support_mask_to_array(self, mask):
+    def apply_finite_support_mask_to_array(self, mask, unknown_type='delta_beta', device=None):
         assert isinstance(mask, Mask)
         if not self.shared_file_object:
             with w.no_grad():
-                self.delta *= mask.mask
-                self.beta *= mask.mask
+                if unknown_type == 'delta_beta':
+                    self.delta *= mask.mask
+                    self.beta *= mask.mask
+                elif unknown_type == 'real_imag':
+                    ones_arr = w.ones_like(self.delta, requires_grad=False, device=device)
+                    zeros_arr = w.zeros_like(self.delta, requires_grad=False, device=device)
+                    self.delta = self.delta * mask.mask + ones_arr * (1 - mask.mask)
+                    self.beta = self.beta * mask.mask + zeros_arr * (1 - mask.mask)
             w.reattach(self.delta)
             w.reattach(self.beta)
 
-    def apply_finite_support_mask_to_file(self, mask):
+    def apply_finite_support_mask_to_file(self, mask, unknown_type='delta_beta', device=None):
         assert isinstance(mask, Mask)
         if self.shared_file_object:
             slice_ls = range(rank, self.full_size[0], n_ranks)
+            if unknown_type == 'real_imag':
+                ones_arr = w.ones(mask.dset.shape[1:3], requires_grad=False, device=device)
+                zeros_arr = w.zeros(mask.dset.shape[1:3], requires_grad=False, device=device)
             for i_slice in slice_ls:
                 mask_arr = mask.dset[i_slice]
                 obj_arr = self.dset[i_slice]
-                obj_arr[:, :, 0] *= mask_arr
-                obj_arr[:, :, 1] *= mask_arr
+                if unknown_type == 'delta_beta':
+                    obj_arr[:, :, 0] *= mask_arr
+                    obj_arr[:, :, 1] *= mask_arr
+                elif unknown_type == 'real_imag':
+                    obj_arr[:, :, 0] = obj_arr[:, :, 0] * mask_arr + ones_arr * (1 - mask_arr)
+                    obj_arr[:, :, 1] = obj_arr[:, :, 1] * mask_arr + zeros_arr * (1 - mask_arr)
                 self.dset[i_slice] = obj_arr
 
     def update_object(self, obj_delta, obj_beta):

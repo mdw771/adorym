@@ -87,7 +87,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
 
 def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
-                               pure_projection=False, binning=1, device=None):
+                               pure_projection=False, binning=1, device=None, type='delta_beta'):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -109,6 +109,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
 
     for i in range(n_slice):
+        # At the start of bin, initialize slice array.
         if i % binning == 0:
             i_bin = 0
             delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
@@ -116,20 +117,21 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         delta_slice += grid_delta_batch[:, :, :, i]
         beta_slice += grid_beta_batch[:, :, :, i]
         i_bin += 1
-
+        # When arriving at the last slice of bin or object, do propagation.
         if i_bin == binning or i == n_slice - 1:
             k1 = 2. * PI * delta_nm * i_bin / lmbda_nm
-            c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
+            if type == 'delta_beta':
+                c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
+            elif type == 'real_imag':
+                c_real, c_imag = delta_slice, beta_slice
+            else:
+                raise ValueError('unknown_type must be delta_beta or real_imag.')
             probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
             if i < n_slice - 1 and not pure_projection:
                 if i_bin == binning:
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
                 else:
-                    h1 = get_kernel(delta_nm * i_bin, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
-                    h1_real, h1_imag = w.real(h1), w.imag(h1)
-                    h1_real = w.create_variable(h1_real, requires_grad=False, device=device)
-                    h1_imag = w.create_variable(h1_imag, requires_grad=False, device=device)
-                    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h1_real, h1_imag)
+                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device)
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
             probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2])
@@ -137,16 +139,21 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
             crit_samp = lmbda_nm * dist_nm / l
-            # algorithm = 'TF' if mean_voxel_nm > crit_samp else 'IR'
-            algorithm = 'TF'
-            if algorithm == 'TF':
-                h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-            else:
-                h = get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-            h_real, h_imag = np.real(h), np.imag(h)
-            h_real = w.create_variable(h_real, requires_grad=False, device=device)
-            h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
-            probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+            probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, device=device)
+    return probe_real, probe_imag
+
+
+def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None, device=None):
+    """
+    :param h: A List of the real part and imaginary part of the transfer function kernel.
+    """
+    grid_shape = probe_real.shape[1:]
+    if h is None:
+        h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
+    h_real, h_imag = h
+    h_real = w.create_variable(h_real, requires_grad=False, device=device)
+    h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
+    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
     return probe_real, probe_imag
 
 
