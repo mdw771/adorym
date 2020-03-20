@@ -51,8 +51,9 @@ def reconstruct_ptychography(
         # _______________
         # |Forward model|_______________________________________________________
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
-        probe_type='gaussian', # Choose from 'gaussian', 'plane', 'fixed', or 'optimizable'
-        probe_initial=None,
+        probe_type='gaussian', # Choose from 'gaussian', 'plane', 'ifft', 'aperture_defocus', 'supplied'
+        probe_initial=None, # Give as [probe_mag, probe_phase]
+        rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         beamstop=None,
         # _____
@@ -65,7 +66,7 @@ def reconstruct_ptychography(
         cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
         # _________________________
         # |Other optimizer options|_____________________________________________
-        probe_learning_rate=1e-5,
+        optimize_probe=False, probe_learning_rate=1e-5,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
@@ -355,8 +356,9 @@ def reconstruct_ptychography(
         print_flush('Initialzing probe...', 0, rank, **stdout_options)
         if rank == 0:
             probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
-                                 save_stdout=save_stdout, output_folder=output_folder, timestr=timestr,
-                                 save_path=save_path, fname=fname, raw_data_type=raw_data_type, beamstop=beamstop, **kwargs)
+                                 rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
+                                                      raw_data_type=raw_data_type, beamstop=beamstop,
+                                                      stdout_options=stdout_options, **kwargs)
         else:
             probe_real = None
             probe_imag = None
@@ -369,7 +371,7 @@ def reconstruct_ptychography(
         # Create other optimizers (probe, probe defocus, probe positions, etc.).
         # ================================================================================
         opt_args_ls = [0, 1]
-        if probe_type == 'optimizable':
+        if optimize_probe:
             opt_probe = AdamOptimizer([*probe_size, 2], output_folder=output_folder)
             opt_probe.create_param_arrays(device=device_obj)
             optimizer_options_probe = {'step_size': probe_learning_rate}
@@ -620,7 +622,7 @@ def reconstruct_ptychography(
                     obj_grads += w.stack(grads[:2], axis=-1)
                 if initialize_gradients:
                     initialize_gradients = False
-                    if probe_type == 'optimizable':
+                    if optimize_probe:
                         probe_grads = w.zeros([*grads[2].shape, 2], requires_grad=False, device=device_obj)
                     if optimize_probe_defocusing:
                         pd_grads = w.zeros_like(grads[opt_probe_defocus.index_in_grad_returns], requires_grad=False, device=device_obj)
@@ -630,7 +632,7 @@ def reconstruct_ptychography(
                     if optimize_all_probe_pos:
                         all_pos_grads = w.zeros_like(grads[opt_probe_pos.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
-                if probe_type == 'optimizable':
+                if optimize_probe:
                     probe_grads += w.stack(grads[2:4], axis=-1)
                 if optimize_probe_defocusing:
                     pd_grads += grads[opt_probe_defocus.index_in_grad_returns]
@@ -679,7 +681,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Optimize probe and other parameters if necessary.
                 # ================================================================================
-                if probe_type == 'optimizable':
+                if optimize_probe:
                     with w.no_grad():
                         probe_grads = comm.allreduce(probe_grads)
                         probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
@@ -757,7 +759,7 @@ def reconstruct_ptychography(
                     output_object(obj, shared_file_object, os.path.join(output_folder, 'intermediate', 'object'),
                                   unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                   save_history=save_history)
-                    if probe_type == 'optimizable':
+                    if optimize_probe:
                         output_probe(probe_real, probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
                                      full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                      save_history=save_history)

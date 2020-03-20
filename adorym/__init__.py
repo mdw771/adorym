@@ -7,3 +7,4 @@ from adorym.misc import *
 from adorym.ptychography import *
 from adorym.simulation import *
 from adorym.wrappers import *
+from adorym.visualization import *

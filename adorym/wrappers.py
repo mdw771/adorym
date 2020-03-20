@@ -67,19 +67,20 @@ class EmptyWith(object):
     def __exit__(self, exc_type, exc_value, tb):
         pass
 
-def create_variable(arr, dtype=None, device=None, requires_grad=True):
+def create_variable(arr, dtype=None, device=None, requires_grad=True, override_backend=None):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
     :param dtype: str; Data type.
     :param device: A device object from PyTorch, etc. Use None for CPU.
     """
+    bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
-    if global_settings.backend == 'autograd':
+    if bn == 'autograd':
         if dtype is not None:
             args['dtype'] = dtype_mapping_dict[dtype]['autograd']
         var = anp.array(arr, **args)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         if dtype is not None:
             args['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         if device is not None:
@@ -342,12 +343,13 @@ def round_and_cast(var, dtype='int32'):
     return cast(round(var), dtype=dtype)
 
 
-def fft2(var_real, var_imag, axes=(-2, -1)):
-    if global_settings.backend == 'autograd':
+def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         var = var_real + 1j * var_imag
         var = anp.fft.fft2(var, axes=axes)
         return anp.real(var), anp.imag(var)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
         var = tc.fft(var, signal_ndim=2)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -355,12 +357,13 @@ def fft2(var_real, var_imag, axes=(-2, -1)):
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def ifft2(var_real, var_imag, axes=(-2, -1)):
-    if global_settings.backend == 'autograd':
+def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         var = var_real + 1j * var_imag
         var = anp.fft.ifft2(var, axes=axes)
         return anp.real(var), anp.imag(var)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
         var = tc.ifft(var, signal_ndim=2)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -368,12 +371,13 @@ def ifft2(var_real, var_imag, axes=(-2, -1)):
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def fft2_and_shift(var_real, var_imag, axes=(-2, -1)):
-    if global_settings.backend == 'autograd':
+def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         var = var_real + 1j * var_imag
         var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes), axes=axes)
         return anp.real(var), anp.imag(var)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.fft(var, signal_ndim=2)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -385,28 +389,29 @@ def fft2_and_shift(var_real, var_imag, axes=(-2, -1)):
         return var_real, var_imag
 
 
-def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag):
-    f_real, f_imag = fft2(arr_real, arr_imag)
+def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, override_backend=None):
+    f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
     return ifft2(fh_real, fh_imag)
 
 
-def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag):
-    f_real, f_imag = fft2(arr_real, arr_imag)
-    h_real, h_imag = fft2(h_real, h_imag)
+def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, override_backend=None):
+    f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
+    h_real, h_imag = fft2(h_real, h_imag, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
-    return ifft2(fh_real, fh_imag)
+    return ifft2(fh_real, fh_imag, override_backend=override_backend)
 
 
-def fftshift(var, axes=(1, 2)):
+def fftshift(var, axes=(1, 2), override_backend=None):
     """
     :param var: [N, H, W, 2], where the last dimension represents real and imaginary parts.
     """
-    if global_settings.backend == 'autograd':
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         return anp.fft.fftshift(var, axes=axes)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         s = var.shape
         for i in axes:
             p2 = (s[i] + 1) // 2
@@ -419,13 +424,14 @@ def fftshift(var, axes=(1, 2)):
         return var
 
 
-def ifftshift(var, axes=(1, 2)):
+def ifftshift(var, axes=(1, 2), override_backend=None):
     """
     :param var: [N, H, W, 2], where the last dimension represents real and imaginary parts.
     """
-    if global_settings.backend == 'autograd':
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         return anp.fft.ifftshift(var, axes=axes)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         s = var.shape
         for i in axes:
             p2 = s[i] - (s[i] + 1) // 2
@@ -438,12 +444,13 @@ def ifftshift(var, axes=(1, 2)):
         return var
 
 
-def split_channel(var):
-    if global_settings.backend == 'autograd':
+def split_channel(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         var0, var1 = anp.split(var, var.shape[-1], axis=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
         return var0[tuple(slicer)], var1[tuple(slicer)]
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
         return var0[tuple(slicer)], var1[tuple(slicer)]
@@ -524,14 +531,16 @@ def min(var, return_number=True, axis=None):
     return a
 
 
-def real(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['real'][global_settings.backend])
+def real(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['real'][bn])
     arr = func(var)
     return arr
 
 
-def imag(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['imag'][global_settings.backend])
+def imag(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['imag'][bn])
     arr = func(var)
     return arr
 

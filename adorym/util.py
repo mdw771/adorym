@@ -105,46 +105,67 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
         return
 
 
-def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None,
+def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
+    py = np.arange(size[0]) - (size[size] - 1.) / 2
+    px = np.arange(size[1]) - (size[1] - 1.) / 2
+    pxx, pyy = np.meshgrid(px, py)
+    map_mag = mag_max * np.exp(-(pxx ** 2 + pyy ** 2) / (2 * mag_sigma ** 2))
+    map_phase = phase_max * np.exp(-(pxx ** 2 + pyy ** 2) / (2 * phase_sigma ** 2))
+    return map_mag, map_phase
+
+
+def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None, rescale_intensity=False,
                      save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None, **kwargs):
 
     if probe_type == 'gaussian':
         probe_mag_sigma = kwargs['probe_mag_sigma']
         probe_phase_sigma = kwargs['probe_phase_sigma']
         probe_phase_max = kwargs['probe_phase_max']
-        py = np.arange(probe_size[0]) - (probe_size[0] - 1.) / 2
-        px = np.arange(probe_size[1]) - (probe_size[1] - 1.) / 2
-        pxx, pyy = np.meshgrid(px, py)
-        probe_mag = np.exp(-(pxx ** 2 + pyy ** 2) / (2 * probe_mag_sigma ** 2))
-        probe_phase = probe_phase_max * np.exp(
-            -(pxx ** 2 + pyy ** 2) / (2 * probe_phase_sigma ** 2))
+        probe_mag, probe_phase = generate_gaussian_map(probe_size, 1, probe_mag_sigma, probe_phase_max, probe_phase_sigma)
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-    elif probe_type == 'optimizable':
-        if probe_initial is not None:
-            probe_mag, probe_phase = probe_initial
-            probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
-        else:
-            print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
-                        output_folder=output_folder, timestamp=timestr)
-            probe_guess_kwargs = {}
-            if 'raw_data_type' in kwargs.keys():
-                probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
-            if 'beamstop' in kwargs.keys() and kwargs['beamstop'] is not None:
-                probe_guess_kwargs['beamstop'] = [w.to_numpy(i) for i in kwargs['beamstop']]
-            probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
-            probe_real = probe_init.real
-            probe_imag = probe_init.imag
-        if pupil_function is not None:
-            probe_real = probe_real * pupil_function
-            probe_imag = probe_imag * pupil_function
-    elif probe_type == 'fixed':
+    elif probe_type == 'aperture_defocus':
+        radius = kwargs['probe_radius']
+        defocus_cm = kwargs['probe_defocus_cm']
+        lmbda_nm = kwargs['lmbda_nm']
+        psize_cm = kwargs['psize_cm']
+        probe_mag = generate_disk(probe_size, radius)
+        probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, np.zeros_like(probe_mag))
+        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, defocus_cm * 1e7, lmbda_nm, psize_cm, override_backend='autograd')
+    elif probe_type == 'ifft':
+        print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
+                    output_folder=output_folder, timestamp=timestr)
+        probe_guess_kwargs = {}
+        if 'raw_data_type' in kwargs.keys():
+            probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
+        if 'beamstop' in kwargs.keys() and kwargs['beamstop'] is not None:
+            probe_guess_kwargs['beamstop'] = [w.to_numpy(i) for i in kwargs['beamstop']]
+        probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
+        probe_real = probe_init.real
+        probe_imag = probe_init.imag
+    elif probe_type == 'supplied':
         probe_mag, probe_phase = probe_initial
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
     elif probe_type == 'plane':
         probe_real = np.ones(probe_size)
         probe_imag = np.zeros(probe_size)
     else:
-        raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'optimizable\'.')
+        raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'supplied\'.')
+    if pupil_function is not None:
+        probe_real = probe_real * pupil_function
+        probe_imag = probe_imag * pupil_function
+    if rescale_intensity:
+        f = h5py.File(fname, 'r')
+        dat = f['exchange/data'][...]
+        if kwargs['raw_data_type'] == 'magnitude':
+            dat = dat ** 2
+        # The direct return of FFT function has a total power that is n_pixels times of the input.
+        # This should be removed.
+        intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+        intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
+        s = np.sqrt(intensity_target / intensity_current)
+        probe_real *= s
+        probe_imag *= s
+        print_flush('Probe magnitude scaling factor is {}.'.format(s), 0, rank, **kwargs['stdout_options'])
     return probe_real, probe_imag
 
 

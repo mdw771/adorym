@@ -143,7 +143,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     return probe_real, probe_imag
 
 
-def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None, device=None):
+def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None, device=None, override_backend=None):
     """
     :param h: A List of the real part and imaginary part of the transfer function kernel.
     """
@@ -151,9 +151,10 @@ def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=Non
     if h is None:
         h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
     h_real, h_imag = h
-    h_real = w.create_variable(h_real, requires_grad=False, device=device)
-    h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
-    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+    h_real = w.create_variable(h_real, requires_grad=False, device=device, override_backend=override_backend)
+    h_imag = w.create_variable(h_imag, requires_grad=False, device=device, override_backend=override_backend)
+    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag,
+                                                               override_backend=override_backend)
     return probe_real, probe_imag
 
 
