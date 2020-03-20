@@ -37,6 +37,7 @@ def reconstruct_ptychography(
         n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
         update_scheme='immediate', # Choose from 'immediate' or 'per angle'
         unknown_type='delta_beta', # Choose from 'delta_beta' or 'real_imag'
+        randomize_probe_pos = False,
         # __________________________
         # |Object optimizer options|____________________________________________
         optimizer='adam', # Choose from 'gd' or 'adam'
@@ -110,6 +111,13 @@ def reconstruct_ptychography(
             timestr = timestr.replace(i, '')
 
     # ================================================================================
+    # Set output folder name if not specified.
+    # ================================================================================
+    if output_folder is None:
+        output_folder = 'recon_{}'.format(timestr)
+    print_flush('Output folder is {}'.format(output_folder), 0, rank)
+
+    # ================================================================================
     # Create pointer for raw data.
     # ================================================================================
     t0 = time.time()
@@ -169,15 +177,6 @@ def reconstruct_ptychography(
                       'shared_file_object=True. In shared-file mode, all ranks must'
                       'process data from the same rotation angle in each synchronized'
                       'batch.')
-
-    # ================================================================================
-    # Set output folder name if not specified.
-    # ================================================================================
-    if output_folder is None:
-        output_folder = 'recon_{}'.format(timestr)
-        if abs(PI - theta_end) < 1e-3:
-            output_folder += '_180'
-    print_flush('Output folder is {}'.format(output_folder), 0, rank)
 
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
@@ -286,7 +285,7 @@ def reconstruct_ptychography(
         # ================================================================================
         if optimizer == 'adam':
             opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
-            optimizer_options_obj = {'step_size': learning_rate, 'verbose': False}
+            optimizer_options_obj = {'step_size': learning_rate}
         elif optimizer == 'gd':
             opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
             optimizer_options_obj = {'step_size': learning_rate,
@@ -475,6 +474,8 @@ def reconstruct_ptychography(
             # ================================================================================
             for i, i_theta in enumerate(theta_ls):
                 spots_ls = range(n_pos)
+                if randomize_probe_pos:
+                    spots_ls = np.random.choice(spots_ls, len(spots_ls), replace=False)
                 # ================================================================================
                 # Append randomly selected diffraction spots if necessary, so that a rank won't be given
                 # spots from different angles in one batch.
@@ -755,7 +756,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save intermediate object.
                 # ================================================================================
-                if rank == 0 and save_intermediate:
+                if rank == 0 and save_intermediate and is_last_batch_of_this_theta:
                     output_object(obj, shared_file_object, os.path.join(output_folder, 'intermediate', 'object'),
                                   unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                   save_history=save_history)

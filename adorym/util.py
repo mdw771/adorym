@@ -842,7 +842,11 @@ def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output
     else:
         print(a)
     if (designate_rank is None or this_rank == designate_rank) and save_stdout:
-        f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
+        try:
+            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
+        except:
+            os.makedirs(output_folder)
+            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
         f.write(a)
         f.write('\n')
         f.close()

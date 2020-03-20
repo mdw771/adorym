@@ -177,7 +177,7 @@ class GDOptimizer(Optimizer):
         super(GDOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=[])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92):
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
         if dynamic_rate:
             threshold_iteration = first_downrate_iteration
             i = 1
@@ -209,7 +209,7 @@ class GDOptimizer(Optimizer):
         global_settings.backend = backend_temp
 
 
-def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):
+def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
 
     g = np.array(g)
     if m is None or v is None:
@@ -221,11 +221,6 @@ def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, 
     vhat = v / (1 - b2 ** (i_batch + 1))
     d = step_size * mhat / (np.sqrt(vhat) + eps)
     x = x - d
-    if verbose:
-        try:
-            print_flush('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))), 0, comm.Get_rank(), save_stdout=False)
-        except:
-            print('  Step size modifier is {}.'.format(np.mean(mhat / (np.sqrt(vhat) + eps))))
     return x, m, v
 
 
