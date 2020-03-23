@@ -354,10 +354,11 @@ def reconstruct_ptychography(
         # ================================================================================
         print_flush('Initialzing probe...', 0, rank, **stdout_options)
         if rank == 0:
+            kwargs['lmbda_nm'] = lmbda_nm
+            kwargs['psize_cm'] = psize_cm
             probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
-                                 rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
-                                                      raw_data_type=raw_data_type, beamstop=beamstop,
-                                                      stdout_options=stdout_options, **kwargs)
+                                                      rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
+                                                      raw_data_type=raw_data_type, stdout_options=stdout_options, **kwargs)
         else:
             probe_real = None
             probe_imag = None

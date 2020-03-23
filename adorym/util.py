@@ -116,7 +116,6 @@ def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
 
 def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None, rescale_intensity=False,
                      save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None, **kwargs):
-
     if probe_type == 'gaussian':
         probe_mag_sigma = kwargs['probe_mag_sigma']
         probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -124,13 +123,20 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         probe_mag, probe_phase = generate_gaussian_map(probe_size, 1, probe_mag_sigma, probe_phase_max, probe_phase_sigma)
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
     elif probe_type == 'aperture_defocus':
-        radius = kwargs['probe_radius']
+        aperture_radius = kwargs['aperture_radius']
+        if 'beamstop_radius' in kwargs.keys():
+            beamstop_radius = kwargs['beamstop_radius']
+        else:
+            beamstop_radius = 0
         defocus_cm = kwargs['probe_defocus_cm']
         lmbda_nm = kwargs['lmbda_nm']
         psize_cm = kwargs['psize_cm']
-        probe_mag = generate_disk(probe_size, radius)
+        probe_mag = generate_disk(probe_size, aperture_radius)
+        if beamstop_radius > 0:
+            beamstop_mask = generate_disk(probe_size, beamstop_radius)
+            probe_mag = probe_mag * (1 - beamstop_mask)
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, np.zeros_like(probe_mag))
-        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, defocus_cm * 1e7, lmbda_nm, psize_cm, override_backend='autograd')
+        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, defocus_cm * 1e7, lmbda_nm, [psize_cm * 1e7] * 3, override_backend='autograd')
     elif probe_type == 'ifft':
         print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
                     output_folder=output_folder, timestamp=timestr)
@@ -163,8 +169,8 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
         s = np.sqrt(intensity_target / intensity_current)
-        probe_real *= s
-        probe_imag *= s
+        probe_real = probe_real * s
+        probe_imag = probe_imag * s
         print_flush('Probe magnitude scaling factor is {}.'.format(s), 0, rank, **kwargs['stdout_options'])
     return probe_real, probe_imag
 
@@ -714,33 +720,28 @@ def generate_sphere(shape, radius, anti_aliasing=5):
     return res
 
 
-def generate_shell(shape, radius, anti_aliasing=5):
+def generate_shell(shape, radius, **kwargs):
 
-    sphere1 = generate_sphere(shape, radius + 0.5, anti_aliasing=anti_aliasing)
-    sphere2 = generate_sphere(shape, radius - 0.5, anti_aliasing=anti_aliasing)
+    sphere1 = generate_sphere(shape, radius + 0.5)
+    sphere2 = generate_sphere(shape, radius - 0.5)
     return sphere1 - sphere2
 
 
-def generate_disk(shape, radius, anti_aliasing=5):
+def generate_disk(shape, radius, **kwargs):
     shape = np.array(shape)
     radius = int(radius)
-    x = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
-    y = np.linspace(-radius, radius, (radius * 2 + 1) * anti_aliasing)
+    x = np.arange(shape[1]) - (shape[1] - 1) / 2
+    y = np.arange(shape[0]) - (shape[0] - 1) / 2
     xx, yy = np.meshgrid(x, y)
-    a = (xx**2 + yy**2 <= radius**2).astype('float')
-    res = np.zeros(shape * anti_aliasing)
-    center_res = (np.array(res.shape) / 2).astype('int')
-    res[center_res[0] - int(a.shape[0] / 2):center_res[0] + int(a.shape[0] / 2),
-        center_res[1] - int(a.shape[0] / 2):center_res[1] + int(a.shape[0] / 2)] = a
-    res = gaussian_filter(res, 0.5 * anti_aliasing)
-    res = res[::anti_aliasing, ::anti_aliasing]
-    return res
+    a = radius - np.sqrt(xx ** 2 + yy ** 2)
+    a = np.clip(a, 0, 1)
+    return a
 
 
-def generate_ring(shape, radius, anti_aliasing=5):
+def generate_ring(shape, radius, **kwargs):
 
-    disk1 = generate_disk(shape, radius + 0.5, anti_aliasing=anti_aliasing)
-    disk2 = generate_disk(shape, radius - 0.5, anti_aliasing=anti_aliasing)
+    disk1 = generate_disk(shape, radius + 0.5)
+    disk2 = generate_disk(shape, radius - 0.5)
     return disk1 - disk2
 
 
@@ -855,13 +856,11 @@ def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output
 
 
 def real_imag_to_mag_phase(realpart, imagpart):
-
     a = realpart + 1j * imagpart
     return np.abs(a), np.angle(a)
 
 
 def mag_phase_to_real_imag(mag, phase):
-
     a = mag * np.exp(1j * phase)
     return a.real, a.imag
 
@@ -1280,3 +1279,12 @@ def output_probe(probe_real, probe_imag, output_folder,
                         fname=os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
     dxchange.write_tiff(np.arctan2(probe_imag, probe_real),
                         fname=os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+
+# if __name__ == '__main__':
+#     import matplotlib.pyplot as plt
+#     lmbda_nm = 1.24 / 8.8
+#     psize_cm = 1.32789376566526e-06
+#     probe_real, probe_imag = initialize_probe([256, 256], 'aperture_defocus', lmbda_nm=lmbda_nm, psize_cm=psize_cm,
+#                                               aperture_radius=10, beamstop_radius=5, probe_defocus_cm=0.0069)
+#     plt.imshow(np.sqrt(probe_real ** 2 + probe_imag ** 2))
+#     plt.show()

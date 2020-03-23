@@ -147,10 +147,14 @@ def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=Non
     """
     :param h: A List of the real part and imaginary part of the transfer function kernel.
     """
-    grid_shape = probe_real.shape[1:]
+    if len(probe_real.shape) == 3:
+        grid_shape = probe_real.shape[1:]
+    else:
+        grid_shape = probe_real.shape
     if h is None:
         h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-    h_real, h_imag = h
+    h_real = w.real(h, override_backend=override_backend)
+    h_imag = w.imag(h, override_backend=override_backend)
     h_real = w.create_variable(h_real, requires_grad=False, device=device, override_backend=override_backend)
     h_imag = w.create_variable(h_imag, requires_grad=False, device=device, override_backend=override_backend)
     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag,

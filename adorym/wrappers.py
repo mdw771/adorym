@@ -393,7 +393,7 @@ def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, override
     f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
-    return ifft2(fh_real, fh_imag)
+    return ifft2(fh_real, fh_imag, override_backend=override_backend)
 
 
 def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, override_backend=None):

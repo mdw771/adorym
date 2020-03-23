@@ -119,7 +119,7 @@ class AdamOptimizer(Optimizer):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True, shared_file_object=False, m=None, v=None):
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False, m=None, v=None):
 
         if m is None or v is None:
             if shared_file_object:
@@ -134,12 +134,6 @@ class AdamOptimizer(Optimizer):
         vhat = v / (1 - b2 ** (i_batch + 1))
         d = step_size * mhat / (w.sqrt(vhat) + eps)
         x = x - d
-        if verbose:
-            try:
-                print_flush('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))), 0,
-                            comm.Get_rank(), save_stdout=False)
-            except:
-                print('  Step size modifier is {}.'.format(w.mean(mhat / (w.sqrt(vhat) + eps))))
         if shared_file_object:
             self.params_chunk_array_dict['m'] = m
             self.params_chunk_array_dict['v'] = v
