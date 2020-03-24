@@ -47,6 +47,17 @@ To run the script with multiple processes, use
 mpirun -n <num_procs> python multislice_ptycho_256_theta.py
 ```
 
+### Dataset format
+Adorym reads raw data contained an HDF5 file. The diffraction images should be
+stored in the `exchange/data` dataset as a 4D array, with a shape of
+`[n_rotation_angles, n_diffraction_spots, image_size_y, image_size_x]`.
+In a large part, Adorym is blind to the type of experiment, which means
+there no need to explicitly tell it the imaging technique used to generate
+the dataset. For imaging data collected from only one angle, `n_rotation_angles = 1`.
+For full-field imaging without scanning, `n_diffraction_spots = 1`. For
+2D imaging, set the last dimension of the object size to 1 (this will be
+introduced further below).
+
 ### Parameter settings
 The scripts in `demos` and `tests` supply the `reconstruct_ptychography`
 with parameters listed as a Python dictionary. You may find the docstrings
