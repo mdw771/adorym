@@ -24,7 +24,7 @@ PI = 3.1415927
 def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
-        fname, obj_size, probe_size=None, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
+        fname, obj_size, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
         energy_ev=None, psize_cm=None, free_prop_cm=None,
         raw_data_type='magnitude', # Choose from 'magnitude' or 'intensity'
         # ___________________________
@@ -128,6 +128,8 @@ def reconstruct_ptychography(
     # ================================================================================
     # Get metadata.
     # ================================================================================
+    if obj_size[-1] == 1:
+        two_d_mode = True
     if n_theta is None:
         n_theta = prj.shape[0]
     if two_d_mode:
@@ -144,8 +146,7 @@ def reconstruct_ptychography(
     if probe_pos is None:
         probe_pos = f['metadata/probe_pos_px']
 
-    if probe_size is None:
-        probe_size = prj.shape[-2:]
+    probe_size = prj.shape[-2:]
 
     if energy_ev is None:
         energy_ev = float(f['metadata/energy_ev'][0])
