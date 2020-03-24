@@ -100,7 +100,7 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
     print('============== PARAMETERS ==============')
     for var_name in var_list:
         try:
-            line = '{:<20}{}\n'.format(var_name, str(locals_dict[var_name]))
+            line = '{:<30}{}\n'.format(var_name, str(locals_dict[var_name]))
             if verbose:
                 print(line)
             f.write(line)
