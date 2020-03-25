@@ -662,27 +662,28 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
     return
 
 
-def pad_object(obj_rot, this_obj_size, probe_pos, probe_size):
+def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', override_backend=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
+    paap = [[0, 0]] * (len(obj_rot.shape) - 2)
     if min(probe_pos[:, 0]) < 0:
         pad_len = -int(min(probe_pos[:, 0]))
-        obj_rot = w.pad(obj_rot, ((pad_len, 0), (0, 0), (0, 0), (0, 0)), mode='constant')
+        obj_rot = w.pad(obj_rot, [[pad_len, 0], [0, 0]] + paap, mode=mode, override_backend=override_backend)
         pad_arr[0, 0] = pad_len
     if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
         pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
-        obj_rot = w.pad(obj_rot, ((0, pad_len), (0, 0), (0, 0), (0, 0)), mode='constant')
+        obj_rot = w.pad(obj_rot, [[0, pad_len], [0, 0]] + paap, mode=mode, override_backend=override_backend)
         pad_arr[0, 1] = pad_len
     if min(probe_pos[:, 1]) < 0:
         pad_len = -int(min(probe_pos[:, 1]))
-        obj_rot = w.pad(obj_rot, ((0, 0), (pad_len, 0), (0, 0), (0, 0)), mode='constant')
+        obj_rot = w.pad(obj_rot, [[0, 0], [pad_len, 0]] + paap, mode=mode, override_backend=override_backend)
         pad_arr[1, 0] = pad_len
     if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
         pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
-        obj_rot = w.pad(obj_rot, ((0, 0), (0, pad_len), (0, 0), (0, 0)), mode='constant')
+        obj_rot = w.pad(obj_rot, [[0, 0], [0, pad_len]] + paap, mode=mode, override_backend=override_backend)
         pad_arr[1, 1] = pad_len
 
     return obj_rot, pad_arr
@@ -1280,11 +1281,47 @@ def output_probe(probe_real, probe_imag, output_folder,
     dxchange.write_tiff(np.arctan2(probe_imag, probe_real),
                         fname=os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
-# if __name__ == '__main__':
-#     import matplotlib.pyplot as plt
-#     lmbda_nm = 1.24 / 8.8
-#     psize_cm = 1.32789376566526e-06
-#     probe_real, probe_imag = initialize_probe([256, 256], 'aperture_defocus', lmbda_nm=lmbda_nm, psize_cm=psize_cm,
-#                                               aperture_radius=10, beamstop_radius=5, probe_defocus_cm=0.0069)
-#     plt.imshow(np.sqrt(probe_real ** 2 + probe_imag ** 2))
-#     plt.show()
+
+def get_subdividing_params(image_shape, n_blocks_y, n_blocks_x, **kwargs):
+    """
+    Calculate block arrangement and locations when a large 2D image is to be divided into square sub-blocks.
+    :param image_shape: shape of original image.
+    :param n_blocks: total number of blocks.
+    :param safe_zone_width: overlapping length between adjacent blocks. If None, estimate using the sqrt(lambda * z) rule.
+    :return: An array of [n_blocks, 4].
+    """
+
+    # Must satisfy:
+    # 1. n_block_x * n_block_y = n_blocks
+    # 2. block_size * n_block_y = wave_shape[0]
+    # 3. block_size * n_block_x = wave_shape[1]
+    n_blocks = n_blocks_x * n_blocks_y
+    block_size_y, block_size_x = np.ceil([image_shape[0] / n_blocks_y, image_shape[1] / n_blocks_x]).astype(int)
+    if rank == 0:
+        print('n_blocks_y: ', n_blocks_y)
+        print('n_blocks_x: ', n_blocks_x)
+        print('n_blocks: ', n_blocks)
+        print('block_size: ', block_size_y, block_size_x)
+
+    block_range_ls = np.zeros([n_blocks, 4])
+    for i_pos in range(n_blocks):
+        line_st = i_pos // n_blocks_x * block_size_y
+        line_end = line_st + block_size_y
+        px_st = i_pos % n_blocks_x * block_size_x
+        px_end = px_st + block_size_x
+        block_range_ls[i_pos, :] = np.array([line_st, line_end, px_st, px_end])
+    return block_range_ls.astype(int)
+
+
+def subdivide_image(img, block_range_ls, override_backend=None):
+
+    block_size_sz_y, block_size_sz_x = (block_range_ls[0][1] - block_range_ls[0][0], block_range_ls[1][1] - block_range_ls[1][0])
+    img, pad_arr = pad_object(img, img.shape, block_range_ls[:, 0:3:2], [block_size_sz_y, block_size_sz_x], mode='edge', override_backend=override_backend)
+    block_ls = []
+    for line_st, line_end, px_st, px_end in block_range_ls:
+        line_st += pad_arr[0, 0]
+        line_end += pad_arr[0, 0]
+        px_st += pad_arr[1, 0]
+        px_end += pad_arr[1, 0]
+        block_ls.append(img[line_st:line_end, px_st:px_end])
+    return block_ls
