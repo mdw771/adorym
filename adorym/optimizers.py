@@ -119,7 +119,7 @@ class AdamOptimizer(Optimizer):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False, m=None, v=None):
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False, m=None, v=None, **kwargs):
 
         if m is None or v is None:
             if shared_file_object:
@@ -144,7 +144,7 @@ class AdamOptimizer(Optimizer):
         del mhat, vhat
         return x
 
-    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, verbose=True):
+    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
 
         assert isinstance(obj, ObjectFunction)
         assert isinstance(gradient, Gradient)
@@ -159,7 +159,7 @@ class AdamOptimizer(Optimizer):
             m = self.params_dset_dict['m'][i_slice]
             v = self.params_dset_dict['v'][i_slice]
             x = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
-                                    b1=b1, b2=b2, eps=eps, verbose=verbose, shared_file_object=False,
+                                    b1=b1, b2=b2, eps=eps, shared_file_object=False,
                                     m=m, v=v)
             obj.dset[i_slice] = x
         self.i_batch += 1
@@ -184,7 +184,7 @@ class GDOptimizer(Optimizer):
 
         return x
 
-    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92):
+    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
 
         assert isinstance(obj, ObjectFunction)
         assert isinstance(gradient, Gradient)

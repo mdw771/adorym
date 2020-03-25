@@ -156,11 +156,14 @@ def reconstruct_ptychography(
 
     if free_prop_cm is None:
         free_prop_cm = f['metadata/free_prop_cm']
-    if len(free_prop_cm) > 1:
-        is_multi_dist = True
-    else:
+    if isinstance(free_prop_cm, int) or isinstance(free_prop_cm, float) or len(free_prop_cm) == 1:
         is_multi_dist = False
-        free_prop_cm = free_prop_cm[0]
+        try:
+            free_prop_cm = free_prop_cm[0]
+        except:
+            pass
+    else:
+        is_multi_dist = True
 
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
     print_flush('Data shape: {}'.format(original_shape), 0, rank)
@@ -172,6 +175,14 @@ def reconstruct_ptychography(
 
     n_pos = len(probe_pos)
     probe_pos = np.array(probe_pos).astype(float)
+
+    # ================================================================================
+    # Remove kwargs that may cause issue (removing args that were required in
+    # previous versions).
+    # ================================================================================
+    for kw in ['probe_size']:
+        if kw in kwargs.keys():
+            del kwargs[kw]
 
     # ================================================================================
     # Batching check.
@@ -366,8 +377,6 @@ def reconstruct_ptychography(
             probe_init_kwargs = kwargs
             probe_init_kwargs['lmbda_nm'] = lmbda_nm
             probe_init_kwargs['psize_cm'] = psize_cm
-            if 'probe_size' in probe_init_kwargs.keys():
-                del probe_init_kwargs['probe_size']
             probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)

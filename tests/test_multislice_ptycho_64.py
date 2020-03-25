@@ -42,7 +42,6 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'alpha_d': 0,
                   'alpha_b': 0,
                   'gamma': 0,
-                  'probe_size': (72, 72),
                   'learning_rate': 1e-7, # for non-shared file mode
                   # 'learning_rate': 1e-8, # for shared-file mode adam
                   # 'learning_rate': 1e-3, # for shared-file mode gd

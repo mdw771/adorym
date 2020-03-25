@@ -46,8 +46,8 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'gamma': 0,
                   'probe_size': (64, 64),
                   # 'learning_rate': 1., # for non-shared file mode gd
-                  # 'learning_rate': 1e-7, # for non-shared-file mode adam
-                  'learning_rate': 1e-6, # for shared-file mode adam
+                  'learning_rate': 1e-7, # for non-shared-file mode adam
+                  # 'learning_rate': 1e-6, # for shared-file mode adam
                   # 'learning_rate': 1, # for shared-file mode gd
                   'center': 32,
                   'energy_ev': 800,
@@ -76,7 +76,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'probe_pos': [(0, 0)],
                   'optimize_probe_defocusing': False,
                   'probe_defocusing_learning_rate': 1e-7,
-                  'shared_file_object': True,
+                  'shared_file_object': False,
                   'optimizer': 'adam',
                   'use_checkpoint': False,
                   'backend': 'pytorch',

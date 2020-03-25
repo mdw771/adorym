@@ -148,7 +148,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
         probe_real = probe_init.real
         probe_imag = probe_init.imag
-    elif probe_type == 'supplied':
+    elif probe_type in ['supplied', 'fixed']:
         probe_mag, probe_phase = probe_initial
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, probe_phase)
     elif probe_type == 'plane':
