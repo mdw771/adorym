@@ -71,11 +71,11 @@ class PtychographyModel(ForwardModel):
     def __init__(self, loss_function_type='lsq', shared_file_object=False, device=None, common_vars_dict=None, raw_data_type='magnitude'):
         super(PtychographyModel, self).__init__(loss_function_type, shared_file_object, device, common_vars_dict, raw_data_type)
         self.argument_ls = ['obj_delta', 'obj_beta', 'probe_real', 'probe_imag', 'probe_defocus_mm',
-                            'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'this_prj_batch',
+                            'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
                             'probe_pos_correction', 'this_ind_batch']
 
     def predict(self, obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
-                probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
+                probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch):
 
         device_obj = self.common_vars['device_obj']
@@ -210,15 +210,19 @@ class PtychographyModel(ForwardModel):
 
     def get_loss_function(self):
         def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
+                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch):
             ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, this_prj_batch,
+                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch)
 
             beamstop = self.common_vars['beamstop']
+            ds_level = self.common_vars['ds_level']
 
+            this_prj_batch = prj[this_i_theta, this_ind_batch]
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            if ds_level > 1:
+                this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
 
             if beamstop is not None:
                 beamstop_mask, beamstop_value = beamstop

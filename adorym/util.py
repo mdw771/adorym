@@ -106,7 +106,7 @@ def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal'
 
 
 def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
-    py = np.arange(size[0]) - (size[size] - 1.) / 2
+    py = np.arange(size[0]) - (size[0] - 1.) / 2
     px = np.arange(size[1]) - (size[1] - 1.) / 2
     pxx, pyy = np.meshgrid(px, py)
     map_mag = mag_max * np.exp(-(pxx ** 2 + pyy ** 2) / (2 * mag_sigma ** 2))

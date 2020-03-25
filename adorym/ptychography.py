@@ -154,6 +154,14 @@ def reconstruct_ptychography(
     if psize_cm is None:
         psize_cm = float(f['metadata/psize_cm'][0])
 
+    if free_prop_cm is None:
+        free_prop_cm = f['metadata/free_prop_cm']
+    if len(free_prop_cm) > 1:
+        is_multi_dist = True
+    else:
+        is_multi_dist = False
+        free_prop_cm = free_prop_cm[0]
+
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
     print_flush('Data shape: {}'.format(original_shape), 0, rank)
     comm.Barrier()
@@ -355,11 +363,14 @@ def reconstruct_ptychography(
         # ================================================================================
         print_flush('Initialzing probe...', 0, rank, **stdout_options)
         if rank == 0:
-            kwargs['lmbda_nm'] = lmbda_nm
-            kwargs['psize_cm'] = psize_cm
+            probe_init_kwargs = kwargs
+            probe_init_kwargs['lmbda_nm'] = lmbda_nm
+            probe_init_kwargs['psize_cm'] = psize_cm
+            if 'probe_size' in probe_init_kwargs.keys():
+                del probe_init_kwargs['probe_size']
             probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
-                                                      raw_data_type=raw_data_type, stdout_options=stdout_options, **kwargs)
+                                                      raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)
         else:
             probe_real = None
             probe_imag = None
@@ -448,13 +459,11 @@ def reconstruct_ptychography(
         i_epoch = starting_epoch
         i_full_angle = 0
         while cont:
-            n_pos = len(probe_pos)
             n_spots = n_theta * n_pos
             n_tot_per_batch = minibatch_size * n_ranks
             n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
 
             t0 = time.time()
-            spots_ls = range(n_spots)
             ind_list_rand = []
 
             t00 = time.time()
@@ -545,11 +554,9 @@ def reconstruct_ptychography(
                 this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
                 print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
 
-                # Apply offset correction
                 this_pos_batch = probe_pos_int[this_ind_batch]
 
                 t_prj_0 = time.time()
-                this_prj_batch = prj[this_i_theta, this_ind_batch]
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank, **stdout_options)
 
@@ -567,8 +574,6 @@ def reconstruct_ptychography(
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
-                if ds_level > 1:
-                    this_prj_batch = this_prj_batch[:, :, ::ds_level, ::ds_level]
                 comm.Barrier()
 
                 if shared_file_object:
