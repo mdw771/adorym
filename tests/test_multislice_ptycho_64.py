@@ -81,7 +81,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'free_prop_cm': 'inf',
                   'debug': False,
                   'update_scheme': 'immediate',
-                  'backend': 'autograd'
+                  'backend': 'pytorch'
                   }
 
 params = params_adhesin_2

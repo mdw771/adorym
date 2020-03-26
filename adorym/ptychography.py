@@ -56,7 +56,7 @@ def reconstruct_ptychography(
         probe_initial=None, # Give as [probe_mag, probe_phase]
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
-        beamstop=None,
+        beamstop=None, safe_zone_width=0,
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
@@ -146,24 +146,36 @@ def reconstruct_ptychography(
     if probe_pos is None:
         probe_pos = f['metadata/probe_pos_px']
 
-    probe_size = prj.shape[-2:]
-
     if energy_ev is None:
-        energy_ev = float(f['metadata/energy_ev'][0])
+        energy_ev = float(f['metadata/energy_ev'][...])
 
     if psize_cm is None:
-        psize_cm = float(f['metadata/psize_cm'][0])
+        psize_cm = float(f['metadata/psize_cm'][...])
 
     if free_prop_cm is None:
         free_prop_cm = f['metadata/free_prop_cm']
-    if isinstance(free_prop_cm, int) or isinstance(free_prop_cm, float) or len(free_prop_cm) == 1:
+
+    if np.array(free_prop_cm).size == 1:
         is_multi_dist = False
-        try:
-            free_prop_cm = free_prop_cm[0]
-        except:
-            pass
+        if isinstance(free_prop_cm, np.ndarray):
+            try:
+                free_prop_cm = free_prop_cm[0]
+            except:
+                free_prop_cm = float(free_prop_cm)
     else:
         is_multi_dist = True
+
+    if is_multi_dist:
+        subdiv_probe = True
+    else:
+        subdiv_probe = False
+
+    if subdiv_probe:
+        probe_size = obj_size[:2]
+        subprobe_size = prj.shape[-2:]
+    else:
+        probe_size = prj.shape[-2:]
+        subprobe_size = probe_size
 
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
     print_flush('Data shape: {}'.format(original_shape), 0, rank)
@@ -326,10 +338,16 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create forward model class.
         # ================================================================================
-        forward_model = PtychographyModel(loss_function_type=loss_function_type,
-                                          shared_file_object=shared_file_object,
-                                          device=device_obj, common_vars_dict=locals(),
-                                          raw_data_type=raw_data_type)
+        if is_multi_dist:
+            forward_model = MultiDistModel(loss_function_type=loss_function_type,
+                                           shared_file_object=shared_file_object,
+                                           device=device_obj, common_vars_dict=locals(),
+                                           raw_data_type=raw_data_type)
+        else:
+            forward_model = PtychographyModel(loss_function_type=loss_function_type,
+                                              shared_file_object=shared_file_object,
+                                              device=device_obj, common_vars_dict=locals(),
+                                              raw_data_type=raw_data_type)
         if reweighted_l1:
             forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
         else:
@@ -397,7 +415,7 @@ def reconstruct_ptychography(
             opt_probe.create_param_arrays(device=device_obj)
             optimizer_options_probe = {'step_size': probe_learning_rate}
             opt_probe.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls = opt_args_ls + [2, 3]
+            opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'), forward_model.get_argument_index('probe_imag')]
             opt_ls.append(opt_probe)
 
         probe_defocus_mm = w.create_variable(0.0)
@@ -408,7 +426,7 @@ def reconstruct_ptychography(
                                                'dynamic_rate': True,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
             opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(4)
+            opt_args_ls.append(forward_model.get_argument_index('probe_defocus_mm'))
             opt_ls.append(opt_probe_defocus)
 
         probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
@@ -419,12 +437,17 @@ def reconstruct_ptychography(
             optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
                                                   'dynamic_rate': False}
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(5)
+            opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
             opt_ls.append(opt_probe_pos_offset)
 
         probe_pos_int = np.round(probe_pos).astype(int)
-        probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
-                                                 requires_grad=optimize_all_probe_pos, device=device_obj)
+        if is_multi_dist:
+            n_dists = len(free_prop_cm)
+            probe_pos_correction = w.create_variable(np.zeros([n_dists, 2]),
+                                                     requires_grad=optimize_all_probe_pos, device=device_obj)
+        else:
+            probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                                                     requires_grad=optimize_all_probe_pos, device=device_obj)
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             assert shared_file_object == False
@@ -432,7 +455,7 @@ def reconstruct_ptychography(
             opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
             opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(9)
+            opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
             opt_ls.append(opt_probe_pos)
 
         # ================================================================================
@@ -590,7 +613,13 @@ def reconstruct_ptychography(
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     # ================================================================================
                     t_read_0 = time.time()
-                    obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj)
+                    # If probe for each image is a part of the full probe, pad the object with safe_zone_width.
+                    if subdiv_probe:
+                        obj_rot = obj.read_chunks_from_file(this_pos_batch - np.array([safe_zone_width] * 2),
+                                                            subprobe_size + np.array([safe_zone_width] * 2) * 2,
+                                                            dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
+                    else:
+                        obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj.delta = obj_rot[:, :, :, :, 0]
                     obj.beta = obj_rot[:, :, :, :, 1]
@@ -788,9 +817,14 @@ def reconstruct_ptychography(
                         if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
                             os.makedirs(os.path.join(output_folder, 'intermediate', 'probe_pos'))
                         for i_theta_pos in range(n_theta):
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
-                                                    'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
-                                                    w.to_numpy(probe_pos_correction[i_theta_pos]))
+                            if is_multi_dist:
+                                np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
+                                                        'probe_pos_correction_{}_{}.txt'.format(i_epoch, i_batch)),
+                                           w.to_numpy(probe_pos_correction))
+                            else:
+                                np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
+                                                        'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
+                                                        w.to_numpy(probe_pos_correction[i_theta_pos]))
 
                 comm.Barrier()
 

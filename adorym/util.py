@@ -594,7 +594,7 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
     return None
 
 
-def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear'):
+def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear', unknown_type='delta_beta'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
     :return: [n_pos, y, x, z, 2]
@@ -617,9 +617,17 @@ def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, m
         if sum(abs(np.array([line_st, line_end, px_st, px_end]) -
                    np.array([line_st_clip, line_end_clip, px_st_clip, px_end_clip]))) > 0:
             if not monochannel:
-                this_block = np.pad(this_block, [[line_st_clip - line_st, line_end - line_end_clip],
-                                                 [px_st_clip - px_st, px_end - px_end_clip],
-                                                 [0, 0], [0, 0]], mode='constant')
+                if unknown_type == 'delta_beta':
+                    this_block = np.pad(this_block, [[line_st_clip - line_st, line_end - line_end_clip],
+                                                     [px_st_clip - px_st, px_end - px_end_clip],
+                                                     [0, 0], [0, 0]], mode='constant')
+                elif unknown_type == 'real_imag':
+                    this_block = np.stack([np.pad(this_block[:, :, :, 0], [[line_st_clip - line_st, line_end - line_end_clip],
+                                                               [px_st_clip - px_st, px_end - px_end_clip],
+                                                               [0, 0], [0, 0]], mode='constant', constant_values=1),
+                                           np.pad(this_block[:, :, :, 1], [[line_st_clip - line_st, line_end - line_end_clip],
+                                                               [px_st_clip - px_st, px_end - px_end_clip],
+                                                               [0, 0], [0, 0]], mode='constant', constant_values=0)], axis=-1)
             else:
                 this_block = np.pad(this_block, [[line_st_clip - line_st, line_end - line_end_clip],
                                                  [px_st_clip - px_st, px_end - px_end_clip],
@@ -662,29 +670,57 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
     return
 
 
-def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', override_backend=None):
+def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', unknown_type='delta_beta', override_backend=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
     paap = [[0, 0]] * (len(obj_rot.shape) - 2)
-    if min(probe_pos[:, 0]) < 0:
-        pad_len = -int(min(probe_pos[:, 0]))
-        obj_rot = w.pad(obj_rot, [[pad_len, 0], [0, 0]] + paap, mode=mode, override_backend=override_backend)
-        pad_arr[0, 0] = pad_len
-    if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
-        pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
-        obj_rot = w.pad(obj_rot, [[0, pad_len], [0, 0]] + paap, mode=mode, override_backend=override_backend)
-        pad_arr[0, 1] = pad_len
-    if min(probe_pos[:, 1]) < 0:
-        pad_len = -int(min(probe_pos[:, 1]))
-        obj_rot = w.pad(obj_rot, [[0, 0], [pad_len, 0]] + paap, mode=mode, override_backend=override_backend)
-        pad_arr[1, 0] = pad_len
-    if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-        pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
-        obj_rot = w.pad(obj_rot, [[0, 0], [0, pad_len]] + paap, mode=mode, override_backend=override_backend)
-        pad_arr[1, 1] = pad_len
+    if unknown_type == 'delta_beta':
+        if min(probe_pos[:, 0]) < 0:
+            pad_len = -int(min(probe_pos[:, 0]))
+            obj_rot = w.pad(obj_rot, [[pad_len, 0], [0, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)
+            pad_arr[0, 0] = pad_len
+        if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
+            pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
+            obj_rot = w.pad(obj_rot, [[0, pad_len], [0, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)
+            pad_arr[0, 1] = pad_len
+        if min(probe_pos[:, 1]) < 0:
+            pad_len = -int(min(probe_pos[:, 1]))
+            obj_rot = w.pad(obj_rot, [[0, 0], [pad_len, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)
+            pad_arr[1, 0] = pad_len
+        if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
+            pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+            obj_rot = w.pad(obj_rot, [[0, 0], [0, pad_len]] + paap, mode=mode, constant_values=0, override_backend=override_backend)
+            pad_arr[1, 1] = pad_len
+    elif unknown_type == 'real_imag':
+        slicer0 = [slice(None)] * (len(obj_rot.shape) - 1) + [0]
+        slicer1 = [slice(None)] * (len(obj_rot.shape) - 1) + [1]
+        if min(probe_pos[:, 0]) < 0:
+            pad_len = -int(min(probe_pos[:, 0]))
+            obj_rot = w.stack([w.pad(obj_rot[slicer0], [[pad_len, 0], [0, 0]] + paap, mode=mode, constant_values=1, override_backend=override_backend),
+                               w.pad(obj_rot[slicer1], [[pad_len, 0], [0, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)],
+                               axis=-1)
+            pad_arr[0, 0] = pad_len
+        if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
+            pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
+            obj_rot = w.stack([w.pad(obj_rot[slicer0], [[0, pad_len], [0, 0]] + paap, mode=mode, constant_values=1, override_backend=override_backend),
+                               w.pad(obj_rot[slicer1], [[0, pad_len], [0, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)],
+                               axis=-1)
+            pad_arr[0, 1] = pad_len
+        if min(probe_pos[:, 1]) < 0:
+            pad_len = -int(min(probe_pos[:, 1]))
+            obj_rot = w.stack([w.pad(obj_rot[slicer0], [[0, 0], [pad_len, 0]] + paap, mode=mode, constant_values=1, override_backend=override_backend),
+                               w.pad(obj_rot[slicer1], [[0, 0], [pad_len, 0]] + paap, mode=mode, constant_values=0, override_backend=override_backend)],
+                               axis=-1)
+            pad_arr[1, 0] = pad_len
+        if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
+            pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+            obj_rot = w.stack([w.pad(obj_rot[slicer0], [[0, 0], [0, pad_len]] + paap, mode=mode, constant_values=1, override_backend=override_backend),
+                               w.pad(obj_rot[slicer1], [[0, 0], [0, pad_len]] + paap, mode=mode, constant_values=0, override_backend=override_backend)],
+                               axis=-1)
+            pad_arr[1, 1] = pad_len
 
     return obj_rot, pad_arr
 

@@ -153,8 +153,8 @@ def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=Non
         grid_shape = probe_real.shape
     if h is None:
         h = get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape)
-    h_real = w.real(h, override_backend=override_backend)
-    h_imag = w.imag(h, override_backend=override_backend)
+    h_real = np.real(h)
+    h_imag = np.imag(h)
     h_real = w.create_variable(h_real, requires_grad=False, device=device, override_backend=override_backend)
     h_imag = w.create_variable(h_imag, requires_grad=False, device=device, override_backend=override_backend)
     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag,
