@@ -555,18 +555,19 @@ def tile(var, cp):
         return var.repeat(*cp)
 
 
-def pad(var, pad_len, mode='constant', override_backend=None):
+def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None):
     """
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
+    :param mode: Choose from 'constant', 'reflect'.
     """
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
-        return anp.pad(var, pad_len, mode=mode)
+        return anp.pad(var, pad_len, mode=mode, constant_values=constant_values)
     elif bn == 'pytorch':
         pad_len = [x for y in pad_len[::-1] for x in y]
-        return tc.nn.functional.pad(var, pad_len, mode=mode)
+        return tc.nn.functional.pad(var, pad_len, mode=mode, value=constant_values)
     elif bn == 'numpy':
-        return np.pad(var, pad_len, mode=mode)
+        return np.pad(var, pad_len, mode=mode, constant_values=constant_values)
 
 
 def sum(var):
