@@ -18,6 +18,7 @@ class ForwardModel(object):
         self.common_vars = common_vars_dict
         self.raw_data_type = raw_data_type
         self.unknown_type = common_vars_dict['unknown_type']
+        self.i_call = 0
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -196,16 +197,15 @@ class PtychographyModel(ForwardModel):
 
         # if beamstop is not None:
         #     beamstop_mask, beamstop_value = beamstop
-        #     beamstop_mask[beamstop_mask >= 1e-5] = 1
-        #     beamstop_mask[beamstop_mask < 1e-5] = 0
-            # ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
-            # ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+        #     ex_real_ls = ex_real_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
+        #     ex_imag_ls = ex_imag_ls * (1 - beamstop_mask) + beamstop_value * beamstop_mask
 
-        if rank == 0 and debug:
+        if rank == 0 and debug and self.i_call % 10 == 0:
             ex_real_val = w.to_numpy(ex_real_ls)
             ex_imag_val = w.to_numpy(ex_imag_ls)
             dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
             dxchange.write_tiff(np.arctan2(ex_real_val, ex_imag_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
+        self.i_call += 1
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):
@@ -226,13 +226,12 @@ class PtychographyModel(ForwardModel):
 
             if beamstop is not None:
                 beamstop_mask, beamstop_value = beamstop
-                beamstop_mask[beamstop_mask >= 1e-5] = 1
-                beamstop_mask[beamstop_mask < 1e-5] = 0
                 beamstop_mask = w.cast(beamstop_mask, 'bool')
                 beamstop_mask_stack = w.tile(beamstop_mask, [len(ex_real_ls), 1, 1])
                 ex_real_ls = w.reshape(ex_real_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 ex_imag_ls = w.reshape(ex_imag_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0, rank)
 
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':
