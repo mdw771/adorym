@@ -343,43 +343,46 @@ def round_and_cast(var, dtype='int32'):
     return cast(round(var), dtype=dtype)
 
 
-def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None):
+def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         var = var_real + 1j * var_imag
-        var = anp.fft.fft2(var, axes=axes)
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.fft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
-        var = tc.fft(var, signal_ndim=2)
+        var = tc.fft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var_real.ndim - 1) + [0]
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None):
+def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         var = var_real + 1j * var_imag
-        var = anp.fft.ifft2(var, axes=axes)
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.ifft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], axis=-1)
-        var = tc.ifft(var, signal_ndim=2)
+        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var_real.ndim - 1) + [0]
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None):
+def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         var = var_real + 1j * var_imag
-        var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes), axes=axes)
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=2)
+        var = tc.fft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var_real.ndim - 1) + [0]
         var_real = var_real[tuple(slicer)]

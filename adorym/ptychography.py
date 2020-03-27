@@ -57,6 +57,7 @@ def reconstruct_ptychography(
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         beamstop=None,
+        normalize_fft=False, # Use False for simulated data generated without normalization
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
@@ -377,6 +378,7 @@ def reconstruct_ptychography(
             probe_init_kwargs = kwargs
             probe_init_kwargs['lmbda_nm'] = lmbda_nm
             probe_init_kwargs['psize_cm'] = psize_cm
+            probe_init_kwargs['normalize_fft'] = normalize_fft
             probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)

@@ -38,7 +38,8 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'reweighted_l1',
                          'update_scheme',
                          'unknown_type',
-                         'randomize_probe_pos'
+                         'randomize_probe_pos',
+                         'normalize_fft'
                          ]
 
 SUMMARY_PRESET_PP = ['obj_size',

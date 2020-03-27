@@ -19,6 +19,7 @@ class ForwardModel(object):
         self.raw_data_type = raw_data_type
         self.unknown_type = common_vars_dict['unknown_type']
         self.i_call = 0
+        self.normalize_fft = common_vars_dict['normalize_fft']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -163,7 +164,7 @@ class PtychographyModel(ForwardModel):
                     probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                     obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                     fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                    type=unknown_type)
+                    type=unknown_type, normalize_fft=self.normalize_fft)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
             del subobj_ls, probe_real_ls, probe_imag_ls
@@ -188,7 +189,8 @@ class PtychographyModel(ForwardModel):
                                                               fresnel_approx=fresnel_approx,
                                                               pure_projection=pure_projection,
                                                               device=device_obj,
-                                                              type=unknown_type)
+                                                              type=unknown_type,
+                                                              normalize_fft=self.normalize_fft)
                 ex_real_ls.append(ex_real)
                 ex_imag_ls.append(ex_imag)
                 pos_ind += len(pos_batch)

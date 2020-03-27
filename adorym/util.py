@@ -164,9 +164,12 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         dat = f['exchange/data'][...]
         if kwargs['raw_data_type'] == 'magnitude':
             dat = dat ** 2
-        # The direct return of FFT function has a total power that is n_pixels times of the input.
-        # This should be removed.
-        intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+        if not kwargs['normalize_fft']:
+            # The direct return of FFT function has a total power that is n_pixels times of the input.
+            # This should be removed.
+            intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+        else:
+            intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
         s = np.sqrt(intensity_target / intensity_current)
         probe_real = probe_real * s

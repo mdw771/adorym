@@ -15,7 +15,7 @@ import adorym.global_settings as global_settings
 def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_path, save_path, fname, probe_pos,
                                          probe_type='gaussian', probe_size=(72, 72), probe_initial=None,
                                          theta_st=0, theta_end=2*PI, minibatch_size=23, fresnel_approx=True,
-                                         free_prop_cm='inf', **kwargs):
+                                         free_prop_cm='inf', normalize_fft=False, **kwargs):
     """
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
@@ -48,7 +48,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
             e_real, e_imag = multislice_propagate_batch(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
                                                  psize_cm, free_prop_cm=free_prop_cm,
                                                  obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]],
-                                                 fresnel_approx=fresnel_approx)
+                                                 fresnel_approx=fresnel_approx, normalize_fft=normalize_fft)
             e_real_ls.append(e_real)
             e_imag_ls.append(e_imag)
         e_real_ls = np.concatenate(e_real_ls, 0)

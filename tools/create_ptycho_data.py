@@ -46,7 +46,8 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um_2.h5',
                   'probe_mag_sigma': 6,
                   'probe_phase_sigma': 6,
                   'probe_phase_max': 0.5,
-                  'free_prop_cm': 'inf'
+                  'free_prop_cm': 'inf',
+                  'normalize_fft': False
                   }
 
 pos_error = np.round(np.random.normal(0, 1, [500, 2])).astype(int)
@@ -74,7 +75,8 @@ params_adhesin_2_noisy_pos = {'fname': 'data_adhesin_64_1nm_1um.h5',
                               'probe_phase_sigma': 6,
                               'probe_phase_max': 0.5,
                               'free_prop_cm': 'inf',
-                              'pos_offset_vec': pos_error
+                              'pos_offset_vec': pos_error,
+                              'normalize_fft': False
                               }
 
 try:
@@ -105,7 +107,8 @@ try:
                                   'probe_phase_sigma': 6,
                                   'probe_phase_max': 0.5,
                                   'free_prop_cm': 'inf',
-                                  'pos_offset_vec': None
+                                  'pos_offset_vec': None,
+                                  'normalize_fft': False
                                   }
 except: pass
 
@@ -129,7 +132,8 @@ try:
                         'probe_mag_sigma': 6,
                         'probe_phase_sigma': 6,
                         'probe_phase_max': 0.5,
-                        'free_prop_cm': 'inf'
+                        'free_prop_cm': 'inf',
+                        'normalize_fft': False
                         }
 except: pass
 
@@ -176,7 +180,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
                     'forward_algorithm': 'fresnel',
                     'object_type': 'phase_only',
                     'probe_pos': [(y, x) for y in (np.arange(66) * 5) - 36 for x in (np.arange(68) * 5) - 36],
-                    'free_prop_cm': 'inf'
+                    'free_prop_cm': 'inf',
+                    'normalize_fft': False
                     }
 
 # params = params_2d_cell

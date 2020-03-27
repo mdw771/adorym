@@ -87,7 +87,8 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
 
 def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
-                               pure_projection=False, binning=1, device=None, type='delta_beta'):
+                               pure_projection=False, binning=1, device=None, type='delta_beta',
+                               normalize_fft=False):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -134,7 +135,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                     probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device)
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
-            probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2])
+            probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)
         else:
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
