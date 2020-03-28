@@ -241,6 +241,8 @@ class PtychographyModel(ForwardModel):
                 ex_real_ls = w.reshape(ex_real_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 ex_imag_ls = w.reshape(ex_imag_ls[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
+                            rank)
 
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':

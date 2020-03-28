@@ -57,7 +57,7 @@ def reconstruct_ptychography(
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         beamstop=None,
-        normalize_fft=False, # Use False for simulated data generated without normalization
+        normalize_fft=False, # Use False for simulated data generated without normalization. Normalize for Fraunhofer FFT only
         safe_zone_width=0,
         # _____
         # |I/O|_________________________________________________________________
@@ -117,6 +117,8 @@ def reconstruct_ptychography(
     # ================================================================================
     if output_folder is None:
         output_folder = 'recon_{}'.format(timestr)
+    if save_path != '.':
+        output_folder = os.path.join(save_path, output_folder)
     print_flush('Output folder is {}'.format(output_folder), 0, rank)
 
     # ================================================================================
@@ -211,9 +213,6 @@ def reconstruct_ptychography(
                       'shared_file_object=True. In shared-file mode, all ranks must'
                       'process data from the same rotation angle in each synchronized'
                       'batch.')
-
-    if save_path != '.':
-        output_folder = os.path.join(save_path, output_folder)
 
     for ds_level in range(multiscale_level - 1, -1, -1):
 
