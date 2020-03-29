@@ -160,6 +160,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         probe_real = probe_real * pupil_function
         probe_imag = probe_imag * pupil_function
     if rescale_intensity:
+        n_probe_modes = kwargs['n_probe_modes']
         f = h5py.File(fname, 'r')
         dat = f['exchange/data'][...]
         if kwargs['raw_data_type'] == 'magnitude':
@@ -171,7 +172,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         else:
             intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
-        s = np.sqrt(intensity_target / intensity_current)
+        s = np.sqrt(intensity_target / intensity_current / n_probe_modes)
         probe_real = probe_real * s
         probe_imag = probe_imag * s
         print_flush('Probe magnitude scaling factor is {}.'.format(s), 0, rank, **kwargs['stdout_options'])

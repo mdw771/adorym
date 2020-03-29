@@ -54,6 +54,7 @@ def reconstruct_ptychography(
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
         probe_type='gaussian', # Choose from 'gaussian', 'plane', 'ifft', 'aperture_defocus', 'supplied'
         probe_initial=None, # Give as [probe_mag, probe_phase]
+        n_probe_modes=1,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         beamstop=None,
@@ -400,9 +401,21 @@ def reconstruct_ptychography(
             probe_init_kwargs['lmbda_nm'] = lmbda_nm
             probe_init_kwargs['psize_cm'] = psize_cm
             probe_init_kwargs['normalize_fft'] = normalize_fft
-            probe_real, probe_imag = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
+            probe_init_kwargs['n_probe_modes'] = n_probe_modes
+            probe_real_init, probe_imag_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)
+            if n_probe_modes == 1:
+                probe_real = np.stack([probe_real_init])
+                probe_imag = np.stack([probe_imag_init])
+            else:
+                probe_real = []
+                probe_imag = []
+                for i_mode in range(n_probe_modes):
+                    probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
+                    probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                probe_real = np.stack(probe_real)
+                probe_imag = np.stack(probe_imag)
         else:
             probe_real = None
             probe_imag = None
@@ -416,7 +429,7 @@ def reconstruct_ptychography(
         # ================================================================================
         opt_args_ls = [0, 1]
         if optimize_probe:
-            opt_probe = AdamOptimizer([*probe_size, 2], output_folder=output_folder)
+            opt_probe = AdamOptimizer([n_probe_modes, *probe_size, 2], output_folder=output_folder)
             opt_probe.create_param_arrays(device=device_obj)
             optimizer_options_probe = {'step_size': probe_learning_rate}
             opt_probe.set_index_in_grad_return(len(opt_args_ls))
@@ -897,6 +910,8 @@ def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_po
     Reconstruct a 2D object and probe function using ePIE.
     """
     with w.no_grad():
+        probe_real = probe_real[0]
+        probe_imag = probe_imag[0]
         probe_pos = probe_pos.astype(int)
         energy_ev = kwargs['energy_ev']
         psize_cm = kwargs['psize_cm']

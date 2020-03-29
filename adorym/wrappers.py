@@ -411,15 +411,15 @@ def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, n
         return var_real, var_imag
 
 
-def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, override_backend=None):
-    f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
+def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None):
+    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
     return ifft2(fh_real, fh_imag, override_backend=override_backend)
 
 
-def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, override_backend=None):
-    f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
+def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None):
+    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend)
     h_real, h_imag = fft2(h_real, h_imag, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
@@ -589,9 +589,15 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
         return np.pad(var, pad_len, mode=mode, constant_values=constant_values)
 
 
-def sum(var):
+def sum(var, axis=None):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sum'][global_settings.backend])
-    arr = func(var)
+    if global_settings.backend == 'autograd':
+        arr = func(var, axis=axis)
+    elif global_settings.backend == 'pytorch':
+        if axis is None:
+            arr = tc.sum(var)
+        else:
+            arr = tc.sum(var, dim=axis)
     return arr
 
 
@@ -619,3 +625,13 @@ def norm(var_real, var_imag):
         return abs(var_real + 1j * var_imag)
     elif global_settings.backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
+
+
+def swap_axes(arr, axes=(0, 1)):
+    if global_settings.backend == 'autograd':
+        if axes[0] < axes[1]:
+            axes = [axes[1], axes[0]]
+        axes = list(range(min(axes))) + axes + list(range(max(axes) + 1, len(arr.shape)))
+        return anp.tranpose(arr, axes)
+    elif global_settings.backend == 'pytorch':
+        return tc.transpose(arr, axes[0], axes[1])
