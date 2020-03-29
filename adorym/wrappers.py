@@ -392,6 +392,25 @@ def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, nor
         return var_real, var_imag
 
 
+def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        var = var_real + 1j * var_imag
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
+        return anp.real(var), anp.imag(var)
+    elif bn == 'pytorch':
+        var_real = ifftshift(var_real, axes=axes)
+        var_imag = ifftshift(var_imag, axes=axes)
+        var = tc.stack([var_real, var_imag], dim=-1)
+        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
+        var_real, var_imag = tc.split(var, 1, dim=-1)
+        slicer = [slice(None)] * (var_real.ndim - 1) + [0]
+        var_real = var_real[tuple(slicer)]
+        var_imag = var_imag[tuple(slicer)]
+        return var_real, var_imag
+
+
 def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, override_backend=None):
     f_real, f_imag = fft2(arr_real, arr_imag, override_backend=override_backend)
     fh_real = f_real * h_real - f_imag * h_imag
