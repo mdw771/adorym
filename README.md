@@ -331,5 +331,7 @@ opened and viewed with ImageJ.
 ## Publications
 The early version of Adorym, which was used to demonstrate 3D reconstruction of continuous object beyond the depth of focus, is published as
 
-Du, M., Nashed, Y. S. G., Kandel, S., Gursoy, D. & Jacobsen, C. Three dimensions, two microscopes, one code: automatic differentiation for x-ray nanotomography beyond the depth of focus limit. *arXiv.org* **eess.IV**, arXiv:1905.10433 (2019).
-  
+Du, M., Nashed, Y. S. G., Kandel, S., Gürsoy, D. & Jacobsen, C. Three
+dimensions, two microscopes, one code: Automatic differentiation for
+x-ray nanotomography beyond the depth of focus limit. *Sci Adv* **6**,
+eaay3700 (2020).
