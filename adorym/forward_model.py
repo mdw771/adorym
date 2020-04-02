@@ -443,8 +443,8 @@ class MultiDistModel(ForwardModel):
         if rank == 0 and debug:
             ex_real_val = w.to_numpy(ex_real_ls)
             ex_imag_val = w.to_numpy(ex_imag_ls)
-            dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2)[:, :, :, np.newaxis], os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
-            dxchange.write_tiff(np.arctan2(ex_imag_val, ex_real_val)[:, :, :, np.newaxis], os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
+            dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
+            dxchange.write_tiff(np.arctan2(ex_imag_val, ex_real_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
 
         del subobj_delta_ls_ls, subobj_beta_ls_ls, subprobe_real_ls_ls, subprobe_imag_ls_ls
         return ex_real_ls, ex_imag_ls
