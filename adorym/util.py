@@ -172,7 +172,8 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         else:
             intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
-        s = np.sqrt(intensity_target / intensity_current / n_probe_modes)
+        s = np.sqrt(intensity_target / intensity_current)
+        # s = np.sqrt(intensity_target / intensity_current / n_probe_modes)
         probe_real = probe_real * s
         probe_imag = probe_imag * s
         print_flush('Probe magnitude scaling factor is {}.'.format(s), 0, rank, **kwargs['stdout_options'])
@@ -669,8 +670,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
                    np.array([line_st_clip, line_end_clip, px_st_clip, px_end_clip]))) > 0:
             this_block = this_block[line_st_clip - line_st:this_block.shape[0] - (line_end - line_end_clip),
                                     px_st_clip - px_st:this_block.shape[1] - (px_end - px_end_clip), :]
-        with dset.collective:
-            dset[line_st_clip:line_end_clip, px_st_clip:px_end_clip, :] += this_block
+        dset[line_st_clip:line_end_clip, px_st_clip:px_end_clip, :] += this_block
     return
 
 

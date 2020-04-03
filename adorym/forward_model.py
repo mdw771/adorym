@@ -132,16 +132,16 @@ class PtychographyModel(ForwardModel):
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
-        if not two_d_mode:
+        if not two_d_mode and not self.shared_file_object:
             obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta], device=device_obj)
-            # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
         else:
             obj_rot = obj_stack
         ex_real_ls = []
         ex_imag_ls = []
 
         # Pad if needed
-        obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
+        if not self.shared_file_object:
+            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
 
         pos_ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):

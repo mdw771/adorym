@@ -119,7 +119,8 @@ class AdamOptimizer(Optimizer):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False, m=None, v=None, **kwargs):
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False,
+                       m=None, v=None, return_moments=False, update_batch_count=True, **kwargs):
 
         if m is None or v is None:
             if shared_file_object:
@@ -140,9 +141,13 @@ class AdamOptimizer(Optimizer):
         else:
             self.params_whole_array_dict['m'] = m
             self.params_whole_array_dict['v'] = v
-        self.i_batch += 1
+        if update_batch_count:
+            self.i_batch += 1
         del mhat, vhat
-        return x
+        if return_moments:
+            return x, m, v
+        else:
+            return x
 
     def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
 
@@ -153,15 +158,19 @@ class AdamOptimizer(Optimizer):
 
         backend_temp = global_settings.backend
         global_settings.backend = 'autograd'
+
         for i_slice in slice_ls:
             x = obj.dset[i_slice]
             g = gradient.dset[i_slice]
             m = self.params_dset_dict['m'][i_slice]
             v = self.params_dset_dict['v'][i_slice]
-            x = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
+            x, m, v = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
                                     b1=b1, b2=b2, eps=eps, shared_file_object=False,
-                                    m=m, v=v)
+                                    m=m, v=v, update_batch_count=False, return_moments=True)
+
             obj.dset[i_slice] = x
+            self.params_dset_dict['m'][i_slice] = m
+            self.params_dset_dict['v'][i_slice] = v
         self.i_batch += 1
         global_settings.backend = backend_temp
 

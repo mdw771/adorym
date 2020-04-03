@@ -68,6 +68,7 @@ def reconstruct_ptychography(
         # _____________
         # |Performance|_________________________________________________________
         cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
+        shared_file_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         # _________________________
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5,
@@ -411,9 +412,17 @@ def reconstruct_ptychography(
             else:
                 probe_real = []
                 probe_imag = []
+                i_cum_factor = 0
                 for i_mode in range(n_probe_modes):
-                    probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
-                    probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                    # probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
+                    # probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                    if i_mode < n_probe_modes - 1:
+                        probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        i_cum_factor += (1 - i_cum_factor) * 0.85
+                    else:
+                        probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
+                        probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
                 probe_real = np.stack(probe_real)
                 probe_imag = np.stack(probe_imag)
         else:
@@ -523,6 +532,8 @@ def reconstruct_ptychography(
         i_epoch = starting_epoch
         i_full_angle = 0
         while cont:
+            # for o in opt_ls:
+            #     o.i_batch = 0
             n_spots = n_theta * n_pos
             n_tot_per_batch = minibatch_size * n_ranks
             n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
@@ -589,8 +600,6 @@ def reconstruct_ptychography(
                 # Initialize.
                 # ================================================================================
                 print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), 0, rank, **stdout_options)
-                for o in opt_ls:
-                    o.i_batch = 0
 
                 # ================================================================================
                 # Save checkpoint.

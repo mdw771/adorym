@@ -44,7 +44,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'gamma': 0,
                   'probe_size': (72, 72),
                   # 'learning_rate': 1e-5, # for non-shared file mode
-                  'learning_rate': 1e-6, # for shared-file mode adam
+                  'learning_rate': 1e-7, # for shared-file mode adam
                   # 'learning_rate': 1e-3, # for shared-file mode gd
                   'center': 32,
                   'energy_ev': 800,
@@ -57,9 +57,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'multiscale_level': 1,
                   'n_epoch_final_pass': None,
                   'save_intermediate': True,
-                  # 'initial_guess': [np.load('adhesin_ptycho_2/phantom/grid_delta.npy'), np.load('adhesin_ptycho_2/phantom/grid_beta.npy')],
                   'initial_guess': init,
-                  # 'probe_initial': [dxchange.read_tiff('adhesin_ptycho_2/probe_mag_defocus_10nm.tiff'), dxchange.read_tiff('adhesin_ptycho_2/probe_phase_defocus_10nm.tiff')],
                   'probe_initial': None,
                   'n_dp_batch': 529,
                   'fresnel_approx': True,
@@ -80,7 +78,9 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'store_checkpoint': True,
                   'use_checkpoint': False,
                   'free_prop_cm': 'inf',
-                  'debug': True
+                  'debug': True,
+                  'raw_data_type': 'magnitude',
+                  'backend': 'autograd',
                   }
 
 params = params_adhesin_2
