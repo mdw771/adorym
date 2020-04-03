@@ -714,7 +714,7 @@ def calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_
             pad_len = -int(min(probe_pos[:, 1]))
             pad_arr[1, 0] = pad_len
         if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-            pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+            pad_len = int(max(probe_pos[:, 1])) + probe_size[1] - this_obj_size[1]
             pad_arr[1, 1] = pad_len
     elif unknown_type == 'real_imag':
         if min(probe_pos[:, 0]) < 0:
@@ -727,7 +727,7 @@ def calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_
             pad_len = -int(min(probe_pos[:, 1]))
             pad_arr[1, 0] = pad_len
         if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-            pad_len = int(max(probe_pos[:, 1])) + probe_size[0] - this_obj_size[1]
+            pad_len = int(max(probe_pos[:, 1])) + probe_size[1] - this_obj_size[1]
             pad_arr[1, 1] = pad_len
     return pad_arr
 
@@ -1358,7 +1358,7 @@ def get_subdividing_params(image_shape, n_blocks_y, n_blocks_x, **kwargs):
 
 def subdivide_image(img, block_range_ls, override_backend=None):
 
-    block_size_sz_y, block_size_sz_x = (block_range_ls[0][1] - block_range_ls[0][0], block_range_ls[1][1] - block_range_ls[1][0])
+    block_size_sz_y, block_size_sz_x = (block_range_ls[0][1] - block_range_ls[0][0], block_range_ls[0][3] - block_range_ls[0][2])
     img, pad_arr = pad_object(img, img.shape, block_range_ls[:, 0:3:2], [block_size_sz_y, block_size_sz_x], mode='edge', override_backend=override_backend)
     block_ls = []
     for line_st, line_end, px_st, px_end in block_range_ls:
@@ -1366,5 +1366,6 @@ def subdivide_image(img, block_range_ls, override_backend=None):
         line_end += pad_arr[0, 0]
         px_st += pad_arr[1, 0]
         px_end += pad_arr[1, 0]
-        block_ls.append(img[line_st:line_end, px_st:px_end])
+        patch = img[line_st:line_end, px_st:px_end]
+        block_ls.append(patch)
     return block_ls

@@ -33,15 +33,16 @@ out_fname = args.output
 n_blocks_y, n_blocks_x = int(args.n_blocks_y), int(args.n_blocks_x)
 n_blocks = n_blocks_y * n_blocks_x
 
-flist = glob.glob(os.path.join(src_dir, prefix + '*.tif*'))
+flist = np.array(glob.glob(os.path.join(src_dir, prefix + '*.tif*')))
 raw_img = np.squeeze(dxchange.read_tiff(flist[0]))
 raw_img_shape = raw_img.shape
 n_dists = len(dist_cm_ls)
-flist.sort()
-n_theta = int(re.findall(r'\d+', flist[-1])[-2]) + 1
+theta_ls = [int(re.findall(r'\d+', f)[-2]) for f in flist]
+n_theta = len(theta_ls)
+flist = flist[np.argsort(theta_ls)]
 
 energy_ev = float(args.energy_ev)
-lmbda_nm = 1240. / energy_ev 
+lmbda_nm = 1240. / energy_ev
 psize_cm = float(args.psize_cm)
 
 flist = [flist[i * n_dists:(i + 1) * n_dists] for i in range(n_theta)]
@@ -70,7 +71,8 @@ for i_theta in range(n_theta):
             dset[i_theta, i_dist] = img
         else:
             block_ls = adorym.subdivide_image(img, block_range_ls, override_backend='numpy')
-            dset[i_theta, i_dist * n_blocks:(i_dist + 1) * n_blocks, :, :] = np.array(block_ls)
+            block_ls = np.stack(block_ls)
+            dset[i_theta, i_dist * n_blocks:(i_dist + 1) * n_blocks, :, :] = block_ls
 
 grp = f.create_group('metadata')
 grp.create_dataset('probe_pos_px', data=block_range_ls[:, 0:3:2])
