@@ -414,15 +414,15 @@ def reconstruct_ptychography(
                 probe_imag = []
                 i_cum_factor = 0
                 for i_mode in range(n_probe_modes):
-                    # probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
-                    # probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
-                    if i_mode < n_probe_modes - 1:
-                        probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
-                        probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
-                        i_cum_factor += (1 - i_cum_factor) * 0.85
-                    else:
-                        probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
-                        probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
+                    probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
+                    probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                    # if i_mode < n_probe_modes - 1:
+                    #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                    #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                    #     i_cum_factor += (1 - i_cum_factor) * 0.85
+                    # else:
+                    #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
+                    #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
                 probe_real = np.stack(probe_real)
                 probe_imag = np.stack(probe_imag)
         else:
@@ -777,11 +777,21 @@ def reconstruct_ptychography(
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
-                    if not shared_file_object and non_negativity and unknown_type != 'real_imag':
-                        obj.delta = w.clip(obj.delta, 0, None)
-                        obj.beta = w.clip(obj.beta, 0, None)
-                        if object_type == 'absorption_only': obj.delta *= 0
-                        if object_type == 'phase_only': obj.beta *= 0
+                    if not shared_file_object:
+                        if non_negativity and unknown_type != 'real_imag':
+                            obj.delta = w.clip(obj.delta, 0, None)
+                            obj.beta = w.clip(obj.beta, 0, None)
+                        if unknown_type == 'delta_beta':
+                            if object_type == 'absorption_only': obj.delta *= 0
+                            if object_type == 'phase_only': obj.beta *= 0
+                        elif unknown_type == 'real_beta':
+                            if object_type == 'absorption_only':
+                                obj.delta = w.norm(obj.delta, obj.beta)
+                                obj.beta *= 0
+                            if object_type == 'phase_only':
+                                obj_norm = w.norm(obj.delta, obj.beta)
+                                obj.delta = obj.delta / obj_norm
+                                obj.beta = obj.beta / obj_norm
                 w.reattach(obj.delta)
                 w.reattach(obj.beta)
 

@@ -98,41 +98,54 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
     size_nm = np.array(grid_shape) * voxel_nm
 
-    n_slice = obj_batch_shape[-1]
+    n_slices = obj_batch_shape[-1]
     delta_nm = voxel_nm[-1]
 
-    if kernel is not None:
-        h = kernel
-    else:
-        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
-    h_real, h_imag = np.real(h), np.imag(h)
-    h_real = w.create_variable(h_real, requires_grad=False, device=device)
-    h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
+    if pure_projection:
+        k1 = 2. * PI * delta_nm * n_slices / lmbda_nm
+        delta_slice = w.sum(grid_delta_batch, axis=-1)
+        beta_slice = w.sum(grid_beta_batch, axis=-1)
+        if type == 'delta_beta':
+            c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
+        elif type == 'real_imag':
+            c_real, c_imag = delta_slice, beta_slice
+        else:
+            raise ValueError('unknown_type must be real_imag or delta_beta.')
+        probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
 
-    for i in range(n_slice):
-        # At the start of bin, initialize slice array.
-        if i % binning == 0:
-            i_bin = 0
-            delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
-            beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
-        delta_slice += grid_delta_batch[:, :, :, i]
-        beta_slice += grid_beta_batch[:, :, :, i]
-        i_bin += 1
-        # When arriving at the last slice of bin or object, do propagation.
-        if i_bin == binning or i == n_slice - 1:
-            k1 = 2. * PI * delta_nm * i_bin / lmbda_nm
-            if type == 'delta_beta':
-                c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
-            elif type == 'real_imag':
-                c_real, c_imag = delta_slice, beta_slice
-            else:
-                raise ValueError('unknown_type must be delta_beta or real_imag.')
-            probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
-            if i < n_slice - 1 and not pure_projection:
-                if i_bin == binning:
-                    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+    else:
+        if kernel is not None:
+            h = kernel
+        else:
+            h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx)
+        h_real, h_imag = np.real(h), np.imag(h)
+        h_real = w.create_variable(h_real, requires_grad=False, device=device)
+        h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
+
+        for i in range(n_slices):
+            # At the start of bin, initialize slice array.
+            if i % binning == 0:
+                i_bin = 0
+                delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
+                beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
+            delta_slice += grid_delta_batch[:, :, :, i]
+            beta_slice += grid_beta_batch[:, :, :, i]
+            i_bin += 1
+            # When arriving at the last slice of bin or object, do propagation.
+            if i_bin == binning or i == n_slices - 1:
+                k1 = 2. * PI * delta_nm * i_bin / lmbda_nm
+                if type == 'delta_beta':
+                    c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
+                elif type == 'real_imag':
+                    c_real, c_imag = delta_slice, beta_slice
                 else:
-                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device)
+                    raise ValueError('unknown_type must be delta_beta or real_imag.')
+                probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
+                if i < n_slices - 1:
+                    if i_bin == binning:
+                        probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+                    else:
+                        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device)
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
             probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)

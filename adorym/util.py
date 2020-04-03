@@ -682,13 +682,17 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
     pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type)
     if unknown_type == 'delta_beta':
         paap = [[0, 0]] * (len(obj_rot.shape) - 2)
-        obj_rot = w.pad(obj_rot, pad_arr.tolist() + paap, mode=mode, constant_values=0, override_backend=override_backend)
+        args = {}
+        if mode == 'constant': args['constant_values'] = 0
+        obj_rot = w.pad(obj_rot, pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args)
     elif unknown_type == 'real_imag':
         paap = [[0, 0]] * (len(obj_rot.shape) - 3)
+        args = {}
+        if mode == 'constant': args['constant_values'] = 0
         slicer0 = [slice(None)] * (len(obj_rot.shape) - 1) + [0]
         slicer1 = [slice(None)] * (len(obj_rot.shape) - 1) + [1]
-        obj_rot = w.stack([w.pad(obj_rot[slicer0], pad_arr.tolist() + paap, mode=mode, constant_values=1, override_backend=override_backend),
-                           w.pad(obj_rot[slicer1], pad_arr.tolist() + paap, mode=mode, constant_values=0, override_backend=override_backend)],
+        obj_rot = w.stack([w.pad(obj_rot[slicer0], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args),
+                           w.pad(obj_rot[slicer1], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args)],
                            axis=-1)
     return obj_rot, pad_arr
 

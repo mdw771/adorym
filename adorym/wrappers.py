@@ -580,13 +580,16 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
     :param mode: Choose from 'constant', 'reflect'.
     """
     bn = override_backend if override_backend is not None else global_settings.backend
+    args = {}
+    if mode == 'constant':
+        args['constant_values'] = 0
     if bn == 'autograd':
-        return anp.pad(var, pad_len, mode=mode, constant_values=constant_values)
+        return anp.pad(var, pad_len, mode=mode, **args)
     elif bn == 'pytorch':
         pad_len = [x for y in pad_len[::-1] for x in y]
         return tc.nn.functional.pad(var, pad_len, mode=mode, value=constant_values)
     elif bn == 'numpy':
-        return np.pad(var, pad_len, mode=mode, constant_values=constant_values)
+        return np.pad(var, pad_len, mode=mode, **args)
 
 
 def sum(var, axis=None):
