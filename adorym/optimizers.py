@@ -149,12 +149,13 @@ class AdamOptimizer(Optimizer):
         else:
             return x
 
-    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
+    def apply_gradient_to_file(self, obj, gradient, i_batch=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
 
         assert isinstance(obj, ObjectFunction)
         assert isinstance(gradient, Gradient)
         s = obj.dset.shape
         slice_ls = range(rank, s[0], n_ranks)
+        if i_batch is None: i_batch = self.i_batch
 
         backend_temp = global_settings.backend
         global_settings.backend = 'autograd'
@@ -164,7 +165,7 @@ class AdamOptimizer(Optimizer):
             g = gradient.dset[i_slice]
             m = self.params_dset_dict['m'][i_slice]
             v = self.params_dset_dict['v'][i_slice]
-            x, m, v = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
+            x, m, v = self.apply_gradient(x, g, i_batch, step_size=step_size,
                                     b1=b1, b2=b2, eps=eps, shared_file_object=False,
                                     m=m, v=v, update_batch_count=False, return_moments=True)
 
@@ -193,19 +194,20 @@ class GDOptimizer(Optimizer):
 
         return x
 
-    def apply_gradient_to_file(self, obj, gradient, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
+    def apply_gradient_to_file(self, obj, gradient, i_batch=None, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
 
         assert isinstance(obj, ObjectFunction)
         assert isinstance(gradient, Gradient)
         s = obj.dset.shape
         slice_ls = range(rank, s[0], n_ranks)
+        if i_batch is None: i_batch = self.i_batch
 
         backend_temp = global_settings.backend
         global_settings.backend = 'autograd'
         for i_slice in slice_ls:
             x = obj.dset[i_slice]
             g = gradient.dset[i_slice]
-            x = self.apply_gradient(x, g, self.i_batch, step_size=step_size,
+            x = self.apply_gradient(x, g, i_batch, step_size=step_size,
                                     dynamic_rate=dynamic_rate, first_downrate_iteration=first_downrate_iteration)
             obj.dset[i_slice] = x
         self.i_batch += 1

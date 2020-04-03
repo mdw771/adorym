@@ -592,12 +592,17 @@ def reconstruct_ptychography(
 
             print_flush('Allocation done in {} s.'.format(time.time() - t00), 0, rank, **stdout_options)
 
+            # ================================================================================
+            # Initialize runtime indices and flags.
+            # ================================================================================
             current_i_theta = 0
             initialize_gradients = True
+            shared_file_update_flag = False
+
             for i_batch in range(starting_batch, n_batch):
 
                 # ================================================================================
-                # Initialize.
+                # Initialize batch.
                 # ================================================================================
                 print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), 0, rank, **stdout_options)
 
@@ -637,7 +642,7 @@ def reconstruct_ptychography(
                 # In shared file mode, if moving to a new angle, rotate the HDF5 object and saved
                 # the rotated object into the temporary file object.
                 # ================================================================================
-                if shared_file_object and this_i_theta != current_i_theta:
+                if shared_file_object and (this_i_theta != current_i_theta or shared_file_update_flag):
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
@@ -728,10 +733,25 @@ def reconstruct_ptychography(
                 if optimize_all_probe_pos:
                     all_pos_grads += grads[opt_probe_pos.index_in_grad_returns]
 
-                if (update_scheme == 'per angle' or shared_file_object) and not is_last_batch_of_this_theta:
-                    continue
+                # if ((update_scheme == 'per angle' or shared_file_object) and not is_last_batch_of_this_theta):
+                #     continue
+                # else:
+                #     initialize_gradients = True
+
+                if not shared_file_object:
+                    if update_scheme == 'per angle' and not is_last_batch_of_this_theta:
+                        continue
+                    else:
+                        initialize_gradients = True
                 else:
-                    initialize_gradients = True
+                    shared_file_update_flag = False
+                    if shared_file_mode_n_batch_per_update is None and not is_last_batch_of_this_theta:
+                        continue
+                    elif shared_file_mode_n_batch_per_update is not None and i_batch > 0 and i_batch % shared_file_mode_n_batch_per_update != 0:
+                        continue
+                    else:
+                        initialize_gradients = True
+                        shared_file_update_flag = True
 
                 # ================================================================================
                 # All reduce object gradient buffer.
@@ -805,7 +825,7 @@ def reconstruct_ptychography(
                 # rotate the gradient back, and use it to update the object at 0 deg. Then
                 # update the object using gradient at 0 deg.
                 # ================================================================================
-                if shared_file_object and is_last_batch_of_this_theta:
+                if shared_file_object and shared_file_update_flag:
                     coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                                    this_i_theta, reverse=True)
                     print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)
@@ -814,7 +834,7 @@ def reconstruct_ptychography(
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
-                    opt.apply_gradient_to_file(obj, gradient, **optimizer_options_obj)
+                    opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)
                     gradient.initialize_gradient_file()
 
