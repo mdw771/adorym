@@ -95,7 +95,6 @@ class PtychographyModel(ForwardModel):
         probe_size = self.common_vars['probe_size']
         fresnel_approx = self.common_vars['fresnel_approx']
         two_d_mode = self.common_vars['two_d_mode']
-        coord_ls = self.common_vars['coord_ls']
         minibatch_size = self.common_vars['minibatch_size']
         ds_level = self.common_vars['ds_level']
         this_obj_size = self.common_vars['this_obj_size']
@@ -112,6 +111,10 @@ class PtychographyModel(ForwardModel):
         output_folder = self.common_vars['output_folder']
         unknown_type = self.common_vars['unknown_type']
         n_probe_modes = self.common_vars['n_probe_modes']
+        n_theta = self.common_vars['n_theta']
+
+        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                      this_i_theta, reverse=False)
 
         # Allocate subbatches.
         probe_pos_batch_ls = []
@@ -133,7 +136,7 @@ class PtychographyModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.shared_file_object:
-            obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta], device=device_obj)
+            obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
         else:
             obj_rot = obj_stack
         ex_real_ls = []
@@ -312,7 +315,6 @@ class MultiDistModel(ForwardModel):
         subprobe_size = self.common_vars['subprobe_size']
         fresnel_approx = self.common_vars['fresnel_approx']
         two_d_mode = self.common_vars['two_d_mode']
-        coord_ls = self.common_vars['coord_ls']
         minibatch_size = self.common_vars['minibatch_size']
         ds_level = self.common_vars['ds_level']
         this_obj_size = self.common_vars['this_obj_size']
@@ -329,6 +331,10 @@ class MultiDistModel(ForwardModel):
         unknown_type = self.common_vars['unknown_type']
         beamstop = self.common_vars['beamstop']
         n_probe_modes = self.common_vars['n_probe_modes']
+        n_theta = self.common_vars['n_theta']
+
+        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                      this_i_theta, reverse=False)
 
         n_dists = len(free_prop_cm)
         n_blocks = prj.shape[1] // n_dists
@@ -349,7 +355,7 @@ class MultiDistModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode:
-            obj_rot = apply_rotation(obj_stack, coord_ls[this_i_theta], device=device_obj)
+            obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
             # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
         else:
             obj_rot = obj_stack

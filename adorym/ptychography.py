@@ -259,18 +259,13 @@ def reconstruct_ptychography(
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
 
         # ================================================================================
-        # Read rotation data.
+        # Read or write rotation transformation coordinates.
         # ================================================================================
-        try:
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                              n_theta)
-        except:
+        if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
             if rank == 0:
                 print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
                 save_rotation_lookup(this_obj_size, n_theta)
             comm.Barrier()
-            coord_ls = read_all_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                              n_theta)
 
         # ================================================================================
         # Unify random seed for all threads.
@@ -646,7 +641,9 @@ def reconstruct_ptychography(
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
-                    obj.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation, dset_2=obj.dset_rot)
+                    coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                  this_i_theta, reverse=False)
+                    obj.rotate_data_in_file(coord_ls, interpolation=interpolation, dset_2=obj.dset_rot)
                     # opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()

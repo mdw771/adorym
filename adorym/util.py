@@ -303,7 +303,7 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
     image_center = [np.floor(x / 2) for x in array_size]
 
-    coord0 = np.arange(array_size[0])
+    # coord0 = np.arange(array_size[0])
     coord1 = np.arange(array_size[1])
     coord2 = np.arange(array_size[2])
 
@@ -313,9 +313,9 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
     coord1_vec = np.reshape(coord1_vec, [array_size[1], array_size[2]])
     coord1_vec = np.reshape(np.transpose(coord1_vec), [-1])
 
-    coord0_vec = np.tile(coord0, [array_size[1] * array_size[2]])
-    coord0_vec = np.reshape(coord0_vec, [array_size[1] * array_size[2], array_size[0]])
-    coord0_vec = np.reshape(np.transpose(coord0_vec), [-1])
+    # coord0_vec = np.tile(coord0, [array_size[1] * array_size[2]])
+    # coord0_vec = np.reshape(coord0_vec, [array_size[1] * array_size[2], array_size[0]])
+    # coord0_vec = np.reshape(np.transpose(coord0_vec), [-1])
 
     # move origin to image center
     coord1_vec = coord1_vec - image_center[1]
@@ -326,16 +326,17 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
     # create rotation matrix
     theta_ls = np.linspace(0, 2 * np.pi, n_theta)
-    coord_old_ls = []
-    coord_inv_ls = []
-    for theta in theta_ls:
+    if dest_folder is None:
+        dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
+    if not os.path.exists(dest_folder):
+        os.mkdir(dest_folder)
+    for i, theta in enumerate(theta_ls):
         m_rot = np.array([[np.cos(theta),  -np.sin(theta)],
                           [np.sin(theta), np.cos(theta)]])
         coord_old = np.matmul(m_rot, coord_new)
         coord1_old = coord_old[0, :] + image_center[1]
         coord2_old = coord_old[1, :] + image_center[2]
         coord_old = np.stack([coord1_old, coord2_old], axis=1)
-        coord_old_ls.append(coord_old)
 
         m_rot = np.array([[np.cos(-theta),  -np.sin(-theta)],
                           [np.sin(-theta), np.cos(-theta)]])
@@ -343,27 +344,21 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         coord1_inv = coord_inv[0, :] + image_center[1]
         coord2_inv = coord_inv[1, :] + image_center[2]
         coord_inv = np.stack([coord1_inv, coord2_inv], axis=1)
-        coord_inv_ls.append(coord_inv)
-    if dest_folder is None:
-        dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
-    if not os.path.exists(dest_folder):
-        os.mkdir(dest_folder)
-    # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
-    # voxel in the object at that angle.
-    for i, arr in enumerate(coord_old_ls):
-        np.save(os.path.join(dest_folder, '{:04}'.format(i)), arr)
-    for i, arr in enumerate(coord_inv_ls):
-        np.save(os.path.join(dest_folder, '_{:04}'.format(i)), arr)
+
+        # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
+        # voxel in the object at that angle.
+        np.save(os.path.join(dest_folder, '{:04}'.format(i)), coord_old)
+        np.save(os.path.join(dest_folder, '_{:04}'.format(i)), coord_inv)
 
     # coord_vec's are coordinates list of current object (ordered, e.g. (0, 0, 0), (0, 0, 1), ...)
-    coord1_vec = coord1_vec + image_center[1]
-    coord1_vec = np.tile(coord1_vec, array_size[0])
-    coord2_vec = coord2_vec + image_center[2]
-    coord2_vec = np.tile(coord2_vec, array_size[0])
-    for i, coord in enumerate([coord0_vec, coord1_vec, coord2_vec]):
-        np.save(os.path.join(dest_folder, 'coord{}_vec'.format(i)), coord)
+    # coord1_vec = coord1_vec + image_center[1]
+    # coord1_vec = np.tile(coord1_vec, array_size[0])
+    # coord2_vec = coord2_vec + image_center[2]
+    # coord2_vec = np.tile(coord2_vec, array_size[0])
+    # for i, coord in enumerate([coord0_vec, coord1_vec, coord2_vec]):
+    #     np.save(os.path.join(dest_folder, 'coord{}_vec'.format(i)), coord)
 
-    return coord_old_ls
+    return None
 
 
 def read_origin_coords(src_folder, index, reverse=False):
