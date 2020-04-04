@@ -520,11 +520,13 @@ def sqrt(var):
 
 
 def mean(var, axis=None):
+    args = {}
+    if axis is not None:
+        args['dim'] = axis
     if global_settings.backend == 'autograd':
-        return anp.mean(var, axis=axis)
+        return anp.mean(var, **args)
     elif global_settings.backend == 'pytorch':
-        if axis is not None: warnings.warn('PyTorch function "mean" does not support argument "axis".')
-        return tc.mean(var)
+        return tc.mean(var, **args)
 
 
 def max(var, return_number=True, axis=None):

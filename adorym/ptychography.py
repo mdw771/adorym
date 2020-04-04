@@ -829,8 +829,8 @@ def reconstruct_ptychography(
                         probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
                                                                             **optimizer_options_probe_pos)
                         # Prevent position drifting
-                        slicer = tuple([0] * (len(probe_pos_correction.shape) - 1) + [slice(None)])
-                        probe_pos_correction = probe_pos_correction - probe_pos_correction[slicer]
+                        slicer = tuple(range(len(probe_pos_correction.shape) - 1))
+                        probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
                     w.reattach(probe_pos_correction)
 
                 # ================================================================================
