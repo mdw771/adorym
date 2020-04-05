@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.ndimage import rotate as sp_rotate
 
 import gc
 
@@ -112,9 +113,12 @@ class PtychographyModel(ForwardModel):
         unknown_type = self.common_vars['unknown_type']
         n_probe_modes = self.common_vars['n_probe_modes']
         n_theta = self.common_vars['n_theta']
+        precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
+        theta_ls = self.common_vars['theta_ls']
 
-        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                      this_i_theta, reverse=False)
+        if precalculate_rotation_coords:
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                          this_i_theta, reverse=False)
 
         # Allocate subbatches.
         probe_pos_batch_ls = []
@@ -136,7 +140,10 @@ class PtychographyModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.shared_file_object:
-            obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            if precalculate_rotation_coords:
+                obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            else:
+                raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
         else:
             obj_rot = obj_stack
         ex_real_ls = []
@@ -332,9 +339,11 @@ class MultiDistModel(ForwardModel):
         beamstop = self.common_vars['beamstop']
         n_probe_modes = self.common_vars['n_probe_modes']
         n_theta = self.common_vars['n_theta']
+        precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
 
-        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                      this_i_theta, reverse=False)
+        if precalculate_rotation_coords:
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                          this_i_theta, reverse=False)
 
         n_dists = len(free_prop_cm)
         n_blocks = prj.shape[1] // n_dists
@@ -355,8 +364,11 @@ class MultiDistModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode:
-            obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
-            # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
+            if precalculate_rotation_coords:
+                obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            else:
+                raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
         else:
             obj_rot = obj_stack
 

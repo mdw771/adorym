@@ -69,6 +69,7 @@ def reconstruct_ptychography(
         # |Performance|_________________________________________________________
         cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
         shared_file_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
+        precalculate_rotation_coords=True,
         # _________________________
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5,
@@ -261,11 +262,12 @@ def reconstruct_ptychography(
         # ================================================================================
         # Read or write rotation transformation coordinates.
         # ================================================================================
-        if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
-            if rank == 0:
-                print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
-                save_rotation_lookup(this_obj_size, n_theta)
-            comm.Barrier()
+        if precalculate_rotation_coords:
+            if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
+                if rank == 0:
+                    print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
+                    save_rotation_lookup(this_obj_size, n_theta)
+                comm.Barrier()
 
         # ================================================================================
         # Unify random seed for all threads.
@@ -641,9 +643,13 @@ def reconstruct_ptychography(
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
-                    coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                                  this_i_theta, reverse=False)
-                    obj.rotate_data_in_file(coord_ls, interpolation=interpolation, dset_2=obj.dset_rot)
+                    if precalculate_rotation_coords:
+                        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                      this_i_theta, reverse=False)
+                    else:
+                        coord_ls = theta_ls[this_i_theta]
+                    obj.rotate_data_in_file(coord_ls, interpolation=interpolation, dset_2=obj.dset_rot,
+                                            precalculate_rotation_coords=precalculate_rotation_coords)
                     # opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
@@ -836,11 +842,15 @@ def reconstruct_ptychography(
                 # update the object using gradient at 0 deg.
                 # ================================================================================
                 if shared_file_object and shared_file_update_flag:
-                    coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                                   this_i_theta, reverse=True)
+                    if precalculate_rotation_coords:
+                        coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                       this_i_theta, reverse=True)
+                    else:
+                        coord_new = theta_ls[this_i_theta]
                     print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
-                    gradient.rotate_data_in_file(coord_new, interpolation=interpolation)
+                    gradient.rotate_data_in_file(coord_new, interpolation=interpolation,
+                                                 precalculate_rotation_coords=precalculate_rotation_coords)
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()

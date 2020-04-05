@@ -43,13 +43,13 @@ class LargeArray(object):
         obj = w.create_variable(obj, device=device)
         return obj
 
-    def rotate_data_in_file(self, coords, interpolation='bilinear', dset_2=None):
+    def rotate_data_in_file(self, coords, interpolation='bilinear', dset_2=None, precalculate_rotation_coords=True):
         apply_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation,
-                               monochannel=self.monochannel, dset_2=dset_2)
+                               monochannel=self.monochannel, dset_2=dset_2, precalculate_rotation_coords=precalculate_rotation_coords)
 
-    def reverse_rotate_data_in_file(self, coords, interpolation='bilinear'):
+    def reverse_rotate_data_in_file(self, coords, interpolation='bilinear', precalculate_rotation_coords=True):
         revert_rotation_to_hdf5(self.dset, coords, rank, n_ranks, interpolation=interpolation,
-                               monochannel=self.monochannel)
+                                monochannel=self.monochannel, precalculate_rotation_coords=precalculate_rotation_coords)
 
     def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None):
         dset = self.dset if dset_2 is None else dset_2
