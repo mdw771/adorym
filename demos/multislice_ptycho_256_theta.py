@@ -51,7 +51,7 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'n_batch_per_update': 1,
                         # 'output_folder': 'theta_' + timestr,
                         'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
-                        'cpu_only': True,
+                        'cpu_only': False,
                         'use_checkpoint': True,
                         'save_path': 'cone_256_foam_ptycho',
                         'multiscale_level': 1,
@@ -67,10 +67,11 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'probe_mag_sigma': 6,
                         'probe_phase_sigma': 6,
                         'probe_phase_max': 0.5,
-                        'shared_file_object': True,
+                        'shared_file_object': False,
                         'reweighted_l1': False if epoch == 0 else True,
                         'optimizer': 'adam',
-                        'free_prop_cm': 'inf'
+                        'backend': 'pytorch',
+                        'free_prop_cm': 'inf',
                         }
 
 params = params_cone_marc_theta

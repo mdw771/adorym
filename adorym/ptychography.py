@@ -328,6 +328,8 @@ def reconstruct_ptychography(
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
+        else:
+            raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
         opt.create_container(shared_file_object, use_checkpoint, device_obj)
         opt_ls = [opt]
 

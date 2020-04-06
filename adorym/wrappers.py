@@ -608,7 +608,7 @@ def sum(var, axis=None):
 
 def roll(var, shifts, axes=0):
     if global_settings.backend == 'autograd':
-        return anp.roll(var, shifts, axes=axes)
+        return anp.roll(var, shifts, axis=axes)
     elif global_settings.backend == 'pytorch':
         return tc.roll(var, shifts, dims=axes)
 
