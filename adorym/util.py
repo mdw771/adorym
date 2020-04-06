@@ -216,8 +216,11 @@ def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='in
         # Scale up the Gaussian filler to match edge values around the beamstop
         gaussian_filler *= (edge_val * np.exp(0.25))
         wavefront = wavefront * (1 - beamstop_mask) + gaussian_filler * beamstop_mask
-        # dxchange.write_tiff(wavefront, 'wavefront_initial_guess', dtype='float32', overwrite=True)
-    wavefront = abs(np.fft.ifftshift(np.fft.ifft2(wavefront)))
+    wavefront = np.fft.ifftshift(np.fft.ifft2(wavefront))
+    freq_x, freq_y = np.meshgrid(np.fft.fftfreq(wavefront.shape[1], 1), np.fft.fftfreq(wavefront.shape[0], 1))
+    shift = [s // 2 for s in wavefront.shape]
+    wavefront = wavefront * np.exp(1j * -2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+
     if noise:
         wavefront_mean = np.mean(wavefront)
         wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)
