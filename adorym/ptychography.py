@@ -125,13 +125,16 @@ def reconstruct_ptychography(
         output_folder = 'recon_{}'.format(timestr)
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
-    print_flush('Output folder is {}'.format(output_folder), 0, rank)
+
+    stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder,
+                      'timestamp': timestr}
+    print_flush('Output folder is {}'.format(output_folder), 0, rank, **stdout_options)
 
     # ================================================================================
     # Create pointer for raw data.
     # ================================================================================
     t0 = time.time()
-    print_flush('Reading data...', 0, rank)
+    print_flush('Reading data...', 0, rank, **stdout_options)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
 
@@ -187,14 +190,11 @@ def reconstruct_ptychography(
         probe_size = prj.shape[-2:]
         subprobe_size = probe_size
 
-    print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank)
-    print_flush('Data shape: {}'.format(original_shape), 0, rank)
+    print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank, **stdout_options)
+    print_flush('Data shape: {}'.format(original_shape), 0, rank, **stdout_options)
     comm.Barrier()
 
     not_first_level = False
-    stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder, 
-                      'timestamp': timestr}
-
     n_pos = len(probe_pos)
     probe_pos = np.array(probe_pos).astype(float)
 
@@ -303,11 +303,13 @@ def reconstruct_ptychography(
             obj.create_file_object(use_checkpoint)
             obj.create_temporary_file_object()
             if needs_initialize:
+                print_flush('Initializing object function in file...', 0, rank, **stdout_options)
                 obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
                                            not_first_level=not_first_level, initial_guess=initial_guess,
                                            random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
         else:
             if needs_initialize:
+                print_flush('Initializing object array...', 0, rank, **stdout_options)
                 obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
@@ -326,16 +328,7 @@ def reconstruct_ptychography(
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
-        if shared_file_object:
-            opt.create_file_objects(use_checkpoint=use_checkpoint)
-        else:
-            if use_checkpoint:
-                try:
-                    opt.restore_param_arrays_from_checkpoint(device=device_obj)
-                except:
-                    opt.create_param_arrays(device=device_obj)
-            else:
-                opt.create_param_arrays(device=device_obj)
+        opt.create_container(shared_file_object, use_checkpoint, device_obj)
         opt_ls = [opt]
 
         # ================================================================================

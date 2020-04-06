@@ -34,6 +34,18 @@ class Optimizer(object):
         self.index_in_grad_returns = None
         return
 
+    def create_container(self, shared_file_object, use_checkpoint, device_obj):
+        if shared_file_object:
+            self.create_file_objects(use_checkpoint=use_checkpoint)
+        else:
+            if use_checkpoint:
+                try:
+                    self.restore_param_arrays_from_checkpoint(device=device_obj)
+                except:
+                    self.create_param_arrays(device=device_obj)
+            else:
+                self.create_param_arrays(device=device_obj)
+
     def create_file_objects(self, use_checkpoint=False):
 
         if len(self.params_list) > 0:
