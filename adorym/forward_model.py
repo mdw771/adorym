@@ -47,23 +47,23 @@ class ForwardModel(object):
         reg = w.create_variable(0., device=self.device)
         for name in list(self.regularizer_dict):
             if name == 'l1_norm':
-                reg += l1_norm_term(obj_delta, obj_beta,
+                reg = reg + l1_norm_term(obj_delta, obj_beta,
                                     self.regularizer_dict[name]['alpha_d'],
                                     self.regularizer_dict[name]['alpha_b'],
                                     device=self.device)
             elif name == 'reweighted_l1_norm':
-                reg += reweighted_l1_norm_term(obj_delta, obj_beta,
+                reg = reg + reweighted_l1_norm_term(obj_delta, obj_beta,
                                                self.regularizer_dict[name]['alpha_d'],
                                                self.regularizer_dict[name]['alpha_b'],
                                                self.regularizer_dict[name]['weight_l1'],
                                                device=self.device)
             elif name == 'tv':
                 if self.unknown_type == 'delta_beta':
-                    reg += tv(obj_delta, obj_beta,
+                    reg = reg + tv(obj_delta, obj_beta,
                               self.regularizer_dict[name]['gamma'],
                               self.shared_file_object, device=self.device)
                 elif self.unknown_type == 'real_imag':
-                    reg += tv(w.arctan2(obj_beta, obj_delta), None,
+                    reg = reg + tv(w.arctan2(obj_beta, obj_delta), None,
                               self.regularizer_dict[name]['gamma'],
                               self.shared_file_object, device=self.device)
         return reg
@@ -544,23 +544,23 @@ class MultiDistModel(ForwardModel):
 def l1_norm_term(obj_delta, obj_beta, alpha_d, alpha_b, device=None):
     reg = w.create_variable(0., device=device)
     if alpha_d not in [None, 0]:
-        reg += alpha_d * w.mean(w.abs(obj_delta))
+        reg = reg + alpha_d * w.mean(w.abs(obj_delta))
     if alpha_b not in [None, 0]:
-        reg += alpha_b * w.mean(w.abs(obj_beta))
+        reg = reg + alpha_b * w.mean(w.abs(obj_beta))
     return reg
 
 def reweighted_l1_norm_term(obj_delta, obj_beta, alpha_d, alpha_b, weight_l1, device=None):
     reg = w.create_variable(0., device=device)
     if alpha_d not in [None, 0]:
-        reg += alpha_d * w.mean(weight_l1 * w.abs(obj_delta))
+        reg = reg + alpha_d * w.mean(weight_l1 * w.abs(obj_delta))
     if alpha_b not in [None, 0]:
-        reg += alpha_b * w.mean(weight_l1 * w.abs(obj_beta))
+        reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj_beta))
     return reg
 
 def tv(obj_delta, obj_beta, gamma, shared_file_object, device=None):
     reg = w.create_variable(0., device=device)
     if shared_file_object:
-        reg += gamma * total_variation_3d(obj_delta, axis_offset=1)
+        reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=1)
     else:
-        reg += gamma * total_variation_3d(obj_delta, axis_offset=0)
+        reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=0)
     return reg

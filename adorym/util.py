@@ -750,10 +750,13 @@ def total_variation_3d(arr, axis_offset=0):
     :param arr: 3D Tensor.
     :return: Scalar.
     """
+    arr_size = 1
+    for i in range(len(arr.shape)):
+        arr_size = arr_size * arr.shape[i]
     res = w.sum(w.abs(w.roll(arr, 1, axes=0 + axis_offset) - arr))
     res = res + w.sum(w.abs(w.roll(arr, 1, axes=1 + axis_offset) - arr))
     res = res + w.sum(w.abs(w.roll(arr, 1, axes=2 + axis_offset) - arr))
-    res /= arr.size
+    res = res / arr_size
     return res
 
 

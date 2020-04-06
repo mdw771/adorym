@@ -40,6 +40,7 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'cos':         {'autograd': 'cos',        'tensorflow': 'cos',        'pytorch': 'cos'},
                      'abs':         {'autograd': 'abs',        'tensorflow': 'abs',        'pytorch': 'abs'},
                      'sum':         {'autograd': 'sum',        'tensorflow': 'reduce_sum', 'pytorch': 'sum'},
+                     'prod':        {'autograd': 'prod',       'tensorflow': 'prod',       'pytorch': 'prod'},
                      'arctan2':     {'autograd': 'arctan2',    'tensorflow': 'atan2',      'pytorch': 'atan2'},
                      'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',      'pytorch': 'nonzero'},
                      }
@@ -603,6 +604,21 @@ def sum(var, axis=None):
             arr = tc.sum(var)
         else:
             arr = tc.sum(var, dim=axis)
+    return arr
+
+
+def prod(var, axis=None):
+    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['prod'][global_settings.backend])
+    if global_settings.backend == 'autograd':
+        args = {}
+        if axis is not None:
+            args['axis'] = axis
+        arr = func(var, **args)
+    elif global_settings.backend == 'pytorch':
+        args = {}
+        if axis is not None:
+            args['dim'] = axis
+        arr = tc.prod(var, **args)
     return arr
 
 
