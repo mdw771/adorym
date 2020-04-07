@@ -58,7 +58,7 @@ class Optimizer(object):
                     self.params_file_pointer_dict[param_name] = h5py.File(os.path.join(self.output_folder, 'intermediate_{}.h5'.format(param_name)), fmode)
                 try:
                     dset_p = self.params_file_pointer_dict[param_name].create_dataset('obj', shape=self.whole_object_size,
-                                                                                      dtype='float64', data=np.zeros(self.whole_object_size), chunks=True)
+                                                                                      dtype='float64', data=np.zeros(self.whole_object_size))
                 except:
                     dset_p = self.params_file_pointer_dict[param_name]['obj']
                 # if rank == 0: dset_p[...] = 0

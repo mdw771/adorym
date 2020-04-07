@@ -30,7 +30,7 @@ class LargeArray(object):
             self.f = h5py.File(os.path.join(self.output_folder, fname), fmode)
         try:
             # If dataset doesn't exist, create it.
-            self.dset = self.f.create_dataset('obj', shape=self.full_size, dtype='float64', chunks=True)
+            self.dset = self.f.create_dataset('obj', shape=self.full_size, dtype='float64')
         except:
             # If dataset exists, create a pointer to it.
             self.dset = self.f['obj']
@@ -92,7 +92,7 @@ class ObjectFunction(LargeArray):
             self.f_rot = h5py.File(os.path.join(self.output_folder, 'intermediate_obj_rot.h5'), 'w', driver='mpio', comm=comm)
         except:
             self.f_rot = h5py.File(os.path.join(self.output_folder, 'intermediate_obj_rot.h5'), 'w')
-        self.dset_rot = self.f_rot.create_dataset('obj', shape=self.full_size, dtype='float64', chunks=True)
+        self.dset_rot = self.f_rot.create_dataset('obj', shape=self.full_size, dtype='float64')
 
     def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None, device=None,
                          random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
