@@ -116,7 +116,8 @@ def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
 
 
 def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None, rescale_intensity=False,
-                     save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None, **kwargs):
+                     save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None,
+                     extra_defocus_cm=None, **kwargs):
     if probe_type == 'gaussian':
         probe_mag_sigma = kwargs['probe_mag_sigma']
         probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -157,9 +158,15 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         probe_imag = np.zeros(probe_size)
     else:
         raise ValueError('Invalid wavefront type. Choose from \'plane\', \'fixed\', \'supplied\'.')
+
     if pupil_function is not None:
         probe_real = probe_real * pupil_function
         probe_imag = probe_imag * pupil_function
+    if extra_defocus_cm is not None:
+        lmbda_nm = kwargs['lmbda_nm']
+        psize_cm = kwargs['psize_cm']
+        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, extra_defocus_cm * 1e7, lmbda_nm,
+                                                   [psize_cm * 1e7] * 3, override_backend='autograd')
     if rescale_intensity:
         n_probe_modes = kwargs['n_probe_modes']
         f = h5py.File(fname, 'r')

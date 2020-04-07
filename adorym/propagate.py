@@ -211,6 +211,7 @@ def sparse_multislice_propagate_batch(u, v, grid_delta_batch, grid_beta_batch, p
             probe_real, probe_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, slice_pos_nm_ls[i + 1] - slice_pos_nm_ls[i],
                                                                lmbda_nm, voxel_nm, device=device)
 
+
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
             probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)

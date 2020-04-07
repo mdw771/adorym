@@ -55,6 +55,7 @@ def reconstruct_ptychography(
         forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
         probe_type='gaussian', # Choose from 'gaussian', 'plane', 'ifft', 'aperture_defocus', 'supplied'
         probe_initial=None, # Give as [probe_mag, probe_phase]
+        probe_extra_defocus_cm=None,
         n_probe_modes=1,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
@@ -412,6 +413,7 @@ def reconstruct_ptychography(
             probe_init_kwargs['n_probe_modes'] = n_probe_modes
             probe_real_init, probe_imag_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
+                                                      extra_defocus_cm=probe_extra_defocus_cm,
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)
             if n_probe_modes == 1:
                 probe_real = np.stack([probe_real_init])
