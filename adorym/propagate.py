@@ -123,11 +123,13 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
 
     if pure_projection:
         k1 = 2. * PI * delta_nm * n_slices / lmbda_nm
-        delta_slice = w.sum(grid_delta_batch, axis=-1)
-        beta_slice = w.sum(grid_beta_batch, axis=-1)
         if type == 'delta_beta':
+            delta_slice = w.sum(grid_delta_batch, axis=-1)
+            beta_slice = w.sum(grid_beta_batch, axis=-1)
             c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
         elif type == 'real_imag':
+            delta_slice = w.prod(grid_delta_batch, axis=-1)
+            beta_slice = w.prod(grid_beta_batch, axis=-1)
             c_real, c_imag = delta_slice, beta_slice
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
