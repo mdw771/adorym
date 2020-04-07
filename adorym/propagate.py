@@ -60,6 +60,26 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True):
     return H
 
 
+def get_kernel_wrapped(u, v, dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True, device=None):
+    """Get unshifted Fresnel propagation kernel for TF algorithm.
+
+    Parameters:
+    -----------
+    simulator : :class:`acquisition.Simulator`
+        The Simulator object.
+    dist : float
+        Propagation distance in cm.
+    """
+    if fresnel_approx:
+        h_real, h_imag = w.exp_complex(0., PI * lmbda_nm * dist_nm * (u**2 + v**2))
+    else:
+        quad = 1 - lmbda_nm ** 2 * (u**2 + v**2)
+        quad_inner = w.clip(quad, 0, None)
+        h_real, h_imag  = w.exp_complex(0., -2 * PI * dist_nm / lmbda_nm * np.sqrt(quad_inner))
+
+    return h_real, h_imag
+
+
 def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape):
 
     """
@@ -157,6 +177,51 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     return probe_real, probe_imag
 
 
+def sparse_multislice_propagate_batch(u, v, grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
+                                      slice_pos_cm_ls, free_prop_cm=None, obj_batch_shape=None, fresnel_approx=True,
+                                      device=None, type='delta_beta', normalize_fft=False):
+
+    minibatch_size = obj_batch_shape[0]
+    grid_shape = obj_batch_shape[1:]
+    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_shape) * voxel_nm
+    slice_pos_nm_ls = slice_pos_cm_ls * 1e7
+
+    n_slices = obj_batch_shape[-1]
+    delta_nm = voxel_nm[-1]
+
+    for i in range(n_slices):
+        # At the start of bin, initialize slice array.
+        delta_slice = grid_delta_batch[:, :, :, i]
+        beta_slice = grid_beta_batch[:, :, :, i]
+
+        k1 = 2. * PI * delta_nm / lmbda_nm
+        if type == 'delta_beta':
+            c_real, c_imag = w.exp_complex(-k1 * beta_slice, k1 * delta_slice)
+        elif type == 'real_imag':
+            c_real, c_imag = delta_slice, beta_slice
+        else:
+            raise ValueError('unknown_type must be delta_beta or real_imag.')
+        probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
+
+        if i < n_slices - 1:
+            probe_real, probe_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, slice_pos_nm_ls[i + 1] - slice_pos_nm_ls[i],
+                                                               lmbda_nm, voxel_nm, device=device)
+
+    if free_prop_cm not in [0, None]:
+        if free_prop_cm == 'inf':
+            probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)
+        else:
+            dist_nm = free_prop_cm * 1e7
+            l = np.prod(size_nm)**(1. / 3)
+            crit_samp = lmbda_nm * dist_nm / l
+            probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, device=device)
+    return probe_real, probe_imag
+
+
 def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None, device=None, override_backend=None):
     """
     :param h: A List of the real part and imaginary part of the transfer function kernel.
@@ -175,4 +240,18 @@ def fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=Non
                                                                override_backend=override_backend)
     return probe_real, probe_imag
 
+
+def fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None, device=None, override_backend=None):
+    """
+    :param h: A List of the real part and imaginary part of the transfer function kernel.
+    """
+    if len(probe_real.shape) == 3:
+        grid_shape = probe_real.shape[1:]
+    else:
+        grid_shape = probe_real.shape
+    if h is None:
+        h_real, h_imag = get_kernel_wrapped(u, v, dist_nm, lmbda_nm, voxel_nm, grid_shape)
+    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag,
+                                                               override_backend=override_backend)
+    return probe_real, probe_imag
 

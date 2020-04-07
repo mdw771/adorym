@@ -27,6 +27,7 @@ def reconstruct_ptychography(
         fname, obj_size, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
         energy_ev=None, psize_cm=None, free_prop_cm=None,
         raw_data_type='magnitude', # Choose from 'magnitude' or 'intensity'
+        slice_pos_cm_ls=None,
         # ___________________________
         # |Reconstruction parameters|___________________________________________
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
@@ -72,10 +73,11 @@ def reconstruct_ptychography(
         precalculate_rotation_coords=True,
         # _________________________
         # |Other optimizer options|_____________________________________________
-        optimize_probe=False, probe_learning_rate=1e-5,
+        optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
+        optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
         # _________________________
         # |Alternative algorithms |_____________________________________________
         use_epie=False, epie_alpha=0.8,
@@ -156,18 +158,30 @@ def reconstruct_ptychography(
 
     original_shape = [n_theta, *prj.shape[1:]]
 
+    # Probe position.
     if probe_pos is None:
         probe_pos = f['metadata/probe_pos_px']
 
+    # Energy.
     if energy_ev is None:
         energy_ev = float(f['metadata/energy_ev'][...])
 
+    # Pixel size on sample plane.
     if psize_cm is None:
         psize_cm = float(f['metadata/psize_cm'][...])
 
+    # Slice positions (sparse).
+    if slice_pos_cm_ls is None or len(slice_pos_cm_ls) == 1:
+        is_sparse_multislice = False
+    else:
+        is_sparse_multislice = True
+        u, v = adorym.gen_freq_mesh(np.array([psize_cm * 1e7] * 3), prj.shape[2:4])
+        u = w.create_variable(u, requires_grad=False, device=device_obj)
+        v = w.create_variable(v, requires_grad=False, device=device_obj)
+
+    # Sample to detector distance.
     if free_prop_cm is None:
         free_prop_cm = f['metadata/free_prop_cm']
-
     if np.array(free_prop_cm).size == 1:
         is_multi_dist = False
         if isinstance(free_prop_cm, np.ndarray):
@@ -336,16 +350,17 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create forward model class.
         # ================================================================================
+        forwardmodel_args = {'loss_function_type': loss_function_type,
+                             'shared_file_object': shared_file_object,
+                             'device': device_obj,
+                             'common_vars_dict': locals(),
+                             'raw_data_type': raw_data_type}
         if is_multi_dist:
-            forward_model = MultiDistModel(loss_function_type=loss_function_type,
-                                           shared_file_object=shared_file_object,
-                                           device=device_obj, common_vars_dict=locals(),
-                                           raw_data_type=raw_data_type)
+            forward_model = MultiDistModel(**forwardmodel_args)
+        elif is_sparse_multislice:
+            forward_model = SparseMultisliceModel(**forwardmodel_args)
         else:
-            forward_model = PtychographyModel(loss_function_type=loss_function_type,
-                                              shared_file_object=shared_file_object,
-                                              device=device_obj, common_vars_dict=locals(),
-                                              raw_data_type=raw_data_type)
+            forward_model = PtychographyModel(**forwardmodel_args)
         if reweighted_l1:
             forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
         else:
@@ -476,6 +491,16 @@ def reconstruct_ptychography(
             opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
             opt_ls.append(opt_probe_pos)
+
+        if is_sparse_multislice:
+            slice_pos_cm_ls = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
+            if optimize_slice_pos:
+                opt_slice_pos = AdamOptimizer(slice_pos_cm_ls.shape, output_folder=output_folder)
+                opt_slice_pos.create_param_arrays(device=device_obj)
+                optimizer_options_slice_pos = {'step_size': slice_pos_learning_rate}
+                opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
+                opt_args_ls.append(forward_model.get_argument_index('slice_pos_cm_ls'))
+                opt_ls.append(opt_slice_pos)
 
         # ================================================================================
         # Use ePIE?
@@ -722,6 +747,9 @@ def reconstruct_ptychography(
                     if optimize_all_probe_pos:
                         all_pos_grads = w.zeros_like(grads[opt_probe_pos.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
+                    if optimize_slice_pos:
+                        slice_pos_grads = w.zeros_like(grads[opt_slice_pos.index_in_grad_returns], requires_grad=False,
+                                                device=device_obj)
                 if optimize_probe:
                     probe_grads += w.stack(grads[2:4], axis=-1)
                 if optimize_probe_defocusing:
@@ -730,6 +758,8 @@ def reconstruct_ptychography(
                     pos_offset_grads += grads[opt_probe_pos_offset.index_in_grad_returns]
                 if optimize_all_probe_pos:
                     all_pos_grads += grads[opt_probe_pos.index_in_grad_returns]
+                if optimize_slice_pos:
+                    slice_pos_cm_ls += grads[opt_slice_pos.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or shared_file_object) and not is_last_batch_of_this_theta):
                 #     continue
@@ -797,13 +827,16 @@ def reconstruct_ptychography(
                 # Optimize probe and other parameters if necessary.
                 # ================================================================================
                 if optimize_probe:
-                    with w.no_grad():
-                        probe_grads = comm.allreduce(probe_grads)
-                        probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
-                        probe_real, probe_imag = w.split_channel(probe_temp)
-                        del probe_grads, probe_temp
-                    w.reattach(probe_real)
-                    w.reattach(probe_imag)
+                    if i_epoch >= probe_update_delay:
+                        with w.no_grad():
+                            probe_grads = comm.allreduce(probe_grads)
+                            probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
+                            probe_real, probe_imag = w.split_channel(probe_temp)
+                            del probe_grads, probe_temp
+                        w.reattach(probe_real)
+                        w.reattach(probe_imag)
+                    else:
+                        print_flush('Probe is not updated because current epoch is smaller than specified delay ({}).'.format(probe_update_delay), 0, rank, **stdout_options)
 
                 if optimize_probe_defocusing:
                     with w.no_grad():
@@ -830,6 +863,15 @@ def reconstruct_ptychography(
                         slicer = tuple(range(len(probe_pos_correction.shape) - 1))
                         probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
                     w.reattach(probe_pos_correction)
+
+                if optimize_slice_pos:
+                    with w.no_grad():
+                        all_pos_grads = comm.allreduce(slice_pos_grads)
+                        slice_pos_cm_ls = opt_slice_pos.apply_gradient(slice_pos_cm_ls, slice_pos_grads, i_full_angle,
+                                                                       **optimizer_options_slice_pos)
+                        # Prevent position drifting
+                        slice_pos_cm_ls = slice_pos_cm_ls - slice_pos_cm_ls[0]
+                    w.reattach(slice_pos_cm_ls)
 
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
