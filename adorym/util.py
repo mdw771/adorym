@@ -117,7 +117,7 @@ def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
 
 def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None, rescale_intensity=False,
                      save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None,
-                     extra_defocus_cm=None, **kwargs):
+                     extra_defocus_cm=None, invert_phase=False, **kwargs):
     if probe_type == 'gaussian':
         probe_mag_sigma = kwargs['probe_mag_sigma']
         probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -167,6 +167,11 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         psize_cm = kwargs['psize_cm']
         probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, extra_defocus_cm * 1e7, lmbda_nm,
                                                    [psize_cm * 1e7] * 3, override_backend='autograd')
+    # If probe is initialized by IFFT, the phase needs to be inverted at the end to correct for missing phase error.
+    if invert_phase or probe_type == 'ifft':
+        wavefront = probe_real + 1j * probe_imag
+        wavefront = np.abs(wavefront) * np.exp(1j * (-np.angle(wavefront)))
+        probe_real, probe_imag = np.real(wavefront), np.imag(wavefront)
     if rescale_intensity:
         n_probe_modes = kwargs['n_probe_modes']
         f = h5py.File(fname, 'r')
@@ -223,11 +228,10 @@ def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='in
         # Scale up the Gaussian filler to match edge values around the beamstop
         gaussian_filler *= (edge_val * np.exp(0.25))
         wavefront = wavefront * (1 - beamstop_mask) + gaussian_filler * beamstop_mask
-    wavefront = np.fft.ifftshift(np.fft.ifft2(wavefront))
-    freq_x, freq_y = np.meshgrid(np.fft.fftfreq(wavefront.shape[1], 1), np.fft.fftfreq(wavefront.shape[0], 1))
-    shift = [s // 2 for s in wavefront.shape]
-    wavefront = wavefront * np.exp(1j * -2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
-
+    wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
+    # Attempt to correct for missing-phase error
+    wavefront = np.fft.ifftshift(wavefront)
+    wavefront = wavefront[::-1, ::-1]
     if noise:
         wavefront_mean = np.mean(wavefront)
         wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)
