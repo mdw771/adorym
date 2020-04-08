@@ -62,6 +62,9 @@ def reconstruct_ptychography(
         beamstop=None,
         normalize_fft=False, # Use False for simulated data generated without normalization. Normalize for Fraunhofer FFT only
         safe_zone_width=0,
+        # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+        # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+        sign_convention=1,
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
@@ -272,7 +275,7 @@ def reconstruct_ptychography(
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
         delta_nm = voxel_nm[-1]
-        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx)
+        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
 
         # ================================================================================
         # Read or write rotation transformation coordinates.
@@ -414,7 +417,8 @@ def reconstruct_ptychography(
             probe_real_init, probe_imag_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
                                                       extra_defocus_cm=probe_extra_defocus_cm,
-                                                      raw_data_type=raw_data_type, stdout_options=stdout_options, **probe_init_kwargs)
+                                                      raw_data_type=raw_data_type, stdout_options=stdout_options,
+                                                      sign_convention=sign_convention, **probe_init_kwargs)
             if n_probe_modes == 1:
                 probe_real = np.stack([probe_real_init])
                 probe_imag = np.stack([probe_imag_init])

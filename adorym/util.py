@@ -117,7 +117,7 @@ def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
 
 def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=None, rescale_intensity=False,
                      save_stdout=None, output_folder=None, timestr=None, save_path=None, fname=None,
-                     extra_defocus_cm=None, invert_phase=False, **kwargs):
+                     extra_defocus_cm=None, invert_phase=False, sign_convention=1, **kwargs):
     if probe_type == 'gaussian':
         probe_mag_sigma = kwargs['probe_mag_sigma']
         probe_phase_sigma = kwargs['probe_phase_sigma']
@@ -138,7 +138,8 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
             beamstop_mask = generate_disk(probe_size, beamstop_radius)
             probe_mag = probe_mag * (1 - beamstop_mask)
         probe_real, probe_imag = mag_phase_to_real_imag(probe_mag, np.zeros_like(probe_mag))
-        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, defocus_cm * 1e7, lmbda_nm, [psize_cm * 1e7] * 3, override_backend='autograd')
+        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, defocus_cm * 1e7, lmbda_nm, [psize_cm * 1e7] * 3,
+                                                   override_backend='autograd', sign_convention=sign_convention)
     elif probe_type == 'ifft':
         print_flush('Estimating probe from measured data...', 0, rank, save_stdout=save_stdout,
                     output_folder=output_folder, timestamp=timestr)
@@ -147,7 +148,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
             probe_guess_kwargs['raw_data_type'] = kwargs['raw_data_type']
         if 'beamstop' in kwargs.keys() and kwargs['beamstop'] is not None:
             probe_guess_kwargs['beamstop'] = [w.to_numpy(i) for i in kwargs['beamstop']]
-        probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), **probe_guess_kwargs)
+        probe_init = create_probe_initial_guess_ptycho(os.path.join(save_path, fname), sign_convention=sign_convention, **probe_guess_kwargs)
         probe_real = probe_init.real
         probe_imag = probe_init.imag
     elif probe_type in ['supplied', 'fixed']:
@@ -166,12 +167,12 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         lmbda_nm = kwargs['lmbda_nm']
         psize_cm = kwargs['psize_cm']
         probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, extra_defocus_cm * 1e7, lmbda_nm,
-                                                   [psize_cm * 1e7] * 3, override_backend='autograd')
+                                                   [psize_cm * 1e7] * 3, override_backend='autograd', sign_convention=sign_convention)
     # If probe is initialized by IFFT, the phase needs to be inverted at the end to correct for missing phase error.
-    if invert_phase or probe_type == 'ifft':
-        wavefront = probe_real + 1j * probe_imag
-        wavefront = np.abs(wavefront) * np.exp(1j * (-np.angle(wavefront)))
-        probe_real, probe_imag = np.real(wavefront), np.imag(wavefront)
+    # if invert_phase or probe_type == 'ifft':
+    #     wavefront = probe_real + 1j * probe_imag
+    #     wavefront = np.abs(wavefront) * np.exp(1j * (-np.angle(wavefront)))
+    #     probe_real, probe_imag = np.real(wavefront), np.imag(wavefront)
     if rescale_intensity:
         n_probe_modes = kwargs['n_probe_modes']
         f = h5py.File(fname, 'r')
@@ -181,7 +182,10 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         if not kwargs['normalize_fft']:
             # The direct return of FFT function has a total power that is n_pixels times of the input.
             # This should be removed.
-            intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+            if sign_convention == 1:
+                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+            else:
+                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) * probe_real.size
         else:
             intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
@@ -207,7 +211,7 @@ def create_probe_initial_guess(data_fname, dist_nm, energy_ev, psize_nm, raw_dat
     return wavefront
 
 
-def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='intensity', beamstop=None):
+def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='intensity', beamstop=None, sign_convention=1):
 
     f = h5py.File(data_fname, 'r')
     dat = f['exchange/data'][...]
@@ -228,10 +232,13 @@ def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='in
         # Scale up the Gaussian filler to match edge values around the beamstop
         gaussian_filler *= (edge_val * np.exp(0.25))
         wavefront = wavefront * (1 - beamstop_mask) + gaussian_filler * beamstop_mask
-    wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
+    if sign_convention == 1:
+        wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
+    else:
+        wavefront = np.fft.fft2(np.fft.ifftshift(wavefront))
     # Attempt to correct for missing-phase error
     wavefront = np.fft.ifftshift(wavefront)
-    wavefront = wavefront[::-1, ::-1]
+    # wavefront = wavefront[::-1, ::-1]
     if noise:
         wavefront_mean = np.mean(wavefront)
         wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)

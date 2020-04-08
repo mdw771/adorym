@@ -21,6 +21,7 @@ class ForwardModel(object):
         self.unknown_type = common_vars_dict['unknown_type']
         self.i_call = 0
         self.normalize_fft = common_vars_dict['normalize_fft']
+        self.sign_convention = common_vars_dict['sign_convention']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -208,7 +209,7 @@ class PtychographyModel(ForwardModel):
                                 this_probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                                type=unknown_type, normalize_fft=self.normalize_fft)
+                                type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
                 ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
@@ -227,7 +228,7 @@ class PtychographyModel(ForwardModel):
                                 energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                                type=unknown_type, normalize_fft=self.normalize_fft)
+                                type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
@@ -435,7 +436,7 @@ class SparseMultisliceModel(ForwardModel):
                                 this_probe_imag_ls, energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
-                                type=unknown_type, normalize_fft=self.normalize_fft)
+                                type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
                 ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
@@ -454,7 +455,7 @@ class SparseMultisliceModel(ForwardModel):
                                 energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
-                                type=unknown_type, normalize_fft=self.normalize_fft)
+                                type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
@@ -669,7 +670,7 @@ class MultiDistModel(ForwardModel):
                         energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
                         obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                         fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                        type=unknown_type)
+                        type=unknown_type, sign_convention=self.sign_convention)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
