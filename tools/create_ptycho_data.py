@@ -186,8 +186,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 
 # params = params_2d_cell
 # params = params_adhesin_2_noisy_pos
-params = params_cameraman_noisy_pos
+# params = params_cameraman_noisy_pos
 # params = params_cone_ff
-
+params = params_adhesin_2
 
 create_ptychography_data_batch_numpy(**params)

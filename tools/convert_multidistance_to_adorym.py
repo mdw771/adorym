@@ -38,7 +38,7 @@ raw_img = np.squeeze(dxchange.read_tiff(flist[0]))
 raw_img_shape = raw_img.shape
 n_dists = len(dist_cm_ls)
 theta_ls = [int(re.findall(r'\d+', f)[-2]) for f in flist]
-n_theta = len(theta_ls)
+n_theta = np.max(theta_ls) + 1
 flist = flist[np.argsort(theta_ls)]
 
 energy_ev = float(args.energy_ev)

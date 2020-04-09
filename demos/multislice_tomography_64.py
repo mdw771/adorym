@@ -80,7 +80,7 @@ params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'optimizer': 'adam',
                   'use_checkpoint': False,
                   'backend': 'pytorch',
-                  'reweighted_l1': True
+                  'reweighted_l1': True,
                   }
 
 params = params_adhesin_ff

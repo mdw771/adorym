@@ -41,7 +41,8 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'randomize_probe_pos',
                          'normalize_fft',
                          'n_probe_modes',
-                         'loss_function_type'
+                         'loss_function_type',
+                         'slice_pos_cm_ls',
                          ]
 
 SUMMARY_PRESET_PP = ['obj_size',

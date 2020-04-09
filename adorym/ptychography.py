@@ -765,7 +765,7 @@ def reconstruct_ptychography(
                 if optimize_all_probe_pos:
                     all_pos_grads += grads[opt_probe_pos.index_in_grad_returns]
                 if optimize_slice_pos:
-                    slice_pos_cm_ls += grads[opt_slice_pos.index_in_grad_returns]
+                    slice_pos_grads += grads[opt_slice_pos.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or shared_file_object) and not is_last_batch_of_this_theta):
                 #     continue
@@ -949,7 +949,12 @@ def reconstruct_ptychography(
                                 np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
                                                         'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
                                                         w.to_numpy(probe_pos_correction[i_theta_pos]))
-
+                    if optimize_slice_pos:
+                        if not os.path.exists(os.path.join(output_folder, 'intermediate', 'slice_pos')):
+                            os.makedirs(os.path.join(output_folder, 'intermediate', 'slice_pos'))
+                        np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
+                                                'slice_pos_correction_{}.txt'.format(i_epoch)),
+                                   w.to_numpy(slice_pos_cm_ls))
                 comm.Barrier()
 
                 # ================================================================================
