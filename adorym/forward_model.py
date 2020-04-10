@@ -9,11 +9,11 @@ from adorym.propagate import multislice_propagate_batch, get_kernel
 
 class ForwardModel(object):
 
-    def __init__(self, loss_function_type='lsq', shared_file_object=False, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
         self.loss_function_type = loss_function_type
         self.argument_ls = []
         self.regularizer_dict = {}
-        self.shared_file_object = shared_file_object
+        self.distribution_mode = distribution_mode
         self.device = device
         self.current_loss = 0
         self.common_vars = common_vars_dict
@@ -62,11 +62,11 @@ class ForwardModel(object):
                 if self.unknown_type == 'delta_beta':
                     reg = reg + tv(obj_delta, obj_beta,
                               self.regularizer_dict[name]['gamma'],
-                              self.shared_file_object, device=self.device)
+                              self.distribution_mode, device=self.device)
                 elif self.unknown_type == 'real_imag':
                     reg = reg + tv(w.arctan2(obj_beta, obj_delta), None,
                               self.regularizer_dict[name]['gamma'],
-                              self.shared_file_object, device=self.device)
+                              self.distribution_mode, device=self.device)
         return reg
 
     def get_argument_index(self, arg):
@@ -78,8 +78,8 @@ class ForwardModel(object):
 
 class PtychographyModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', shared_file_object=False, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(PtychographyModel, self).__init__(loss_function_type, shared_file_object, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+        super(PtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -140,7 +140,7 @@ class PtychographyModel(ForwardModel):
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
-        if not two_d_mode and not self.shared_file_object:
+        if not two_d_mode and not self.distribution_mode:
             if precalculate_rotation_coords:
                 obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
             else:
@@ -151,7 +151,7 @@ class PtychographyModel(ForwardModel):
         ex_imag_ls = []
 
         # Pad if needed
-        if not self.shared_file_object:
+        if not self.distribution_mode:
             obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
 
         pos_ind = 0
@@ -180,7 +180,7 @@ class PtychographyModel(ForwardModel):
                 probe_imag_ls = probe_imag
 
             # Get object list.
-            if not self.shared_file_object:
+            if not self.distribution_mode:
                 for j in range(len(pos_batch)):
                     pos = pos_batch[j]
                     pos_y = pos[0] + pad_arr[0, 0]
@@ -303,8 +303,8 @@ class PtychographyModel(ForwardModel):
 
 class SparseMultisliceModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', shared_file_object=False, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(SparseMultisliceModel, self).__init__(loss_function_type, shared_file_object, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+        super(SparseMultisliceModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -367,7 +367,7 @@ class SparseMultisliceModel(ForwardModel):
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
-        if not two_d_mode and not self.shared_file_object:
+        if not two_d_mode and not self.distribution_mode:
             if precalculate_rotation_coords:
                 obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
             else:
@@ -378,7 +378,7 @@ class SparseMultisliceModel(ForwardModel):
         ex_imag_ls = []
 
         # Pad if needed
-        if not self.shared_file_object:
+        if not self.distribution_mode:
             obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
 
         pos_ind = 0
@@ -407,7 +407,7 @@ class SparseMultisliceModel(ForwardModel):
                 probe_imag_ls = probe_imag
 
             # Get object list.
-            if not self.shared_file_object:
+            if not self.distribution_mode:
                 for j in range(len(pos_batch)):
                     pos = pos_batch[j]
                     pos_y = pos[0] + pad_arr[0, 0]
@@ -530,8 +530,8 @@ class SparseMultisliceModel(ForwardModel):
 
 class MultiDistModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', shared_file_object=False, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(MultiDistModel, self).__init__(loss_function_type, shared_file_object, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+        super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -602,7 +602,7 @@ class MultiDistModel(ForwardModel):
 
         # Pad object with safe zone width if not using low-mem mode (chunks will be read padded otherwise).
         szw_arr = np.array([safe_zone_width] * 2)
-        if not self.shared_file_object:
+        if not self.distribution_mode:
             obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch - szw_arr, subprobe_size + 2 * szw_arr, unknown_type=unknown_type)
 
         # Pad probe with safe zone width.
@@ -785,9 +785,9 @@ def reweighted_l1_norm_term(obj_delta, obj_beta, alpha_d, alpha_b, weight_l1, de
         reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj_beta))
     return reg
 
-def tv(obj_delta, obj_beta, gamma, shared_file_object, device=None):
+def tv(obj_delta, obj_beta, gamma, distribution_mode, device=None):
     reg = w.create_variable(0., device=device)
-    if shared_file_object:
+    if distribution_mode:
         reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=1)
     else:
         reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=0)

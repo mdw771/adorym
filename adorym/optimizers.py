@@ -3,7 +3,7 @@ import os
 import h5py
 from mpi4py import MPI
 
-from adorym.util import get_rotated_subblocks, write_subblocks_to_file, print_flush, apply_rotation_to_hdf5, apply_rotation
+from adorym.util import *
 from adorym.array_ops import ObjectFunction, Gradient
 import adorym.wrappers as w
 import adorym.global_settings as global_settings
@@ -14,7 +14,7 @@ rank = comm.Get_rank()
 
 class Optimizer(object):
 
-    def __init__(self, whole_object_size, output_folder='.', params_list=()):
+    def __init__(self, whole_object_size, output_folder='.', params_list=(), distribution_mode=None):
         """
         :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
                                   or a 3-D vector for probe, or a 1-D scalar for other variables.
@@ -32,12 +32,17 @@ class Optimizer(object):
         self.params_chunk_array_0_dict = {}
         self.i_batch = 0
         self.index_in_grad_returns = None
+        self.slice_catalog = None
+        if distribution_mode == 'distributed_object':
+            self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
 
-    def create_container(self, shared_file_object, use_checkpoint, device_obj):
-        if shared_file_object:
+    def create_container(self, distribution_mode, use_checkpoint, device_obj):
+        if distribution_mode == 'shared_file':
             self.create_file_objects(use_checkpoint=use_checkpoint)
-        else:
+        elif distribution_mode == 'distributed_object':
+            self.create_distributed_param_arrays()
+        elif distribution_mode is None:
             if use_checkpoint:
                 try:
                     self.restore_param_arrays_from_checkpoint(device=device_obj)
@@ -72,6 +77,13 @@ class Optimizer(object):
                 self.params_whole_array_dict[param_name] = w.zeros(self.whole_object_size, device=device)
         return
 
+    def create_distributed_param_arrays(self):
+
+        if len(self.params_list) > 0 and self.slice_catalog[rank] is not None:
+            for param_name in self.params_list:
+                self.params_whole_array_dict[param_name] = w.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]])
+        return
+
     def restore_param_arrays_from_checkpoint(self, device=None):
 
         arr = np.load(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'))
@@ -81,14 +93,39 @@ class Optimizer(object):
                 self.params_whole_array_dict[param_name] = arr[i]
         return
 
+    def restore_distributed_param_arrays_from_checkpoint(self, device=None):
+
+        arr = np.load(os.path.join(self.output_folder, 'opt_params_checkpoint_rank_{}.npy'.format(rank)))
+        arr = w.create_variable(arr, device=device)
+        if len(self.params_list) > 0:
+            for i, param_name in enumerate(self.params_list):
+                self.params_whole_array_dict[param_name] = arr[i]
+        return
+
     def save_param_arrays_to_checkpoint(self):
 
+        path = os.path.join(self.output_folder, 'checkpoint')
+        if not os.path.exists(path):
+            os.makedirs(path)
         if len(self.params_list) > 0:
             arr = []
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = w.stack(arr)
-            np.save(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
+            np.save(os.path.join(path, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
+        return
+
+    def save_distributed_param_arrays_to_checkpoint(self):
+
+        path = os.path.join(self.output_folder, 'checkpoint')
+        if not os.path.exists(path):
+            os.makedirs(path)
+        if len(self.params_list) > 0:
+            arr = []
+            for i, param_name in enumerate(self.params_list):
+                arr.append(self.params_whole_array_dict[param_name])
+            arr = w.stack(arr)
+            np.save(os.path.join(path, 'opt_params_checkpoint_rank_{}.npy'.format(rank)), w.to_numpy(arr))
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size=None):
@@ -131,11 +168,11 @@ class AdamOptimizer(Optimizer):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, shared_file_object=False,
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
                        m=None, v=None, return_moments=False, update_batch_count=True, **kwargs):
 
         if m is None or v is None:
-            if shared_file_object:
+            if distribution_mode == 'shared_file':
                 m = self.params_chunk_array_dict['m']
                 v = self.params_chunk_array_dict['v']
             else:
@@ -147,7 +184,7 @@ class AdamOptimizer(Optimizer):
         vhat = v / (1 - b2 ** (i_batch + 1))
         d = step_size * mhat / (w.sqrt(vhat) + eps)
         x = x - d
-        if shared_file_object:
+        if distribution_mode == 'shared_file':
             self.params_chunk_array_dict['m'] = m
             self.params_chunk_array_dict['v'] = v
         else:

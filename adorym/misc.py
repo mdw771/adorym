@@ -1,5 +1,10 @@
 import os
 import numpy as np
+from mpi4py import MPI
+
+comm = MPI.COMM_WORLD
+n_ranks = comm.Get_size()
+rank = comm.Get_rank()
 
 SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_size',
@@ -32,7 +37,7 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'all_probe_pos_learning_rate',
                          'optimize_probe_pos_offset',
                          'probe_pos_offset_learning_rate',
-                         'shared_file_object',
+                         'distribution_mode',
                          'n_ranks',
                          'backend',
                          'reweighted_l1',
@@ -81,7 +86,7 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'shrink_cycle',
                      'fname',
                      'object_type',
-                     'shared_file_object',
+                     'distribution_mode',
                      'n_blocks_x',
                      'n_blocks_y',
                      'block_size',
@@ -115,24 +120,38 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
     return
 
 
-def save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True, obj_array=None, optimizer=None):
+def save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=None, obj_array=None, optimizer=None):
 
-    np.savetxt(os.path.join(output_folder, 'checkpoint.txt'),
+    path = os.path.join(output_folder, 'checkpoint')
+    if not os.path.exists(path):
+        os.makedirs(path)
+    np.savetxt(os.path.join(path, 'checkpoint.txt'),
                np.array([i_epoch, i_batch]), fmt='%d')
-    if not shared_file_object:
-        np.save(os.path.join(output_folder, 'obj_checkpoint.npy'), obj_array)
+    if distribution_mode is None:
+        np.save(os.path.join(path, 'obj_checkpoint.npy'), obj_array)
         optimizer.save_param_arrays_to_checkpoint()
+    elif distribution_mode == 'distributed_object':
+        np.save(os.path.join(path, 'obj_checkpoint_rank_{}.npy'.format(rank)), obj_array)
+        optimizer.save_distributed_param_arrays_to_checkpoint()
+    else:
+        pass
     return
 
 
-def restore_checkpoint(output_folder, shared_file_object=True, optimizer=None):
+def restore_checkpoint(output_folder, distribution_mode=None, optimizer=None):
 
     i_epoch, i_batch = [int(i) for i in np.loadtxt(os.path.join(output_folder, 'checkpoint.txt'))]
-    if not shared_file_object:
+    if distribution_mode is None:
         obj = np.load(os.path.join(output_folder, 'obj_checkpoint.npy'))
         obj_delta = np.take(obj, 0, axis=-1)
         obj_beta = np.take(obj, 1, axis=-1)
         optimizer.restore_param_arrays_from_checkpoint()
+        return i_epoch, i_batch, obj_delta, obj_beta
+    elif distribution_mode == 'distributed_object':
+        obj = np.load(os.path.join(output_folder, 'obj_checkpoint_rank_{}.npy'.format(rank)))
+        obj_delta = np.take(obj, 0, axis=-1)
+        obj_beta = np.take(obj, 1, axis=-1)
+        optimizer.restore_distributed_param_arrays_from_checkpoint()
         return i_epoch, i_batch, obj_delta, obj_beta
     else:
         return i_epoch, i_batch
