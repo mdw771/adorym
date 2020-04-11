@@ -680,8 +680,10 @@ def get_subblocks_from_distributed_object(obj, slice_catalog, probe_pos, this_in
                                           probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
 
     tmp_folder = os.path.join(output_folder, 'tmp_comm')
-    if not os.path.exists(tmp_folder):
-        os.makedirs(tmp_folder)
+    if rank == 0:
+        if not os.path.exists(tmp_folder):
+            os.makedirs(tmp_folder)
+    comm.Barrier()
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
