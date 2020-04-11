@@ -53,7 +53,7 @@ class LargeArray(object):
     def read_chunks_from_distributed_object(self, probe_pos, this_ind_batch_allranks, minibatch_size,
                                             probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False):
         a = self.arr if not apply_to_arr_rot else self.arr_rot
-        obj = get_subblocks_from_distributed_object(a, self.slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
+        obj = get_subblocks_from_distributed_object_mpi(a, self.slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
                                                     probe_size, self.full_size, unknown_type, output_folder=self.output_folder)
         obj = w.create_variable(obj, device=device)
         return obj
@@ -99,7 +99,7 @@ class LargeArray(object):
     def sync_chunks_to_distributed_object(self, obj, probe_pos, this_ind_batch_allranks, minibatch_size,
                                           probe_size):
         obj = w.to_numpy(obj)
-        slab = sync_subblocks_among_distributed_object(obj, self.slice_catalog, probe_pos, this_ind_batch_allranks,
+        slab = sync_subblocks_among_distributed_object_mpi(obj, self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                        minibatch_size, probe_size, self.full_size, output_folder=self.output_folder)
         self.arr += slab
 

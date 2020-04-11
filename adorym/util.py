@@ -676,6 +676,224 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
     return None
 
 
+def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
+                                              probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
+
+    tmp_folder = os.path.join(output_folder, 'tmp_comm')
+    if rank == 0:
+        if not os.path.exists(tmp_folder):
+            os.makedirs(tmp_folder)
+    comm.Barrier()
+
+    own_chunk_batch = []
+    send_chunk_batch_ls = []
+    send_rank_ls = []
+    recv_chunk_batch_ls = []
+    recv_rank_ls = []
+
+    my_slice_range = slice_catalog[rank]
+    my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+    my_pos_batch = probe_pos[my_ind_batch]
+
+    if my_slice_range is not None:
+        for i_rank in range(n_ranks):
+            their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
+            their_pos_batch = probe_pos[their_ind_batch]
+            send_chunk_ls = []
+            for i_pos, their_pos in enumerate(their_pos_batch):
+                their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
+                if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
+                    line_st = max([my_slice_range[0], their_slice_range[0]]) - my_slice_range[0]
+                    line_end = min([my_slice_range[1], their_slice_range[1]]) - my_slice_range[0]
+                    px_st = max([their_pos[1], 0])
+                    px_end = min([their_pos[1] + probe_size[1], whole_object_size[1]])
+                    my_chunk = obj[line_st:line_end, px_st:px_end]
+                    # Pad left-right.
+                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
+                    flag_pad = False
+                    if their_pos[1] < 0:
+                        pad_arr[1][0] = -their_pos[1]
+                        flag_pad = True
+                    if their_pos[1] + probe_size[1] > whole_object_size[1]:
+                        pad_arr[1][1] = their_pos[1] + probe_size[1] - whole_object_size[1]
+                        flag_pad = True
+                    if flag_pad:
+                        if unknown_type == 'delta_beta':
+                            my_chunk = np.pad(my_chunk, pad_arr, mode='constant')
+                        elif unknown_type == 'real_imag':
+                            my_chunk = np.stack(
+                                [np.pad(my_chunk[:, :, :, 0], pad_arr, mode='constant', constant_values=1),
+                                 np.pad(my_chunk[:, :, :, 1], pad_arr, mode='constant', constant_values=0)],
+                                axis=-1)
+                    send_chunk_ls.append(my_chunk)
+            if len(send_chunk_ls) > 0:
+                if i_rank == rank:
+                    own_chunk_batch = send_chunk_ls
+                else:
+                    send_chunk_batch_ls.append(send_chunk_ls)
+                    send_rank_ls.append(i_rank)
+
+    # Broadcast data.
+    for i_rank in range(n_ranks):
+        current_send_rank_ls = comm.bcast(send_rank_ls, root=i_rank)
+        if rank == i_rank:
+            for target_rank, chunk_batch in zip(send_rank_ls, send_chunk_batch_ls):
+                if target_rank != rank:
+                    comm.send(chunk_batch, dest=target_rank, tag=rank * n_ranks + target_rank)
+        if rank in current_send_rank_ls:
+            recv_chunk_batch_ls.append(comm.recv(source=i_rank, tag=i_rank * n_ranks + rank))
+            recv_rank_ls.append(i_rank)
+
+    # Add in the data of myself.
+    if len(own_chunk_batch) > 0:
+        if len(recv_rank_ls) > 0:
+            ind = len(recv_rank_ls) - np.count_nonzero((np.array(recv_rank_ls) - rank) > 0)
+            recv_rank_ls.insert(ind, rank)
+            recv_chunk_batch_ls.insert(ind, own_chunk_batch)
+        else:
+            recv_rank_ls.append(rank)
+            recv_chunk_batch_ls.append(own_chunk_batch)
+
+    # Assemble locally.
+    my_chunk_ls = []
+    for i_pos, my_pos in enumerate(my_pos_batch):
+        my_chunk = []
+        my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
+        for i_rank, their_slice_range in enumerate(slice_catalog):
+            if their_slice_range is not None:
+                if their_slice_range[1] <= my_chunk_slice_range[0]:
+                    continue
+                if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
+                    ind_rank = recv_rank_ls.index(i_rank)
+                    partial_chunk = recv_chunk_batch_ls[ind_rank][i_pos]
+                    my_chunk.append(partial_chunk)
+                else:
+                    break
+        my_chunk = np.concatenate(my_chunk, axis=0)
+        # Pad top-bottom.
+        pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
+        flag_pad = False
+        if my_pos[0] < 0:
+            pad_arr[0][0] = -my_pos[0]
+            flag_pad = True
+        if my_pos[0] + probe_size[0] > whole_object_size[0]:
+            pad_arr[0][1] = my_pos[0] + probe_size[0] - whole_object_size[0]
+            flag_pad = True
+        if flag_pad:
+            if unknown_type == 'delta_beta':
+                my_chunk = np.pad(my_chunk, pad_arr, mode='constant')
+            elif unknown_type == 'real_imag':
+                my_chunk = np.stack(
+                    [np.pad(my_chunk[:, :, :, 0], pad_arr[:-1], mode='constant', constant_values=1),
+                     np.pad(my_chunk[:, :, :, 1], pad_arr[:-1], mode='constant', constant_values=0)],
+                    axis=-1)
+        my_chunk_ls.append(my_chunk)
+    my_chunk_ls = np.stack(my_chunk_ls)
+
+    return my_chunk_ls
+
+
+def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.'):
+
+    tmp_folder = os.path.join(output_folder, 'tmp_comm')
+    if rank == 0:
+        if not os.path.exists(tmp_folder):
+            os.makedirs(tmp_folder)
+    comm.Barrier()
+
+    own_chunk_batch = []
+    send_chunk_batch_ls = []
+    send_rank_ls = []
+    recv_chunk_batch_ls = []
+    recv_rank_ls = []
+
+    my_slice_range = slice_catalog[rank]
+    my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+    my_pos_batch = probe_pos[my_ind_batch]
+
+    for i_rank, their_slice_range in enumerate(slice_catalog):
+        if their_slice_range is not None:
+            send_chunk_ls = []
+            for i_pos, my_pos in enumerate(my_pos_batch):
+                my_chunk = obj[i_pos]
+                my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
+                if their_slice_range[1] <= my_chunk_slice_range[0]:
+                    continue
+                if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
+                    my_chunk_send = np.copy(my_chunk)
+                    # Pad/trim top-bottom.
+                    if my_pos[0] < their_slice_range[0]:
+                        my_chunk_send = my_chunk_send[their_slice_range[0] - my_pos[0]:]
+                    if my_pos[0] + probe_size[0] > their_slice_range[1]:
+                        my_chunk_send = my_chunk_send[:-(my_pos[0] + probe_size[0] - their_slice_range[1])]
+                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(my_chunk_send.shape) - 2)
+                    flag_pad = False
+                    if my_chunk_slice_range[0] > their_slice_range[0]:
+                        pad_arr[0][0] = my_chunk_slice_range[0] - their_slice_range[0]
+                        flag_pad = True
+                    if my_chunk_slice_range[1] < their_slice_range[1]:
+                        pad_arr[0][1] = their_slice_range[1] - my_chunk_slice_range[1]
+                        flag_pad = True
+                    if flag_pad:
+                        my_chunk_send = np.pad(my_chunk_send, pad_arr, mode='constant')
+                    send_chunk_ls.append(my_chunk_send)
+                else:
+                    continue
+            if len(send_chunk_ls) > 0:
+                if i_rank == rank:
+                    own_chunk_batch = send_chunk_ls
+                else:
+                    send_chunk_batch_ls.append(send_chunk_ls)
+                    send_rank_ls.append(i_rank)
+    comm.Barrier()
+
+    # Broadcast data.
+    for i_rank in range(n_ranks):
+        current_send_rank_ls = comm.bcast(send_rank_ls, root=i_rank)
+        if rank == i_rank:
+            for target_rank, chunk_batch in zip(send_rank_ls, send_chunk_batch_ls):
+                if target_rank != rank:
+                    comm.send(chunk_batch, dest=target_rank, tag=(rank * n_ranks + target_rank))
+        if rank in current_send_rank_ls:
+            recv_chunk_batch_ls.append(comm.recv(source=i_rank, tag=(i_rank * n_ranks + rank)))
+            recv_rank_ls.append(i_rank)
+
+    # Add in the data of myself.
+    if len(own_chunk_batch) > 0:
+        if len(recv_rank_ls) > 0:
+            ind = len(recv_rank_ls) - np.count_nonzero((np.array(recv_rank_ls) - rank) > 0)
+            recv_rank_ls.insert(ind, rank)
+            recv_chunk_batch_ls.insert(ind, own_chunk_batch)
+        else:
+            recv_rank_ls.append(rank)
+            recv_chunk_batch_ls.append(own_chunk_batch)
+
+    # See what others are doing.
+    if my_slice_range is not None:
+        my_slab = np.zeros([my_slice_range[1] - my_slice_range[0], whole_object_size[1], whole_object_size[2], 2])
+        for i_rank in range(n_ranks):
+            their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
+            their_pos_batch = probe_pos[their_ind_batch]
+            ind_pos = 0
+            for i_pos, their_pos in enumerate(their_pos_batch):
+                their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
+                # If I find this rank has processed something relevant to my slab:
+                if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
+                    ind_rank = recv_rank_ls.index(i_rank)
+                    their_chunk = recv_chunk_batch_ls[ind_rank][ind_pos]
+                    ind_pos += 1
+                    # Trim left-right.
+                    if their_pos[1] < 0:
+                        their_chunk = their_chunk[:, -their_pos[1]:, :, :]
+                    if their_pos[1] + probe_size[1] > whole_object_size[1]:
+                        their_chunk = their_chunk[:, :-(their_pos[1] + probe_size[1] - whole_object_size[1]), :, :]
+                    my_slab[:, max([0, their_pos[1]]):min([whole_object_size[1], their_pos[1] + probe_size[1]]), :, :] += their_chunk
+        return my_slab
+    else:
+        return None
+
+
 def get_subblocks_from_distributed_object(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
                                           probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
 
@@ -763,8 +981,10 @@ def sync_subblocks_among_distributed_object(obj, slice_catalog, probe_pos, this_
                                            minibatch_size, probe_size, whole_object_size, output_folder='.'):
 
     tmp_folder = os.path.join(output_folder, 'tmp_comm')
-    if not os.path.exists(tmp_folder):
-        os.makedirs(tmp_folder)
+    if rank == 0:
+        if not os.path.exists(tmp_folder):
+            os.makedirs(tmp_folder)
+    comm.Barrier()
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
