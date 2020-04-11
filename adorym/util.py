@@ -807,7 +807,7 @@ def sync_subblocks_among_distributed_object(obj, slice_catalog, probe_pos, this_
                 their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
                 # If I find this rank has processed something relevant to my slab:
                 if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
-                    their_chunk = np.load(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(rank, i_pos, rank)))
+                    their_chunk = np.load(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(rank, i_pos, i_rank)))
                     # Trim left-right.
                     if their_pos[1] < 0:
                         their_chunk = their_chunk[:, -their_pos[1]:, :, :]
