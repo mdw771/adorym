@@ -266,8 +266,10 @@ class PtychographyModel(ForwardModel):
 
             beamstop = self.common_vars['beamstop']
             ds_level = self.common_vars['ds_level']
+            theta_downsample = self.common_vars['theta_downsample']
+            if theta_downsample is None: theta_downsample = 1
 
-            this_prj_batch = prj[this_i_theta, this_ind_batch]
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
                 this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
@@ -493,8 +495,10 @@ class SparseMultisliceModel(ForwardModel):
 
             beamstop = self.common_vars['beamstop']
             ds_level = self.common_vars['ds_level']
+            theta_downsample = self.common_vars['theta_downsample']
+            if theta_downsample is None: theta_downsample = 1
 
-            this_prj_batch = prj[this_i_theta, this_ind_batch]
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
                 this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
@@ -706,6 +710,8 @@ class MultiDistModel(ForwardModel):
             optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
             device_obj = self.common_vars['device_obj']
             minibatch_size =self.common_vars['minibatch_size']
+            theta_downsample = self.common_vars['theta_downsample']
+            if theta_downsample is None: theta_downsample = 1
 
             ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -721,7 +727,7 @@ class MultiDistModel(ForwardModel):
             this_ind_batch_full = this_ind_batch
             for i in range(1, n_dists):
                 this_ind_batch_full = np.concatenate([this_ind_batch_full, this_ind_batch + i * n_blocks])
-            this_prj_batch = prj[this_i_theta, this_ind_batch_full]
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch_full]
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
                 this_prj_batch = this_prj_batch[:, :ds_level, ::ds_level]
