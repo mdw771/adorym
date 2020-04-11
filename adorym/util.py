@@ -396,7 +396,7 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
     if not os.path.exists(dest_folder):
         os.mkdir(dest_folder)
-    for i, theta in enumerate(theta_ls):
+    for i, theta in enumerate(theta_ls[rank:n_theta:n_ranks]):
         m_rot = np.array([[np.cos(theta),  -np.sin(theta)],
                           [np.sin(theta), np.cos(theta)]])
         coord_old = np.matmul(m_rot, coord_new)
