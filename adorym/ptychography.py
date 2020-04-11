@@ -72,7 +72,9 @@ def reconstruct_ptychography(
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
-        cpu_only=False, core_parallelization=True, shared_file_object=True, n_dp_batch=20,
+        cpu_only=False, core_parallelization=True,
+        n_dp_batch=20,
+        distribution_mode=None, # Choose from None (for data parallelism), 'shared_file', 'distributed_object'
         shared_file_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         precalculate_rotation_coords=True,
         # _________________________
@@ -232,9 +234,10 @@ def reconstruct_ptychography(
                       'minibatch > 1. A rank can only process data from the same rotation'
                       'angle at a time. I am setting minibatch_size to 1.')
         minibatch_size = 1
-    if shared_file_object and n_pos == 1:
+    if distribution_mode is not None and n_pos == 1:
         warnings.warn('It seems that you are processing undivided fullfield data with'
-                      'shared_file_object=True. In shared-file mode, all ranks must'
+                      'distribution_mode not None. In shared-file mode and distributed '
+                      'object mode, all ranks must'
                       'process data from the same rotation angle in each synchronized'
                       'batch.')
 
@@ -296,46 +299,6 @@ def reconstruct_ptychography(
         comm.Barrier()
 
         # ================================================================================
-        # Get checkpointed parameters.
-        # ================================================================================
-        starting_epoch, starting_batch = (0, 0)
-        needs_initialize = False if use_checkpoint else True
-        if use_checkpoint and shared_file_object:
-            try:
-                starting_epoch, starting_batch = restore_checkpoint(output_folder, shared_file_object)
-            except:
-                needs_initialize = True
-
-        elif use_checkpoint and (not shared_file_object):
-            try:
-                starting_epoch, starting_batch, obj_delta, obj_beta = restore_checkpoint(output_folder, shared_file_object, opt)
-            except:
-                needs_initialize = True
-
-        # ================================================================================
-        # Create object class.
-        # ================================================================================
-        obj = ObjectFunction([*this_obj_size, 2], shared_file_object=shared_file_object,
-                             output_folder=output_folder, ds_level=ds_level, object_type=object_type)
-        if shared_file_object:
-            obj.create_file_object(use_checkpoint)
-            obj.create_temporary_file_object()
-            if needs_initialize:
-                print_flush('Initializing object function in file...', 0, rank, **stdout_options)
-                obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
-                                           not_first_level=not_first_level, initial_guess=initial_guess,
-                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
-        else:
-            if needs_initialize:
-                print_flush('Initializing object array...', 0, rank, **stdout_options)
-                obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
-                                     not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
-                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
-            else:
-                obj.delta = obj_delta
-                obj.beta = obj_beta
-
-        # ================================================================================
         # Create object function optimizer.
         # ================================================================================
         if optimizer == 'adam':
@@ -348,14 +311,65 @@ def reconstruct_ptychography(
                                      'first_downrate_iteration': 20}
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
-        opt.create_container(shared_file_object, use_checkpoint, device_obj)
+        opt.create_container(distribution_mode, use_checkpoint, device_obj)
         opt_ls = [opt]
+
+        # ================================================================================
+        # Get checkpointed parameters.
+        # ================================================================================
+        starting_epoch, starting_batch = (0, 0)
+        needs_initialize = False if use_checkpoint else True
+        if use_checkpoint and distribution_mode == 'shared_file':
+            try:
+                starting_epoch, starting_batch = restore_checkpoint(output_folder, distribution_mode)
+            except:
+                needs_initialize = True
+
+        elif use_checkpoint and (distribution_mode != 'shared_file'):
+            try:
+                starting_epoch, starting_batch, obj_delta, obj_beta = restore_checkpoint(output_folder, distribution_mode, opt)
+            except:
+                needs_initialize = True
+
+        # ================================================================================
+        # Create object class.
+        # ================================================================================
+        obj = ObjectFunction([*this_obj_size, 2], distribution_mode=distribution_mode,
+                             output_folder=output_folder, ds_level=ds_level, object_type=object_type)
+        if distribution_mode == 'shared_file':
+            obj.create_file_object(use_checkpoint)
+            obj.create_temporary_file_object()
+            if needs_initialize:
+                print_flush('Initializing object function in file...', 0, rank, **stdout_options)
+                obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
+                                           not_first_level=not_first_level, initial_guess=initial_guess,
+                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+        elif distribution_mode == 'distributed_object':
+            if needs_initialize:
+                print_flush('Initializing object array...', 0, rank, **stdout_options)
+                obj.initialize_distributed_array(save_stdout=save_stdout, timestr=timestr,
+                                     not_first_level=not_first_level, initial_guess=initial_guess,
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+            else:
+                obj.delta = obj_delta
+                obj.beta = obj_beta
+
+        elif distribution_mode is None:
+            if needs_initialize:
+                print_flush('Initializing object array...', 0, rank, **stdout_options)
+                obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
+                                     not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+            else:
+                obj.delta = obj_delta
+                obj.beta = obj_beta
+
 
         # ================================================================================
         # Create forward model class.
         # ================================================================================
         forwardmodel_args = {'loss_function_type': loss_function_type,
-                             'shared_file_object': shared_file_object,
+                             'distribution_mode': distribution_mode,
                              'device': device_obj,
                              'common_vars_dict': locals(),
                              'raw_data_type': raw_data_type}
@@ -375,9 +389,11 @@ def reconstruct_ptychography(
         # Create gradient class.
         # ================================================================================
         gradient = Gradient(obj)
-        if shared_file_object:
+        if distribution_mode == 'shared_file':
             gradient.create_file_object()
             gradient.initialize_gradient_file()
+        elif distribution_mode == 'distributed_object':
+            gradient.initialize_distributed_array_with_zeros()
         else:
             gradient.initialize_array_with_values(np.zeros(this_obj_size), np.zeros(this_obj_size), device=device_obj)
 
@@ -389,11 +405,14 @@ def reconstruct_ptychography(
         # ================================================================================
         mask = None
         if finite_support_mask_path is not None:
-            mask = Mask(this_obj_size, finite_support_mask_path, shared_file_object=shared_file_object,
+            mask = Mask(this_obj_size, finite_support_mask_path, distribution_mode=distribution_mode,
                         output_folder=output_folder, ds_level=ds_level)
-            if shared_file_object:
+            if distribution_mode == 'shared_file':
                 mask.create_file_object(use_checkpoint=use_checkpoint)
                 mask.initialize_file_object()
+            elif distribution_mode == 'distributed_object':
+                mask_arr = dxchange.read_tiff(finite_support_mask_path)
+                mask.initialize_distributed_array(mask_arr)
             else:
                 mask_arr = dxchange.read_tiff(finite_support_mask_path)
                 mask.initialize_array_with_values(mask_arr, device=device_obj)
@@ -490,7 +509,6 @@ def reconstruct_ptychography(
                                                      requires_grad=optimize_all_probe_pos, device=device_obj)
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
-            assert shared_file_object == False
             opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
             opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
@@ -591,11 +609,11 @@ def reconstruct_ptychography(
                 # When using shared file object, we must also ensure that all ranks deal with data at the
                 # same angle at a time.
                 # ================================================================================
-                if (not shared_file_object and update_scheme == 'immediate') and n_pos % minibatch_size != 0:
+                if (distribution_mode is None and update_scheme == 'immediate') and n_pos % minibatch_size != 0:
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
-                elif (shared_file_object or update_scheme == 'per angle') and n_pos % n_tot_per_batch != 0:
+                elif (distribution_mode is not None or update_scheme == 'per angle') and n_pos % n_tot_per_batch != 0:
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
                                                                     n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                                     replace=False))
@@ -633,16 +651,14 @@ def reconstruct_ptychography(
                 # Save checkpoint.
                 # ================================================================================
                 if store_checkpoint:
-                    if shared_file_object:
-                        if rank == 0:
-                            save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=True,
-                                            obj_array=None, optimizer=opt)
+                    if distribution_mode == 'shared_file':
                         obj.f.flush()
+                        obj_arr = None
                     else:
-                        if rank == 0:
-                            save_checkpoint(i_epoch, i_batch, output_folder, shared_file_object=False,
-                                            obj_array=w.to_numpy(w.stack([obj.delta, obj.beta], axis=-1)),
-                                            optimizer=opt)
+                        obj_arr = w.to_numpy(obj.arr)
+                    if rank == 0:
+                        save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
+                                        obj_array=obj_arr, optimizer=opt)
 
                 # ================================================================================
                 # Get scan position, rotation angle indices, and raw data for current batch.
@@ -667,7 +683,7 @@ def reconstruct_ptychography(
                 # In shared file mode, if moving to a new angle, rotate the HDF5 object and saved
                 # the rotated object into the temporary file object.
                 # ================================================================================
-                if shared_file_object and (this_i_theta != current_i_theta or shared_file_update_flag):
+                if distribution_mode is not None and (this_i_theta != current_i_theta or shared_file_update_flag):
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
@@ -676,8 +692,13 @@ def reconstruct_ptychography(
                                                       this_i_theta, reverse=False)
                     else:
                         coord_ls = theta_ls[this_i_theta]
-                    obj.rotate_data_in_file(coord_ls, interpolation=interpolation, dset_2=obj.dset_rot,
-                                            precalculate_rotation_coords=precalculate_rotation_coords)
+                    if distribution_mode == 'shared_file':
+                        obj.rotate_data_in_file(coord_ls, interpolation=interpolation, dset_2=obj.dset_rot,
+                                                precalculate_rotation_coords=precalculate_rotation_coords)
+                    elif distribution_mode == 'distributed_object':
+                        obj.rotate_array(coord_ls, interpolation=interpolation,
+                                         precalculate_rotation_coords=precalculate_rotation_coords,
+                                         apply_to_arr_rot=False, override_backend='autograd')
                     # opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
@@ -685,31 +706,43 @@ def reconstruct_ptychography(
 
                 comm.Barrier()
 
-                if shared_file_object:
+                if distribution_mode:
                     # ================================================================================
                     # Get values for local chunks of object_delta and beta; interpolate and read directly from HDF5
                     # ================================================================================
                     t_read_0 = time.time()
                     # If probe for each image is a part of the full probe, pad the object with safe_zone_width.
-                    if subdiv_probe:
-                        obj_rot = obj.read_chunks_from_file(this_pos_batch - np.array([safe_zone_width] * 2),
-                                                            subprobe_size + np.array([safe_zone_width] * 2) * 2,
-                                                            dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
-                    else:
-                        obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
+                    if distribution_mode == 'shared_file':
+                        if subdiv_probe:
+                            obj_rot = obj.read_chunks_from_file(this_pos_batch - np.array([safe_zone_width] * 2),
+                                                                subprobe_size + np.array([safe_zone_width] * 2) * 2,
+                                                                dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
+                        else:
+                            obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
+                    elif distribution_mode == 'distributed_object':
+                        if subdiv_probe:
+                            obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
+                                                                              this_ind_batch_allranks,
+                                                                              minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
+                                                                              device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True)
+                        else:
+                            obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
+                                                                              minibatch_size, probe_size, device=device_obj,
+                                                                              unknown_type=unknown_type, apply_to_arr_rot=True)
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
-                    obj.delta = obj_rot[:, :, :, :, 0]
-                    obj.beta = obj_rot[:, :, :, :, 1]
+                    obj.chunks = obj_rot
                     opt.get_params_from_file(this_pos_batch, probe_size)
 
                 # ================================================================================
                 # Update weight for reweighted l1 if necessary
                 # ================================================================================
                 if reweighted_l1:
-                    if shared_file_object:
-                        weight_l1 = w.max(obj.delta) / (w.abs(obj.delta) + 1e-8)
+                    if distribution_mode:
+                        arr, _ = w.split_channel(obj.chunks)
+                        weight_l1 = w.max(arr) / (w.abs(arr) + 1e-8)
                     else:
-                        if i_batch % 10 == 0: weight_l1 = w.max(obj.delta) / (w.abs(obj.delta) + 1e-8)
+                        arr, _ = w.split_channel(obj.arr)
+                        if i_batch % 10 == 0: weight_l1 = w.max(arr) / (w.abs(arr) + 1e-8)
                     forward_model.update_l1_weight(weight_l1)
 
                 # ================================================================================
@@ -721,8 +754,12 @@ def reconstruct_ptychography(
                 t_grad_0 = time.time()
                 grad_func_args = {}
                 for arg in forward_model.argument_ls:
-                    if arg == 'obj_delta': grad_func_args[arg] = obj.delta
-                    elif arg == 'obj_beta': grad_func_args[arg] = obj.beta
+                    if distribution_mode is None:
+                        delta, beta = w.split_channel(obj.arr)
+                    else:
+                        delta, beta = w.split_channel(obj.chunks)
+                    if arg == 'obj_delta': grad_func_args[arg] = delta
+                    elif arg == 'obj_beta': grad_func_args[arg] = beta
                     else:
                         grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
@@ -732,12 +769,19 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save gradients to buffer, or write them to file.
                 # ================================================================================
-                if shared_file_object:
+                if distribution_mode == 'shared_file':
                     obj_grads = w.stack(grads[:2], axis=-1)
                     t_grad_write_0 = time.time()
                     gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
                                                   write_difference=False)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
+                                **stdout_options)
+                elif distribution_mode == 'distributed_object':
+                    obj_grads = w.stack(grads[:2], axis=-1)
+                    t_grad_write_0 = time.time()
+                    gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
+                                                               minibatch_size, probe_size)
+                    print_flush('  Gradient syncing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
                 else:
                     if initialize_gradients:
@@ -769,12 +813,12 @@ def reconstruct_ptychography(
                 if optimize_slice_pos:
                     slice_pos_grads += grads[opt_slice_pos.index_in_grad_returns]
 
-                # if ((update_scheme == 'per angle' or shared_file_object) and not is_last_batch_of_this_theta):
+                # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
                 # else:
                 #     initialize_gradients = True
 
-                if not shared_file_object:
+                if distribution_mode is None:
                     if update_scheme == 'per angle' and not is_last_batch_of_this_theta:
                         continue
                     else:
@@ -792,44 +836,45 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # All reduce object gradient buffer.
                 # ================================================================================
-                if not shared_file_object:
+                if distribution_mode is None:
                     obj_grads = comm.allreduce(obj_grads)
 
                 # ================================================================================
-                # Update object function with optimizer if not shared_file_object; otherwise,
+                # Update object function with optimizer if not distribution_mode; otherwise,
                 # just save the gradient chunk into the gradient file.
                 # ================================================================================
                 with w.no_grad():
-                    if not shared_file_object:
-                        obj_temp = opt.apply_gradient(w.stack([obj.delta, obj.beta], axis=-1), obj_grads, i_full_angle,
+                    if distribution_mode is None:
+                        obj.arr = opt.apply_gradient(obj.arr, obj_grads, i_full_angle,
                                                                 **optimizer_options_obj)
-                        obj.delta, obj.beta = w.split_channel(obj_temp)
-                        del obj_temp
-                w.reattach(obj.delta)
-                w.reattach(obj.beta)
+                if distribution_mode is None:
+                    w.reattach(obj.arr)
 
                 # ================================================================================
                 # Nonnegativity and phase/absorption-only constraints for non-shared-file-mode,
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
-                    if not shared_file_object:
+                    if distribution_mode is None:
                         if non_negativity and unknown_type != 'real_imag':
-                            obj.delta = w.clip(obj.delta, 0, None)
-                            obj.beta = w.clip(obj.beta, 0, None)
+                            obj.arr = w.clip(obj.arr, 0, None)
                         if unknown_type == 'delta_beta':
-                            if object_type == 'absorption_only': obj.delta *= 0
-                            if object_type == 'phase_only': obj.beta *= 0
+                            if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
+                            if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
                         elif unknown_type == 'real_beta':
                             if object_type == 'absorption_only':
-                                obj.delta = w.norm(obj.delta, obj.beta)
-                                obj.beta *= 0
+                                delta, beta = w.split_channel(obj.arr)
+                                delta = w.norm(delta, beta)
+                                beta = beta * 0
+                                obj.arr = w.stack([delta, beta], -1)
                             if object_type == 'phase_only':
-                                obj_norm = w.norm(obj.delta, obj.beta)
-                                obj.delta = obj.delta / obj_norm
-                                obj.beta = obj.beta / obj_norm
-                w.reattach(obj.delta)
-                w.reattach(obj.beta)
+                                delta, beta = w.split_channel(obj.arr)
+                                obj_norm = w.norm(delta, beta)
+                                delta = delta / obj_norm
+                                beta = beta / obj_norm
+                                obj.arr = w.stack([delta, beta], -1)
+                if distribution_mode is None:
+                    w.reattach(obj.arr)
 
                 # ================================================================================
                 # Optimize probe and other parameters if necessary.
@@ -886,7 +931,7 @@ def reconstruct_ptychography(
                 # rotate the gradient back, and use it to update the object at 0 deg. Then
                 # update the object using gradient at 0 deg.
                 # ================================================================================
-                if shared_file_object and shared_file_update_flag:
+                if distribution_mode and shared_file_update_flag:
                     if precalculate_rotation_coords:
                         coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                                        this_i_theta, reverse=True)
@@ -894,22 +939,30 @@ def reconstruct_ptychography(
                         coord_new = theta_ls[this_i_theta]
                     print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
-                    gradient.rotate_data_in_file(coord_new, interpolation=interpolation,
-                                                 precalculate_rotation_coords=precalculate_rotation_coords)
+                    if distribution_mode == 'shared_file':
+                        gradient.rotate_data_in_file(coord_new, interpolation=interpolation,
+                                                     precalculate_rotation_coords=precalculate_rotation_coords)
+                    elif distribution_mode == 'distributed_object':
+                        gradient.rotate_array(coord_new, interpolation=interpolation,
+                                              precalculate_rotation_coords=precalculate_rotation_coords,
+                                              apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd')
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
-                    opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
+                    if distribution_mode == 'shared_file':
+                        opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
+                        gradient.initialize_gradient_file()
+                    elif distribution_mode == 'distributed_object' and obj.arr is not None:
+                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **optimizer_options_obj)
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)
-                    gradient.initialize_gradient_file()
 
                 # ================================================================================
                 # Apply finite support mask if specified.
                 # ================================================================================
                 if mask is not None:
-                    if not shared_file_object:
+                    if distribution_mode is None or distribution_mode == 'distributed_object':
                         obj.apply_finite_support_mask_to_array(mask, unknown_type=unknown_type, device=device_obj)
-                    else:
+                    elif distribution_mode == 'shared_object':
                         obj.apply_finite_support_mask_to_file(mask, unknown_type=unknown_type, device=device_obj)
                     print_flush('  Mask applied.', 0, rank, **stdout_options)
 
@@ -918,7 +971,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if mask is not None and shrink_cycle is not None:
                     if i_batch % shrink_cycle == 0 and i_batch > 0:
-                        if shared_file_object:
+                        if distribution_mode == 'shared_file':
                             mask.update_mask_file(obj, shrink_threshold)
                         else:
                             mask.update_mask_array(obj, shrink_threshold)
@@ -927,36 +980,43 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save intermediate object.
                 # ================================================================================
-                if rank == 0 and save_intermediate and is_last_batch_of_this_theta:
-                    output_object(obj, shared_file_object, os.path.join(output_folder, 'intermediate', 'object'),
-                                  unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
-                                  save_history=save_history)
-                    if optimize_probe:
-                        output_probe(probe_real, probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
-                                     full_output=False, i_epoch=i_epoch, i_batch=i_batch,
-                                     save_history=save_history)
-                    if optimize_probe_pos_offset:
-                        f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
-                        f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
-                        f_offset.close()
-                    elif optimize_all_probe_pos:
-                        if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
-                            os.makedirs(os.path.join(output_folder, 'intermediate', 'probe_pos'))
-                        for i_theta_pos in range(n_theta):
-                            if is_multi_dist:
-                                np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
-                                                        'probe_pos_correction_{}_{}.txt'.format(i_epoch, i_batch)),
-                                           w.to_numpy(probe_pos_correction))
-                            else:
-                                np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
-                                                        'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
-                                                        w.to_numpy(probe_pos_correction[i_theta_pos]))
-                    if optimize_slice_pos:
-                        if not os.path.exists(os.path.join(output_folder, 'intermediate', 'slice_pos')):
-                            os.makedirs(os.path.join(output_folder, 'intermediate', 'slice_pos'))
-                        np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
-                                                'slice_pos_correction_{}.txt'.format(i_epoch)),
-                                   w.to_numpy(slice_pos_cm_ls))
+                if save_intermediate and is_last_batch_of_this_theta:
+                    if distribution_mode == 'distributed_object':
+                        output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                                      unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                      save_history=save_history)
+                    else:
+                        if rank == 0:
+                            output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                                          unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                          save_history=save_history)
+                    if rank == 0:
+                        if optimize_probe:
+                            output_probe(probe_real, probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
+                                         full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                         save_history=save_history)
+                        if optimize_probe_pos_offset:
+                            f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
+                            f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
+                            f_offset.close()
+                        elif optimize_all_probe_pos:
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'probe_pos'))
+                            for i_theta_pos in range(n_theta):
+                                if is_multi_dist:
+                                    np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
+                                                            'probe_pos_correction_{}_{}.txt'.format(i_epoch, i_batch)),
+                                               w.to_numpy(probe_pos_correction))
+                                else:
+                                    np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
+                                                            'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
+                                                            w.to_numpy(probe_pos_correction[i_theta_pos]))
+                        if optimize_slice_pos:
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'slice_pos')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'slice_pos'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
+                                                    'slice_pos_correction_{}.txt'.format(i_epoch)),
+                                       w.to_numpy(slice_pos_cm_ls))
                 comm.Barrier()
 
                 # ================================================================================
@@ -995,7 +1055,7 @@ def reconstruct_ptychography(
             # Save reconstruction after an epoch.
             # ================================================================================
             if rank == 0:
-                output_object(obj, shared_file_object, output_folder, unknown_type,
+                output_object(obj, distribution_mode, output_folder, unknown_type,
                               full_output=True, ds_level=ds_level)
                 output_probe(probe_real, probe_imag, output_folder,
                              full_output=True, ds_level=ds_level)

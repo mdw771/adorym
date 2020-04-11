@@ -30,80 +30,124 @@ n_ranks = comm.Get_size()
 rank = comm.Get_rank()
 
 
-def initialize_object(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
-                      output_folder=None, rank=0, n_ranks=1, save_stdout=False, timestr='',
-                      shared_file_object=True, not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                      unknown_type='delta_beta'):
+def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
+                             output_folder=None, save_stdout=False, timestr='',
+                             not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+                             unknown_type='delta_beta'):
 
-    if not shared_file_object:
-        if rank == 0:
-            if not_first_level == False:
-                if initial_guess is None:
-                    print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
-                                save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                    obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
-                    obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
-                else:
-                    print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
-                                output_folder=output_folder, timestamp=timestr)
-                    sys.stdout.flush()
-                    obj_delta = np.array(initial_guess[0])
-                    obj_beta = np.array(initial_guess[1])
+    if rank == 0:
+        if not_first_level == False:
+            if initial_guess is None:
+                print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
+                            save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+                obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+                obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
             else:
-                print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+                print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                             output_folder=output_folder, timestamp=timestr)
-                if unknown_type == 'delta_beta':
-                    obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-                    obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-                elif unknown_type == 'real_imag':
-                    obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'obj_mag_ds_{}.tiff'.format(ds_level * 2)))
-                    obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'obj_phase_ds_{}.tiff'.format(ds_level * 2)))
-                obj_delta = upsample_2x(obj_delta)
-                obj_beta = upsample_2x(obj_beta)
-                obj_delta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
-                obj_beta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
-
-            # Apply specified constraints.
-            if object_type == 'phase_only':
-                if unknown_type == 'delta_beta':
-                    obj_beta[...] = 0
-                elif unknown_type == 'real_imag':
-                    obj_delta[...] = 1
-            elif object_type == 'absorption_only':
-                if unknown_type == 'delta_beta':
-                    obj_delta[...] = 0
-                elif unknown_type == 'real_imag':
-                    obj_beta[...] = 0
-
-            # Apply nonnegativity or convert to real/imag.
-            if unknown_type == 'delta_beta':
-                obj_delta[obj_delta < 0] = 0
-                obj_beta[obj_beta < 0] = 0
-            elif unknown_type == 'real_imag':
-                obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
+                sys.stdout.flush()
+                obj_delta = np.array(initial_guess[0])
+                obj_beta = np.array(initial_guess[1])
         else:
-            obj_delta = None
-            obj_beta = None
-        obj_delta = comm.bcast(obj_delta, root=0)
-        obj_beta = comm.bcast(obj_beta, root=0)
-        return obj_delta, obj_beta
+            print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+                        output_folder=output_folder, timestamp=timestr)
+            if unknown_type == 'delta_beta':
+                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+            elif unknown_type == 'real_imag':
+                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'obj_mag_ds_{}.tiff'.format(ds_level * 2)))
+                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'obj_phase_ds_{}.tiff'.format(ds_level * 2)))
+            obj_delta = upsample_2x(obj_delta)
+            obj_beta = upsample_2x(obj_beta)
+            obj_delta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+            obj_beta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
+
+        # Apply specified constraints.
+        if object_type == 'phase_only':
+            if unknown_type == 'delta_beta':
+                obj_beta[...] = 0
+            elif unknown_type == 'real_imag':
+                obj_delta[...] = 1
+        elif object_type == 'absorption_only':
+            if unknown_type == 'delta_beta':
+                obj_delta[...] = 0
+            elif unknown_type == 'real_imag':
+                obj_beta[...] = 0
+
+        # Apply nonnegativity or convert to real/imag.
+        if unknown_type == 'delta_beta':
+            obj_delta[obj_delta < 0] = 0
+            obj_beta[obj_beta < 0] = 0
+        elif unknown_type == 'real_imag':
+            obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
     else:
+        obj_delta = None
+        obj_beta = None
+    obj_delta = comm.bcast(obj_delta, root=0)
+    obj_beta = comm.bcast(obj_beta, root=0)
+    return obj_delta, obj_beta
+
+
+def initialize_object_for_sf(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
+                             output_folder=None, save_stdout=False, timestr='',
+                             not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+                             unknown_type='delta_beta'):
+    if initial_guess is None:
+        print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout,
+                    output_folder=output_folder, timestamp=timestr)
+        initialize_hdf5_with_gaussian(dset, rank, n_ranks,
+                                      random_guess_means_sigmas[0], random_guess_means_sigmas[2],
+                                      random_guess_means_sigmas[1], random_guess_means_sigmas[3],
+                                      unknown_type=unknown_type)
+    else:
+        print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
+                    timestamp=timestr)
+        if unknown_type == 'real_imag':
+            initial_guess = mag_phase_to_real_imag(*initial_guess)
+        initialize_hdf5_with_arrays(dset, rank, n_ranks, initial_guess[0], initial_guess[1])
+    print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
+                timestamp=timestr)
+    return
+
+
+def initialize_object_for_do(this_obj_size, slice_catalog=None, ds_level=1, object_type='normal', initial_guess=None,
+                             output_folder=None, save_stdout=False, timestr='',
+                             not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+                             unknown_type='delta_beta'):
+    if slice_catalog[rank] is None:
+        return None
+    else:
+        slab_shape = [slice_catalog[rank][1] - slice_catalog[rank][0], *this_obj_size[1:]]
         if initial_guess is None:
             print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout,
                         output_folder=output_folder, timestamp=timestr)
-            initialize_hdf5_with_gaussian(dset, rank, n_ranks,
-                                          random_guess_means_sigmas[0], random_guess_means_sigmas[2],
-                                          random_guess_means_sigmas[1], random_guess_means_sigmas[3],
-                                          unknown_type=unknown_type)
+            obj_delta = np.random.normal(size=slab_shape, loc=random_guess_means_sigmas[0],
+                                         scale=random_guess_means_sigmas[2])
+            obj_beta = np.random.normal(size=slab_shape, loc=random_guess_means_sigmas[1],
+                                        scale=random_guess_means_sigmas[3])
         else:
             print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                         timestamp=timestr)
-            if unknown_type == 'real_imag':
-                initial_guess = mag_phase_to_real_imag(*initial_guess)
-            initialize_hdf5_with_arrays(dset, rank, n_ranks, initial_guess[0], initial_guess[1])
-        print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
-                    timestamp=timestr)
-        return
+            obj_delta = initial_guess[0][slice(*slice_catalog[rank])]
+            obj_beta = initial_guess[1][slice(*slice_catalog[rank])]
+        # Apply specified constraints.
+        if object_type == 'phase_only':
+            if unknown_type == 'delta_beta':
+                obj_beta[...] = 0
+            elif unknown_type == 'real_imag':
+                obj_delta[...] = 1
+        elif object_type == 'absorption_only':
+            if unknown_type == 'delta_beta':
+                obj_delta[...] = 0
+            elif unknown_type == 'real_imag':
+                obj_beta[...] = 0
+        # Apply nonnegativity or convert to real/imag.
+        if unknown_type == 'delta_beta':
+            obj_delta[obj_delta < 0] = 0
+            obj_beta[obj_beta < 0] = 0
+        elif unknown_type == 'real_imag':
+            obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
+    return obj_delta, obj_beta
 
 
 def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
@@ -400,35 +444,35 @@ def read_all_origin_coords(src_folder, n_theta):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, interpolation='bilinear', device=None):
+def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, override_backend=None):
 
     s = obj.shape
-    coord_old = w.create_variable(coord_old, device=device, requires_grad=False)
+    coord_old = w.create_variable(coord_old, device=device, requires_grad=False, override_backend=override_backend)
 
     if interpolation == 'nearest':
-        coord_old_1 = w.round_and_cast(coord_old[:, 0])
-        coord_old_2 = w.round_and_cast(coord_old[:, 1])
+        coord_old_1 = w.round_and_cast(coord_old[:, 0], override_backend=override_backend)
+        coord_old_2 = w.round_and_cast(coord_old[:, 1], override_backend=override_backend)
     else:
         coord_old_1 = coord_old[:, 0]
         coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old_1 = w.clip(coord_old_1, 0, s[1] - 1)
-    coord_old_2 = w.clip(coord_old_2, 0, s[2] - 1)
+    coord_old_1 = w.clip(coord_old_1, 0, s[1] - 1, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, s[2] - 1, override_backend=override_backend)
 
     if interpolation == 'nearest':
-        obj_rot = w.reshape(obj[:, coord_old_1, coord_old_2], s)
+        obj_rot = w.reshape(obj[:, coord_old_1, coord_old_2], s, override_backend=override_backend)
     else:
-        coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64')
-        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64')
-        coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64')
-        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64')
+        coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+        coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
+        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
         # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
         # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
-        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[1] - 1)
-        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[2] - 1)
-        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[1] - 1)
-        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[2] - 1)
+        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[1] - 1, override_backend=override_backend)
+        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[2] - 1, override_backend=override_backend)
+        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[1] - 1, override_backend=override_backend)
+        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[2] - 1, override_backend=override_backend)
         integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
         integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
 
@@ -442,8 +486,8 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None):
                    vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
                    vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
                    vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-            obj_rot.append(w.reshape(vals, s[:-1]))
-        obj_rot = w.stack(obj_rot, axis=-1)
+            obj_rot.append(w.reshape(vals, s[:-1], override_backend=override_backend))
+        obj_rot = w.stack(obj_rot, axis=-1, override_backend=override_backend)
 
     return obj_rot
 
@@ -630,6 +674,147 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
         slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data
     return None
+
+
+def get_subblocks_from_distributed_object(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
+                                          probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
+
+    tmp_folder = os.path.join(output_folder, 'tmp_comm')
+    if not os.path.exists(tmp_folder):
+        os.makedirs(tmp_folder)
+
+    my_slice_range = slice_catalog[rank]
+    my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+    my_pos_batch = probe_pos[my_ind_batch]
+
+    if my_slice_range is not None:
+        for i_rank in range(n_ranks):
+            their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
+            their_pos_batch = probe_pos[their_ind_batch]
+            for i_pos, their_pos in enumerate(their_pos_batch):
+                their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
+                if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
+                    line_st = max([my_slice_range[0], their_slice_range[0]]) - my_slice_range[0]
+                    line_end = min([my_slice_range[1], their_slice_range[1]]) - my_slice_range[0]
+                    px_st = max([their_pos[1], 0])
+                    px_end = min([their_pos[1] + probe_size[1], whole_object_size[1]])
+                    my_chunk = obj[line_st:line_end, px_st:px_end]
+                    # Pad left-right.
+                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
+                    flag_pad = False
+                    if their_pos[1] < 0:
+                        pad_arr[1][0] = -their_pos[1]
+                        flag_pad = True
+                    if their_pos[1] + probe_size[1] > whole_object_size[1]:
+                        pad_arr[1][1] = their_pos[1] + probe_size[1] - whole_object_size[1]
+                        flag_pad = True
+                    if flag_pad:
+                        if unknown_type == 'delta_beta':
+                            my_chunk = np.pad(my_chunk, pad_arr, mode='constant')
+                        elif unknown_type == 'real_imag':
+                            my_chunk = np.stack(
+                                [np.pad(my_chunk[:, :, :, 0], pad_arr, mode='constant', constant_values=1),
+                                 np.pad(my_chunk[:, :, :, 1], pad_arr, mode='constant', constant_values=0)],
+                                axis=-1)
+                    np.save(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(i_rank, i_pos, rank)), my_chunk)
+
+    comm.Barrier()
+    my_chunk_ls = []
+    i_req = 0
+    for i_pos, my_pos in enumerate(my_pos_batch):
+        my_chunk = []
+        my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
+        for i_rank, their_slice_range in enumerate(slice_catalog):
+            if their_slice_range is not None:
+                if their_slice_range[1] <= my_chunk_slice_range[0]:
+                    continue
+                if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
+                    my_chunk.append(np.load(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(rank, i_pos, i_rank))))
+                    i_req += 1
+                else:
+                    break
+        my_chunk = np.concatenate(my_chunk, axis=0)
+        # Pad top-bottom.
+        pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
+        flag_pad = False
+        if my_pos[0] < 0:
+            pad_arr[0][0] = -my_pos[0]
+            flag_pad = True
+        if my_pos[0] + probe_size[0] > whole_object_size[0]:
+            pad_arr[0][1] = my_pos[0] + probe_size[0] - whole_object_size[0]
+            flag_pad = True
+        if flag_pad:
+            if unknown_type == 'delta_beta':
+                my_chunk = np.pad(my_chunk, pad_arr, mode='constant')
+            elif unknown_type == 'real_imag':
+                my_chunk = np.stack(
+                    [np.pad(my_chunk[:, :, :, 0], pad_arr[:-1], mode='constant', constant_values=1),
+                     np.pad(my_chunk[:, :, :, 1], pad_arr[:-1], mode='constant', constant_values=0)],
+                    axis=-1)
+        my_chunk_ls.append(my_chunk)
+    my_chunk_ls = np.stack(my_chunk_ls)
+
+    return my_chunk_ls
+
+
+def sync_subblocks_among_distributed_object(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
+                                           minibatch_size, probe_size, whole_object_size, output_folder='.'):
+
+    tmp_folder = os.path.join(output_folder, 'tmp_comm')
+    if not os.path.exists(tmp_folder):
+        os.makedirs(tmp_folder)
+
+    my_slice_range = slice_catalog[rank]
+    my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+    my_pos_batch = probe_pos[my_ind_batch]
+    for i_pos, my_pos in enumerate(my_pos_batch):
+        my_chunk = obj[i_pos]
+        my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
+        for i_rank, their_slice_range in enumerate(slice_catalog):
+            if their_slice_range is not None:
+                if their_slice_range[1] <= my_chunk_slice_range[0]:
+                    continue
+                if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
+                    my_chunk_send = np.copy(my_chunk)
+                    # Pad/trim top-bottom.
+                    if my_pos[0] < their_slice_range[0]:
+                        my_chunk_send = my_chunk_send[their_slice_range[0] - my_pos[0]:]
+                    if my_pos[0] + probe_size[0] > their_slice_range[1]:
+                        my_chunk_send = my_chunk_send[:-(my_pos[0] + probe_size[0] - their_slice_range[1])]
+                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(my_chunk_send.shape) - 2)
+                    flag_pad = False
+                    if my_chunk_slice_range[0] > their_slice_range[0]:
+                        pad_arr[0][0] = my_chunk_slice_range[0] - their_slice_range[0]
+                        flag_pad = True
+                    if my_chunk_slice_range[1] < their_slice_range[1]:
+                        pad_arr[0][1] = their_slice_range[1] - my_chunk_slice_range[1]
+                        flag_pad = True
+                    if flag_pad:
+                        my_chunk_send = np.pad(my_chunk_send, pad_arr, mode='constant')
+                    np.save(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(i_rank, i_pos, rank)), my_chunk_send)
+                else:
+                    break
+    comm.Barrier()
+    # See what others are doing.
+    if my_slice_range is not None:
+        my_slab = np.zeros([my_slice_range[1] - my_slice_range[0], whole_object_size[1], whole_object_size[2], 2])
+        for i_rank in range(n_ranks):
+            their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
+            their_pos_batch = probe_pos[their_ind_batch]
+            for i_pos, their_pos in enumerate(their_pos_batch):
+                their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
+                # If I find this rank has processed something relevant to my slab:
+                if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
+                    their_chunk = np.load(os.path.join(tmp_folder, 'tr{}_ip{}_sr{}.npy'.format(rank, i_pos, rank)))
+                    # Trim left-right.
+                    if their_pos[1] < 0:
+                        their_chunk = their_chunk[:, -their_pos[1]:, :, :]
+                    if their_pos[1] + probe_size[1] > whole_object_size[1]:
+                        their_chunk = their_chunk[:, :-(their_pos[1] + probe_size[1] - whole_object_size[1]), :, :]
+                    my_slab[:, max([0, their_pos[1]]):min([whole_object_size[1], their_pos[1] + probe_size[1]]), :, :] += their_chunk
+        return my_slab
+    else:
+        return None
 
 
 def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, monochannel=False, mode='hdf5', interpolation='bilinear', unknown_type='delta_beta'):
@@ -914,7 +1099,7 @@ def upsample_2x(arr):
     return out_arr
 
 
-def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp=''):
+def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp='', **kwargs):
 
     a = '[{}][{}] '.format(str(datetime.datetime.today()), this_rank) + a
     if designate_rank is not None:
@@ -1302,15 +1487,19 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
     return
 
 
-def output_object(obj, shared_file_object, output_folder, unknown_type='delta_beta',
+def output_object(obj, distribution_mode, output_folder, unknown_type='delta_beta',
                   full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
 
-    if shared_file_object:
+    if distribution_mode == 'shared_file':
         obj0 = obj.dset[:, :, :, 0]
         obj1 = obj.dset[:, :, :, 1]
+    elif distribution_mode == 'distributed_object':
+        obj0 = np.take(obj.arr, 0, -1)
+        obj1 = np.take(obj.arr, 1, -1)
     else:
-        obj0 = w.to_numpy(obj.delta)
-        obj1 = w.to_numpy(obj.beta)
+        obj0, obj1 = w.split_channel(obj.arr)
+        obj0 = w.to_numpy(obj0)
+        obj1 = w.to_numpy(obj1)
 
     if unknown_type == 'delta_beta':
         if full_output:
@@ -1321,6 +1510,10 @@ def output_object(obj, shared_file_object, output_folder, unknown_type='delta_be
                 fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
             else:
                 fname0 = 'delta'
+        if distribution_mode == 'distributed_object':
+            fname0 += '_rank_{}'.format(rank)
+            if full_output:
+                fname1 += '_rank_{}'.format(rank)
         dxchange.write_tiff(obj0, os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
         if full_output:
             dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
@@ -1336,6 +1529,10 @@ def output_object(obj, shared_file_object, output_folder, unknown_type='delta_be
             else:
                 fname0 = 'obj_mag'
                 fname1 = 'obj_phase'
+        if distribution_mode == 'distributed_object':
+            fname0 += '_rank_{}'.format(rank)
+            if full_output:
+                fname1 += '_rank_{}'.format(rank)
         dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
         dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
@@ -1405,3 +1602,20 @@ def subdivide_image(img, block_range_ls, override_backend=None):
         patch = img[line_st:line_end, px_st:px_end]
         block_ls.append(patch)
     return block_ls
+
+
+def get_multiprocess_distribution_index(size, n_ranks):
+    task_ls = []
+    n_task_per_rank = floor(size / n_ranks)
+    n_ranks_w_extra = size % n_ranks
+    i_cum = 0
+    for i in range(n_ranks):
+        if i_cum < size:
+            inc = min([size, i_cum + n_task_per_rank]) - i_cum
+            if i < n_ranks_w_extra:
+                inc += 1
+            task_ls.append([i_cum, i_cum + inc])
+            i_cum += inc
+        else:
+            task_ls.append(None)
+    return task_ls

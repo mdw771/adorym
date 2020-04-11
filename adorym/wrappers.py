@@ -314,8 +314,9 @@ def abs(var):
     return arr
 
 
-def stack(var_list, axis=0):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['stack'][global_settings.backend])
+def stack(var_list, axis=0, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['stack'][bn])
     arr = func(var_list, axis)
     return arr
 
@@ -326,22 +327,24 @@ def concatenate(var_list, axis=0):
     return arr
 
 
-def cast(var, dtype):
+def cast(var, dtype, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
     dtype = str(dtype)
-    if global_settings.backend == 'autograd':
+    if bn == 'autograd':
         return var.astype(dtype)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         return getattr(var, dtype_mapping_dict[dtype]['pytorch'])()
 
 
-def round(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['round'][global_settings.backend])
+def round(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['round'][bn])
     arr = func(var)
     return arr
 
 
-def round_and_cast(var, dtype='int32'):
-    return cast(round(var), dtype=dtype)
+def round_and_cast(var, dtype='int32', override_backend=None):
+    return cast(round(var), dtype=dtype, override_backend=override_backend)
 
 
 def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
@@ -498,39 +501,43 @@ def split_channel(var, override_backend=None):
         return var0[tuple(slicer)], var1[tuple(slicer)]
    
     
-def clip(var, a1, a2):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['clip'][global_settings.backend])
-    if global_settings.backend == 'pytorch':
+def clip(var, a1, a2, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['clip'][bn])
+    if bn == 'pytorch':
         if not isinstance(var, tc.Tensor):
             var = tc.tensor(var)
     arr = func(var, a1, a2)
     return arr
 
 
-def reshape(var, newshape):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['reshape'][global_settings.backend])
+def reshape(var, newshape, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['reshape'][bn])
     arr = func(var, newshape)
     return arr
 
 
-def floor(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['floor'][global_settings.backend])
+def floor(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['floor'][bn])
     arr = func(var)
     return arr
 
 
-def floor_and_cast(var, dtype='int32'):
-    return cast(floor(var), dtype=dtype)
+def floor_and_cast(var, dtype='int32', override_backend=None):
+    return cast(floor(var, override_backend=override_backend), dtype=dtype, override_backend=override_backend)
 
 
-def ceil(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ceil'][global_settings.backend])
+def ceil(var, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['ceil'][bn])
     arr = func(var)
     return arr
 
 
-def ceil_and_cast(var, dtype='int32'):
-    return cast(ceil(var), dtype=dtype)
+def ceil_and_cast(var, dtype='int32', override_backend=None):
+    return cast(ceil(var, override_backend=override_backend), dtype=dtype, override_backend=override_backend)
 
 
 def sqrt(var):
