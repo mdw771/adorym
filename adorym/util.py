@@ -662,10 +662,10 @@ def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, m
                 elif unknown_type == 'real_imag':
                     this_block = np.stack([np.pad(this_block[:, :, :, 0], [[line_st_clip - line_st, line_end - line_end_clip],
                                                                [px_st_clip - px_st, px_end - px_end_clip],
-                                                               [0, 0], [0, 0]], mode='constant', constant_values=1),
+                                                               [0, 0]], mode='constant', constant_values=1),
                                            np.pad(this_block[:, :, :, 1], [[line_st_clip - line_st, line_end - line_end_clip],
                                                                [px_st_clip - px_st, px_end - px_end_clip],
-                                                               [0, 0], [0, 0]], mode='constant', constant_values=0)], axis=-1)
+                                                               [0, 0]], mode='constant', constant_values=0)], axis=-1)
             else:
                 this_block = np.pad(this_block, [[line_st_clip - line_st, line_end - line_end_clip],
                                                  [px_st_clip - px_st, px_end - px_end_clip],
