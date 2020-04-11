@@ -413,8 +413,8 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
         # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
         # voxel in the object at that angle.
-        np.save(os.path.join(dest_folder, '{:04}'.format(i)), coord_old)
-        np.save(os.path.join(dest_folder, '_{:04}'.format(i)), coord_inv)
+        np.save(os.path.join(dest_folder, '{:04}'.format(i)), coord_old.astype('float16'))
+        np.save(os.path.join(dest_folder, '_{:04}'.format(i)), coord_inv.astype('float16'))
 
     # coord_vec's are coordinates list of current object (ordered, e.g. (0, 0, 0), (0, 0, 1), ...)
     # coord1_vec = coord1_vec + image_center[1]
