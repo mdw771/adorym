@@ -33,16 +33,17 @@ class Optimizer(object):
         self.i_batch = 0
         self.index_in_grad_returns = None
         self.slice_catalog = None
+        self.distribution_mode = distribution_mode
         if distribution_mode == 'distributed_object':
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
 
-    def create_container(self, distribution_mode, use_checkpoint, device_obj):
-        if distribution_mode == 'shared_file':
+    def create_container(self, use_checkpoint, device_obj):
+        if self.distribution_mode == 'shared_file':
             self.create_file_objects(use_checkpoint=use_checkpoint)
-        elif distribution_mode == 'distributed_object':
+        elif self.distribution_mode == 'distributed_object':
             self.create_distributed_param_arrays()
-        elif distribution_mode is None:
+        elif self.distribution_mode is None:
             if use_checkpoint:
                 try:
                     self.restore_param_arrays_from_checkpoint(device=device_obj)
@@ -164,8 +165,9 @@ class Optimizer(object):
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, output_folder='.'):
-        super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'])
+    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None):
+        super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'],
+                                            distribution_mode=distribution_mode)
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
@@ -226,8 +228,9 @@ class AdamOptimizer(Optimizer):
 
 class GDOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, output_folder='.'):
-        super(GDOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=[])
+    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None):
+        super(GDOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=[],
+                                          distribution_mode=distribution_mode)
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):

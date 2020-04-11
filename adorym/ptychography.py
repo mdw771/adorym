@@ -75,7 +75,7 @@ def reconstruct_ptychography(
         cpu_only=False, core_parallelization=True,
         n_dp_batch=20,
         distribution_mode=None, # Choose from None (for data parallelism), 'shared_file', 'distributed_object'
-        shared_file_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
+        dist_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         precalculate_rotation_coords=True,
         # _________________________
         # |Other optimizer options|_____________________________________________
@@ -302,7 +302,7 @@ def reconstruct_ptychography(
         # Create object function optimizer.
         # ================================================================================
         if optimizer == 'adam':
-            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder)
+            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode)
             optimizer_options_obj = {'step_size': learning_rate}
         elif optimizer == 'gd':
             opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
@@ -311,7 +311,7 @@ def reconstruct_ptychography(
                                      'first_downrate_iteration': 20}
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
-        opt.create_container(distribution_mode, use_checkpoint, device_obj)
+        opt.create_container(use_checkpoint, device_obj)
         opt_ls = [opt]
 
         # ================================================================================
@@ -825,9 +825,9 @@ def reconstruct_ptychography(
                         initialize_gradients = True
                 else:
                     shared_file_update_flag = False
-                    if shared_file_mode_n_batch_per_update is None and not is_last_batch_of_this_theta:
+                    if dist_mode_n_batch_per_update is None and not is_last_batch_of_this_theta:
                         continue
-                    elif shared_file_mode_n_batch_per_update is not None and i_batch > 0 and i_batch % shared_file_mode_n_batch_per_update != 0:
+                    elif dist_mode_n_batch_per_update is not None and i_batch > 0 and i_batch % dist_mode_n_batch_per_update != 0:
                         continue
                     else:
                         initialize_gradients = True
