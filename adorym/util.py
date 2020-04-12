@@ -418,14 +418,6 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         np.save(os.path.join(dest_folder, '{:04}'.format(i_theta)), coord_old.astype('float16'))
         np.save(os.path.join(dest_folder, '_{:04}'.format(i_theta)), coord_inv.astype('float16'))
 
-    # coord_vec's are coordinates list of current object (ordered, e.g. (0, 0, 0), (0, 0, 1), ...)
-    # coord1_vec = coord1_vec + image_center[1]
-    # coord1_vec = np.tile(coord1_vec, array_size[0])
-    # coord2_vec = coord2_vec + image_center[2]
-    # coord2_vec = np.tile(coord2_vec, array_size[0])
-    # for i, coord in enumerate([coord0_vec, coord1_vec, coord2_vec]):
-    #     np.save(os.path.join(dest_folder, 'coord{}_vec'.format(i)), coord)
-
     return None
 
 
@@ -691,6 +683,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
             os.makedirs(tmp_folder)
     comm.Barrier()
 
+    chunk_batch_send_ls = [None] * n_ranks
     chunk_batch_ls = [None] * n_ranks
 
     my_slice_range = slice_catalog[rank]
@@ -733,10 +726,14 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                 else:
                     continue
             if len(send_chunk_ls) > 0:
-                chunk_batch_ls[i_rank] = send_chunk_ls
+                chunk_batch_send_ls[i_rank] = send_chunk_ls
 
     # Broadcast data.
-    chunk_batch_ls = comm.alltoall(chunk_batch_ls)
+    # chunk_batch_ls = comm.alltoall(chunk_batch_ls)
+    for i_rank in range(n_ranks):
+        buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
+        if buf is not None:
+            chunk_batch_ls[i_rank] = buf
 
     # Assemble locally.
     my_chunk_ls = []
@@ -788,6 +785,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
     comm.Barrier()
 
     chunk_batch_ls = [None] * n_ranks
+    chunk_batch_send_ls = [None] * n_ranks
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -822,11 +820,15 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                 else:
                     continue
             if len(send_chunk_ls) > 0:
-                chunk_batch_ls[i_rank] = send_chunk_ls
+                chunk_batch_send_ls[i_rank] = send_chunk_ls
     comm.Barrier()
 
     # Broadcast data.
-    chunk_batch_ls = comm.alltoall(chunk_batch_ls)
+    # chunk_batch_ls = comm.alltoall(chunk_batch_ls)
+    for i_rank in range(n_ranks):
+        buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
+        if buf is not None:
+            chunk_batch_ls[i_rank] = buf
 
     # See what others are doing.
     if my_slice_range is not None:
