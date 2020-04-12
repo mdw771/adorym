@@ -131,15 +131,13 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
 
     if pure_projection:
         k1 = 2. * PI * delta_nm * n_slices / lmbda_nm
+        delta_slice = w.sum(grid_delta_batch, axis=-1)
+        beta_slice = w.sum(grid_beta_batch, axis=-1)
         if type == 'delta_beta':
-            delta_slice = w.sum(grid_delta_batch, axis=-1)
-            beta_slice = w.sum(grid_beta_batch, axis=-1)
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
             c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
-            delta_slice = w.prod(grid_delta_batch, axis=-1)
-            beta_slice = w.prod(grid_beta_batch, axis=-1)
             c_real, c_imag = delta_slice, beta_slice
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
@@ -156,32 +154,32 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         h_real = w.create_variable(h_real, requires_grad=False, device=device)
         h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
 
+        i_bin = 0
         for i in range(n_slices):
+            k1 = 2. * PI * delta_nm / lmbda_nm
             # At the start of bin, initialize slice array.
-            if i % binning == 0:
-                i_bin = 0
-                delta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
-                beta_slice = w.zeros([minibatch_size, *grid_shape[:2]], device=device, requires_grad=False)
-            delta_slice += grid_delta_batch[:, :, :, i]
-            beta_slice += grid_beta_batch[:, :, :, i]
+            delta_slice = grid_delta_batch[:, :, :, i]
+            beta_slice = grid_beta_batch[:, :, :, i]
+            if type == 'delta_beta':
+                # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+                # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+                c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
+            elif type == 'real_imag':
+                c_real, c_imag = delta_slice, beta_slice
+            else:
+                raise ValueError('unknown_type must be delta_beta or real_imag.')
+            probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
             i_bin += 1
+
             # When arriving at the last slice of bin or object, do propagation.
             if i_bin == binning or i == n_slices - 1:
-                k1 = 2. * PI * delta_nm * i_bin / lmbda_nm
-                if type == 'delta_beta':
-                    # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
-                    # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-                    c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
-                elif type == 'real_imag':
-                    c_real, c_imag = delta_slice, beta_slice
-                else:
-                    raise ValueError('unknown_type must be delta_beta or real_imag.')
-                probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
                 if i < n_slices - 1:
                     if i_bin == binning:
                         probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
                     else:
                         probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+                i_bin = 0
+
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta

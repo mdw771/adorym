@@ -676,9 +676,17 @@ def norm(var_real, var_imag):
 
 def swap_axes(arr, axes=(0, 1)):
     if global_settings.backend == 'autograd':
+        temp = [*axes]
         if axes[0] < axes[1]:
-            axes = [axes[1], axes[0]]
-        axes = list(range(min(axes))) + axes + list(range(max(axes) + 1, len(arr.shape)))
-        return anp.tranpose(arr, axes)
+            temp = [axes[1], axes[0]]
+        axes = []
+        for i in range(len(arr.shape)):
+            if i == temp[0]:
+                axes.append(temp[1])
+            elif i == temp[1]:
+                axes.append(temp[0])
+            else:
+                axes.append(i)
+        return anp.transpose(arr, axes)
     elif global_settings.backend == 'pytorch':
         return tc.transpose(arr, axes[0], axes[1])
