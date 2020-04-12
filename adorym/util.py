@@ -675,7 +675,7 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
 
 
 def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                              probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
+                                              probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.', n_split=10):
 
     tmp_folder = os.path.join(output_folder, 'tmp_comm')
     if rank == 0:
@@ -683,8 +683,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
             os.makedirs(tmp_folder)
     comm.Barrier()
 
-    chunk_batch_ls_1 = [None] * n_ranks
-    chunk_batch_ls_2 = [None] * n_ranks
+    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape
 
     my_slice_range = slice_catalog[rank]
@@ -695,8 +694,9 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
         for i_rank in range(n_ranks):
             their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
             their_pos_batch = probe_pos[their_ind_batch]
-            send_chunk_ls_1 = []
-            send_chunk_ls_2 = []
+            send_chunk_ls_ls = []
+            for i_split in range(n_split):
+                send_chunk_ls_ls.append([])
             for i_pos, their_pos in enumerate(their_pos_batch):
                 their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
                 if their_slice_range[1] <= my_slice_range[0]:
@@ -724,27 +724,34 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                                 [np.pad(my_chunk[:, :, :, 0], pad_arr, mode='constant', constant_values=1),
                                  np.pad(my_chunk[:, :, :, 1], pad_arr, mode='constant', constant_values=0)],
                                 axis=-1)
-                    send_chunk_ls_1.append(my_chunk[:, :, :s[2] // 2, :])
-                    send_chunk_ls_2.append(my_chunk[:, :, s[2] // 2:, :])
+                    for i_split in range(n_split):
+                        step = s[2] // n_split
+                        st = step * i_split
+                        end = s[2] if i_split == n_split - 1 else step * (i_split + 1)
+                        send_chunk_ls_ls[i_split].append(my_chunk[:, :, st:end, :])
                 else:
                     continue
-            if len(send_chunk_ls_1) > 0:
-                chunk_batch_ls_1[i_rank] = send_chunk_ls_1
-                chunk_batch_ls_2[i_rank] = send_chunk_ls_2
+            if len(send_chunk_ls_ls[0]) > 0:
+                for i_split in range(n_split):
+                    chunk_batch_ls_ls[i_split][i_rank] = send_chunk_ls_ls[i_split]
 
     # Broadcast data.
-    chunk_batch_ls_1 = comm.alltoall(chunk_batch_ls_1)
-    chunk_batch_ls_2 = comm.alltoall(chunk_batch_ls_2)
+    for i_split in range(n_split):
+        chunk_batch_ls_ls[i_split] = comm.alltoall(chunk_batch_ls_ls[i_split])
     # for i_rank in range(n_ranks):
     #     buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
     #     if buf is not None:
     #         chunk_batch_ls[i_rank] = buf
     chunk_batch_ls = []
-    for i in range(n_ranks):
-        if chunk_batch_ls_1[i] is None:
+    for i_rank in range(n_ranks):
+        if chunk_batch_ls_ls[0][i_rank] is None:
             chunk_batch_ls.append(None)
         else:
-            chunk_batch = [np.concatenate([chunk_batch_ls_1[i][j], chunk_batch_ls_2[i][j]], axis=2) for j in range(len(chunk_batch_ls_1[i]))]
+            chunk_batch = []
+            for i_pos in range(len(chunk_batch_ls_ls[0][i_rank])):
+                temp = [chunk_batch_ls_ls[i_split][i_rank][i_pos] for i_split in range(n_split)]
+                temp = np.concatenate(temp, axis=2)
+                chunk_batch.append(temp)
             chunk_batch_ls.append(chunk_batch)
 
     # Assemble locally.
@@ -788,7 +795,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
 
 def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                minibatch_size, probe_size, whole_object_size, output_folder='.'):
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=10):
 
     tmp_folder = os.path.join(output_folder, 'tmp_comm')
     if rank == 0:
@@ -796,9 +803,8 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
             os.makedirs(tmp_folder)
     comm.Barrier()
 
-    chunk_batch_ls_1 = [None] * n_ranks
-    chunk_batch_ls_2 = [None] * n_ranks
-    s = obj.shape
+    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
+    s = obj.shape[1:]
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -806,8 +812,9 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
 
     for i_rank, their_slice_range in enumerate(slice_catalog):
         if their_slice_range is not None:
-            send_chunk_ls_1 = []
-            send_chunk_ls_2 = []
+            send_chunk_ls_ls = []
+            for i_split in range(n_split):
+                send_chunk_ls_ls.append([])
             for i_pos, my_pos in enumerate(my_pos_batch):
                 my_chunk = obj[i_pos]
                 my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
@@ -830,29 +837,35 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                         flag_pad = True
                     if flag_pad:
                         my_chunk_send = np.pad(my_chunk_send, pad_arr, mode='constant')
-                    send_chunk_ls_1.append(my_chunk_send[:, :, :s[2] // 2, :])
-                    send_chunk_ls_2.append(my_chunk_send[:, :, s[2] // 2:, :])
+                    for i_split in range(n_split):
+                        step = s[2] // n_split
+                        st = step * i_split
+                        end = s[2] if i_split == n_split - 1 else step * (i_split + 1)
+                        send_chunk_ls_ls[i_split].append(my_chunk_send[:, :, st:end, :])
                 else:
                     continue
-            if len(send_chunk_ls_1) > 0:
-                chunk_batch_ls_1[i_rank] = send_chunk_ls_1
-                chunk_batch_ls_2[i_rank] = send_chunk_ls_2
+            if len(send_chunk_ls_ls[0]) > 0:
+                for i_split in range(n_split):
+                    chunk_batch_ls_ls[i_split][i_rank] = send_chunk_ls_ls[i_split]
     comm.Barrier()
 
     # Broadcast data.
-    chunk_batch_ls_1 = comm.alltoall(chunk_batch_ls_1)
-    chunk_batch_ls_2 = comm.alltoall(chunk_batch_ls_2)
+    for i_split in range(n_split):
+        chunk_batch_ls_ls[i_split] = comm.alltoall(chunk_batch_ls_ls[i_split])
     # for i_rank in range(n_ranks):
     #     buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
     #     if buf is not None:
     #         chunk_batch_ls[i_rank] = buf
     chunk_batch_ls = []
-    for i in range(n_ranks):
-        if chunk_batch_ls_1[i] is None:
+    for i_rank in range(n_ranks):
+        if chunk_batch_ls_ls[0][i_rank] is None:
             chunk_batch_ls.append(None)
         else:
-            chunk_batch = [np.concatenate([chunk_batch_ls_1[i][j], chunk_batch_ls_2[i][j]], axis=2) for j in
-                           range(len(chunk_batch_ls_1[i]))]
+            chunk_batch = []
+            for i_pos in range(len(chunk_batch_ls_ls[0][i_rank])):
+                temp = [chunk_batch_ls_ls[i_split][i_rank][i_pos] for i_split in range(n_split)]
+                temp = np.concatenate(temp, axis=2)
+                chunk_batch.append(temp)
             chunk_batch_ls.append(chunk_batch)
 
     # See what others are doing.
