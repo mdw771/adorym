@@ -23,6 +23,7 @@ from scipy.special import erf
 from adorym.constants import *
 import adorym.wrappers as w
 from adorym.propagate import *
+import adorym.global_settings as global_settings
 
 
 comm = MPI.COMM_WORLD
@@ -446,6 +447,10 @@ def read_all_origin_coords(src_folder, n_theta):
 
 def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, override_backend=None):
 
+    # PyTorch CPU doesn't support float16 computation.
+    if global_settings.backend == 'pytorch' and device is None:
+        coord_old = w.cast(coord_old, 'float64', override_backend=override_backend)
+
     s = obj.shape
     coord_old = w.create_variable(coord_old, device=device, requires_grad=False, override_backend=override_backend)
 
@@ -685,11 +690,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
             os.makedirs(tmp_folder)
     comm.Barrier()
 
-    own_chunk_batch = []
-    send_chunk_batch_ls = []
-    send_rank_ls = []
-    recv_chunk_batch_ls = []
-    recv_rank_ls = []
+    chunk_batch_ls = [None] * n_ranks
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -702,6 +703,8 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
             send_chunk_ls = []
             for i_pos, their_pos in enumerate(their_pos_batch):
                 their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
+                if their_slice_range[1] <= my_slice_range[0]:
+                    continue
                 if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
                     line_st = max([my_slice_range[0], their_slice_range[0]]) - my_slice_range[0]
                     line_end = min([my_slice_range[1], their_slice_range[1]]) - my_slice_range[0]
@@ -726,36 +729,17 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                                  np.pad(my_chunk[:, :, :, 1], pad_arr, mode='constant', constant_values=0)],
                                 axis=-1)
                     send_chunk_ls.append(my_chunk)
-            if len(send_chunk_ls) > 0:
-                if i_rank == rank:
-                    own_chunk_batch = send_chunk_ls
                 else:
-                    send_chunk_batch_ls.append(send_chunk_ls)
-                    send_rank_ls.append(i_rank)
+                    continue
+            if len(send_chunk_ls) > 0:
+                chunk_batch_ls[i_rank] = send_chunk_ls
 
     # Broadcast data.
-    for i_rank in range(n_ranks):
-        current_send_rank_ls = comm.bcast(send_rank_ls, root=i_rank)
-        if rank == i_rank:
-            for target_rank, chunk_batch in zip(send_rank_ls, send_chunk_batch_ls):
-                if target_rank != rank:
-                    comm.send(chunk_batch, dest=target_rank, tag=rank * n_ranks + target_rank)
-        if rank in current_send_rank_ls:
-            recv_chunk_batch_ls.append(comm.recv(source=i_rank, tag=i_rank * n_ranks + rank))
-            recv_rank_ls.append(i_rank)
-
-    # Add in the data of myself.
-    if len(own_chunk_batch) > 0:
-        if len(recv_rank_ls) > 0:
-            ind = len(recv_rank_ls) - np.count_nonzero((np.array(recv_rank_ls) - rank) > 0)
-            recv_rank_ls.insert(ind, rank)
-            recv_chunk_batch_ls.insert(ind, own_chunk_batch)
-        else:
-            recv_rank_ls.append(rank)
-            recv_chunk_batch_ls.append(own_chunk_batch)
+    chunk_batch_ls = comm.alltoall(chunk_batch_ls)
 
     # Assemble locally.
     my_chunk_ls = []
+    rank_pos_ind_ls = [0] * n_ranks
     for i_pos, my_pos in enumerate(my_pos_batch):
         my_chunk = []
         my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
@@ -764,9 +748,9 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                 if their_slice_range[1] <= my_chunk_slice_range[0]:
                     continue
                 if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
-                    ind_rank = recv_rank_ls.index(i_rank)
-                    partial_chunk = recv_chunk_batch_ls[ind_rank][i_pos]
+                    partial_chunk = chunk_batch_ls[i_rank][rank_pos_ind_ls[i_rank]]
                     my_chunk.append(partial_chunk)
+                    rank_pos_ind_ls[i_rank] += 1
                 else:
                     break
         my_chunk = np.concatenate(my_chunk, axis=0)
@@ -802,11 +786,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
             os.makedirs(tmp_folder)
     comm.Barrier()
 
-    own_chunk_batch = []
-    send_chunk_batch_ls = []
-    send_rank_ls = []
-    recv_chunk_batch_ls = []
-    recv_rank_ls = []
+    chunk_batch_ls = [None] * n_ranks
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -841,33 +821,11 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                 else:
                     continue
             if len(send_chunk_ls) > 0:
-                if i_rank == rank:
-                    own_chunk_batch = send_chunk_ls
-                else:
-                    send_chunk_batch_ls.append(send_chunk_ls)
-                    send_rank_ls.append(i_rank)
+                chunk_batch_ls[i_rank] = send_chunk_ls
     comm.Barrier()
 
     # Broadcast data.
-    for i_rank in range(n_ranks):
-        current_send_rank_ls = comm.bcast(send_rank_ls, root=i_rank)
-        if rank == i_rank:
-            for target_rank, chunk_batch in zip(send_rank_ls, send_chunk_batch_ls):
-                if target_rank != rank:
-                    comm.send(chunk_batch, dest=target_rank, tag=(rank * n_ranks + target_rank))
-        if rank in current_send_rank_ls:
-            recv_chunk_batch_ls.append(comm.recv(source=i_rank, tag=(i_rank * n_ranks + rank)))
-            recv_rank_ls.append(i_rank)
-
-    # Add in the data of myself.
-    if len(own_chunk_batch) > 0:
-        if len(recv_rank_ls) > 0:
-            ind = len(recv_rank_ls) - np.count_nonzero((np.array(recv_rank_ls) - rank) > 0)
-            recv_rank_ls.insert(ind, rank)
-            recv_chunk_batch_ls.insert(ind, own_chunk_batch)
-        else:
-            recv_rank_ls.append(rank)
-            recv_chunk_batch_ls.append(own_chunk_batch)
+    chunk_batch_ls = comm.alltoall(chunk_batch_ls)
 
     # See what others are doing.
     if my_slice_range is not None:
@@ -880,8 +838,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                 their_slice_range = [max([their_pos[0], 0]), min([their_pos[0] + probe_size[0], whole_object_size[0]])]
                 # If I find this rank has processed something relevant to my slab:
                 if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
-                    ind_rank = recv_rank_ls.index(i_rank)
-                    their_chunk = recv_chunk_batch_ls[ind_rank][ind_pos]
+                    their_chunk = chunk_batch_ls[i_rank][ind_pos]
                     ind_pos += 1
                     # Trim left-right.
                     if their_pos[1] < 0:

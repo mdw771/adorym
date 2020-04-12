@@ -680,6 +680,7 @@ def reconstruct_ptychography(
 
                 t_prj_0 = time.time()
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
+                comm.Barrier()
                 print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank, **stdout_options)
 
                 # ================================================================================
@@ -732,6 +733,7 @@ def reconstruct_ptychography(
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
                                                                               minibatch_size, probe_size, device=device_obj,
                                                                               unknown_type=unknown_type, apply_to_arr_rot=True)
+                    comm.Barrier()
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj.chunks = obj_rot
                     opt.get_params_from_file(this_pos_batch, probe_size)
@@ -766,6 +768,7 @@ def reconstruct_ptychography(
                     else:
                         grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
+                comm.Barrier()
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
                 grads = list(grads)
 
@@ -784,6 +787,7 @@ def reconstruct_ptychography(
                     t_grad_write_0 = time.time()
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
                                                                minibatch_size, probe_size)
+                    comm.Barrier()
                     print_flush('  Gradient syncing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
                 else:
@@ -949,6 +953,7 @@ def reconstruct_ptychography(
                         gradient.rotate_array(coord_new, interpolation=interpolation,
                                               precalculate_rotation_coords=precalculate_rotation_coords,
                                               apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd')
+                    comm.Barrier()
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
@@ -957,6 +962,7 @@ def reconstruct_ptychography(
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None:
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **optimizer_options_obj)
+                    comm.Barrier()
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)
 
                 # ================================================================================
