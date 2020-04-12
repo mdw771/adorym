@@ -285,6 +285,10 @@ def reconstruct_ptychography(
         # ================================================================================
         if precalculate_rotation_coords:
             if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
+                comm.Barrier()
+                if rank == 0:
+                    os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+                comm.Barrier()
                 print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
                 save_rotation_lookup(this_obj_size, n_theta)
         comm.Barrier()
