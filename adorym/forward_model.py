@@ -2,6 +2,7 @@ import numpy as np
 from scipy.ndimage import rotate as sp_rotate
 
 import gc
+import time
 
 import adorym.wrappers as w
 from adorym.util import *

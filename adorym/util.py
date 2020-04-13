@@ -8,6 +8,7 @@ from mpi4py import MPI
 import datetime
 from math import ceil, floor
 from scipy.ndimage import rotate as sp_rotate
+import time
 
 try:
     import sys
@@ -475,18 +476,22 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
         integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
 
         obj_rot = []
-        for i_chan in range(s[-1]):
-            vals_ff = obj[:, coord_old_floor_1, coord_old_floor_2, i_chan]
-            vals_fc = obj[:, coord_old_floor_1, coord_old_ceil_2, i_chan]
-            vals_cf = obj[:, coord_old_ceil_1, coord_old_floor_2, i_chan]
-            vals_cc = obj[:, coord_old_ceil_1, coord_old_ceil_2, i_chan]
-            vals = vals_ff * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                   vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
-                   vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                   vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-            obj_rot.append(w.reshape(vals, s[:-1], override_backend=override_backend))
-        obj_rot = w.stack(obj_rot, axis=-1, override_backend=override_backend)
-
+        fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+        fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+        fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+        fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+        fac_ff = w.stack([fac_ff] * 2, axis=1)
+        fac_fc = w.stack([fac_fc] * 2, axis=1)
+        fac_cf = w.stack([fac_cf] * 2, axis=1)
+        fac_cc = w.stack([fac_cc] * 2, axis=1)
+        for i_slice in range(s[0]):
+            vals_ff = obj[i_slice, coord_old_floor_1, coord_old_floor_2]
+            vals_fc = obj[i_slice, coord_old_floor_1, coord_old_ceil_2]
+            vals_cf = obj[i_slice, coord_old_ceil_1, coord_old_floor_2]
+            vals_cc = obj[i_slice, coord_old_ceil_1, coord_old_ceil_2]
+            vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
+            obj_rot.append(vals)
+        obj_rot = w.reshape(w.stack(obj_rot, override_backend=override_backend), s, override_backend=override_backend)
     return obj_rot
 
 
@@ -532,32 +537,23 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
             coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
             integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
             integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
-
+            fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+            fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+            fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+            fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+            if not monochannel:
+                fac_ff = np.stack([fac_ff] * 2, axis=1)
+                fac_fc = np.stack([fac_fc] * 2, axis=1)
+                fac_cf = np.stack([fac_cf] * 2, axis=1)
+                fac_cc = np.stack([fac_cc] * 2, axis=1)
             for i_slice in slice_ls:
-                obj_rot = []
                 obj = dset[i_slice]
-                if not monochannel:
-                    for i_chan in range(s[-1]):
-                        vals_ff = obj[coord_old_floor_1, coord_old_floor_2, i_chan]
-                        vals_fc = obj[coord_old_floor_1, coord_old_ceil_2, i_chan]
-                        vals_cf = obj[coord_old_ceil_1, coord_old_floor_2, i_chan]
-                        vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2, i_chan]
-                        vals = vals_ff * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                               vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
-                               vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                               vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-                        obj_rot.append(np.reshape(vals, s[1:-1]))
-                    obj_rot = np.stack(obj_rot, axis=-1)
-                else:
-                    vals_ff = obj[coord_old_floor_1, coord_old_floor_2]
-                    vals_fc = obj[coord_old_floor_1, coord_old_ceil_2]
-                    vals_cf = obj[coord_old_ceil_1, coord_old_floor_2]
-                    vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2]
-                    vals = vals_ff * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                           vals_fc * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2) + \
-                           vals_cf * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2) + \
-                           vals_cc * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-                    obj_rot = np.reshape(vals, s[1:3])
+                vals_ff = obj[coord_old_floor_1, coord_old_floor_2]
+                vals_fc = obj[coord_old_floor_1, coord_old_ceil_2]
+                vals_cf = obj[coord_old_ceil_1, coord_old_floor_2]
+                vals_cc = obj[coord_old_ceil_1, coord_old_ceil_2]
+                vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
+                obj_rot = np.reshape(vals, s[1:])
                 dset_2[i_slice] = obj_rot
     else:
         for i_slice in slice_ls:
@@ -605,22 +601,27 @@ def revert_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilin
             coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
             integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
             integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
+            fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+            fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+            fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+            fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+            if not monochannel:
+                fac_ff = w.stack([fac_ff] * 2, axis=1)
+                fac_fc = w.stack([fac_fc] * 2, axis=1)
+                fac_cf = w.stack([fac_cf] * 2, axis=1)
+                fac_cc = w.stack([fac_cc] * 2, axis=1)
 
             for i_slice in slice_ls:
                 current_arr = dset[i_slice]
                 obj = np.zeros_like(current_arr)
                 if not monochannel:
-                    for i_chan in range(s[-1]):
-                        obj[coord_old_floor_1, coord_old_floor_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-                        obj[coord_old_floor_1, coord_old_ceil_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
-                        obj[coord_old_ceil_1, coord_old_floor_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-                        obj[coord_old_ceil_1, coord_old_ceil_2, i_chan] += current_arr[:, :, i_chan].flatten() * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+                    current_arr = current_arr.reshape([s[1] * s[2], 2])
                 else:
                     current_arr = current_arr.flatten()
-                    obj[coord_old_floor_1, coord_old_floor_2] += current_arr * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-                    obj[coord_old_floor_1, coord_old_ceil_2] += current_arr * (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
-                    obj[coord_old_ceil_1, coord_old_floor_2] += current_arr * (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-                    obj[coord_old_ceil_1, coord_old_ceil_2] += current_arr * (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+                obj[coord_old_floor_1, coord_old_floor_2] += current_arr * fac_ff
+                obj[coord_old_floor_1, coord_old_ceil_2] += current_arr * fac_fc
+                obj[coord_old_ceil_1, coord_old_floor_2] += current_arr * fac_cf
+                obj[coord_old_ceil_1, coord_old_ceil_2] += current_arr * fac_cc
                 dset[i_slice] = obj
     else:
         for i_slice in slice_ls:
