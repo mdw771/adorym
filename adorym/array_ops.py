@@ -67,13 +67,20 @@ class LargeArray(object):
                                 monochannel=self.monochannel, precalculate_rotation_coords=precalculate_rotation_coords)
 
     def rotate_array(self, coords, interpolation='bilinear', precalculate_rotation_coords=True, apply_to_arr_rot=False,
-                     overwrite_arr=False, override_backend=None, dtype=None):
+                     overwrite_arr=False, override_backend=None, dtype=None, override_device=None):
         a = self.arr if not apply_to_arr_rot else self.arr_rot
+        if override_device is not None:
+            if override_device == 'cpu':
+                d = None
+            else:
+                d = override_device
+        else:
+            d = self.device
         if precalculate_rotation_coords:
             if overwrite_arr:
-                self.arr = apply_rotation(a, coords, interpolation=interpolation, device=self.device, override_backend=override_backend)
+                self.arr = apply_rotation(a, coords, interpolation=interpolation, device=d, override_backend=override_backend)
             else:
-                self.arr_rot = apply_rotation(a, coords, interpolation=interpolation, device=self.device, override_backend=override_backend)
+                self.arr_rot = apply_rotation(a, coords, interpolation=interpolation, device=d, override_backend=override_backend)
         else:
             if overwrite_arr:
                 self.arr = sp_rotate(a, coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
@@ -113,9 +120,9 @@ class LargeArray(object):
 class ObjectFunction(LargeArray):
 
     def __init__(self, full_size, distribution_mode=None, output_folder=None, ds_level=1,
-                 object_type='normal'):
+                 object_type='normal', device=None):
         super(ObjectFunction, self).__init__(full_size, distribution_mode=distribution_mode,
-                                             monochannel=False, output_folder=output_folder)
+                                             monochannel=False, output_folder=output_folder, device=device)
         self.chunks = None
         self.ds_level = ds_level
         self.object_type = object_type
