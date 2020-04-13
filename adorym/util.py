@@ -1439,7 +1439,7 @@ def reconstruct_hdf5_takeouts(block, repeats, sorted_ind):
 
 
 def get_rotated_subblocks_with_tilt(dset, this_pos_batch, coord_old, probe_size, whole_object_size, monochannel=False,
-                          mode='hdf5', interpolation='bilinear'):
+                                    mode='hdf5', interpolation='bilinear'):
     """
     Get rotated subblocks centering this_pos_batch directly from hdf5.
     :return: [n_pos, y, x, z, 2]
@@ -1728,15 +1728,15 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
         else:
             if save_history:
                 fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
+                fname1 = 'beta{}_{}'.format(i_epoch, i_batch)
             else:
                 fname0 = 'delta'
+                fname1 = 'beta'
         if distribution_mode == 'distributed_object':
             fname0 += '_rank_{}'.format(rank)
-            if full_output:
-                fname1 += '_rank_{}'.format(rank)
+            fname1 += '_rank_{}'.format(rank)
         dxchange.write_tiff(obj0, os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
-        if full_output:
-            dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+        dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
     elif unknown_type == 'real_imag':
         if full_output:
