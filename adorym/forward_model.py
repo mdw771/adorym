@@ -23,6 +23,7 @@ class ForwardModel(object):
         self.i_call = 0
         self.normalize_fft = common_vars_dict['normalize_fft']
         self.sign_convention = common_vars_dict['sign_convention']
+        self.rotate_out_of_loop = common_vars_dict['rotate_out_of_loop']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -142,17 +143,20 @@ class PtychographyModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.distribution_mode:
-            if precalculate_rotation_coords:
-                obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            if not self.rotate_out_of_loop:
+                if precalculate_rotation_coords:
+                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                else:
+                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                obj_rot = obj_stack
         else:
             obj_rot = obj_stack
         ex_real_ls = []
         ex_imag_ls = []
 
         # Pad if needed
-        if not self.distribution_mode:
+        if self.distribution_mode is None:
             obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
 
         pos_ind = 0
@@ -371,10 +375,13 @@ class SparseMultisliceModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.distribution_mode:
-            if precalculate_rotation_coords:
-                obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            if not self.rotate_out_of_loop:
+                if precalculate_rotation_coords:
+                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                else:
+                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                obj_rot = obj_stack
         else:
             obj_rot = obj_stack
         ex_real_ls = []
@@ -597,11 +604,13 @@ class MultiDistModel(ForwardModel):
 
         obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode:
-            if precalculate_rotation_coords:
-                obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+            if not self.rotate_out_of_loop:
+                if precalculate_rotation_coords:
+                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                else:
+                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
-                # obj_rot = sp_rotate(obj_stack, theta, axes=(1, 2), reshape=False)
+                obj_rot = obj_stack
         else:
             obj_rot = obj_stack
 

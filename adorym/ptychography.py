@@ -78,6 +78,7 @@ def reconstruct_ptychography(
         dist_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         precalculate_rotation_coords=True,
         cache_dtype='float32',
+        rotate_out_of_loop=False, # Applies to simple data parallelism mode only. Recommended to be False when using GPU.
         # _________________________
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
@@ -685,10 +686,10 @@ def reconstruct_ptychography(
                 print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank, **stdout_options)
 
                 # ================================================================================
-                # In shared file mode, if moving to a new angle, rotate the HDF5 object and saved
+                # If moving to a new angle, rotate the HDF5 object and saved
                 # the rotated object into the temporary file object.
                 # ================================================================================
-                if distribution_mode is not None and (this_i_theta != current_i_theta or shared_file_update_flag):
+                if this_i_theta != current_i_theta or shared_file_update_flag:
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
@@ -703,8 +704,12 @@ def reconstruct_ptychography(
                     elif distribution_mode == 'distributed_object':
                         obj.rotate_array(coord_ls, interpolation=interpolation,
                                          precalculate_rotation_coords=precalculate_rotation_coords,
-                                         apply_to_arr_rot=False, override_backend='autograd', dtype=cache_dtype)
-                    # opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
+                                         apply_to_arr_rot=False, override_backend='autograd', dtype=cache_dtype,
+                                         override_device='cpu')
+                    elif distribution_mode is None and rotate_out_of_loop:
+                        obj.rotate_array(coord_ls, interpolation=interpolation,
+                                         precalculate_rotation_coords=precalculate_rotation_coords,
+                                         apply_to_arr_rot=False, override_device=device_obj)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
@@ -761,7 +766,10 @@ def reconstruct_ptychography(
                 grad_func_args = {}
                 for arg in forward_model.argument_ls:
                     if distribution_mode is None:
-                        delta, beta = w.split_channel(obj.arr)
+                        if rotate_out_of_loop:
+                            delta, beta = w.split_channel(obj.arr_rot)
+                        else:
+                            delta, beta = w.split_channel(obj.arr)
                     else:
                         delta, beta = w.split_channel(obj.chunks)
                     if arg == 'obj_delta': grad_func_args[arg] = delta
@@ -793,8 +801,22 @@ def reconstruct_ptychography(
                                 **stdout_options)
                 else:
                     if initialize_gradients:
-                        obj_grads = w.zeros([*grads[0].shape, 2], requires_grad=False, device=device_obj)
-                    obj_grads += w.stack(grads[:2], axis=-1)
+                        del gradient.arr
+                        gradient.arr = w.zeros([*grads[0].shape, 2], requires_grad=False, device=device_obj)
+                    gradient.arr += w.stack(grads[:2], axis=-1)
+                    # If rotation is not done in the AD loop, the above gradient array is at theta, and needs to be
+                    # rotated back to 0.
+                    if rotate_out_of_loop:
+                        if precalculate_rotation_coords:
+                            coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                                           this_i_theta, reverse=True)
+                        else:
+                            coord_new = -theta_ls[this_i_theta]
+                        gradient.rotate_array(coord_new, interpolation=interpolation,
+                                              precalculate_rotation_coords=precalculate_rotation_coords,
+                                              override_device=device_obj, overwrite_arr=True)
+
+                # Initialize gradients for non-object variables if necessary.
                 if initialize_gradients:
                     initialize_gradients = False
                     if optimize_probe:
@@ -845,7 +867,7 @@ def reconstruct_ptychography(
                 # All reduce object gradient buffer.
                 # ================================================================================
                 if distribution_mode is None:
-                    obj_grads = comm.allreduce(obj_grads)
+                    gradient.arr = comm.allreduce(gradient.arr)
 
                 # ================================================================================
                 # Update object function with optimizer if not distribution_mode; otherwise,
@@ -853,7 +875,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     if distribution_mode is None:
-                        obj.arr = opt.apply_gradient(obj.arr, obj_grads, i_full_angle,
+                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle,
                                                                 **optimizer_options_obj)
                 if distribution_mode is None:
                     w.reattach(obj.arr)
@@ -953,7 +975,8 @@ def reconstruct_ptychography(
                     elif distribution_mode == 'distributed_object':
                         gradient.rotate_array(coord_new, interpolation=interpolation,
                                               precalculate_rotation_coords=precalculate_rotation_coords,
-                                              apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd', dtype=cache_dtype)
+                                              apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd',
+                                              dtype=cache_dtype, override_device='cpu')
                     comm.Barrier()
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
@@ -972,7 +995,7 @@ def reconstruct_ptychography(
                 if mask is not None:
                     if distribution_mode is None or distribution_mode == 'distributed_object':
                         obj.apply_finite_support_mask_to_array(mask, unknown_type=unknown_type, device=device_obj)
-                    elif distribution_mode == 'shared_object':
+                    elif distribution_mode == 'shared_file':
                         obj.apply_finite_support_mask_to_file(mask, unknown_type=unknown_type, device=device_obj)
                     print_flush('  Mask applied.', 0, rank, **stdout_options)
 
