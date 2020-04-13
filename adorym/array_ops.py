@@ -67,7 +67,7 @@ class LargeArray(object):
                                 monochannel=self.monochannel, precalculate_rotation_coords=precalculate_rotation_coords)
 
     def rotate_array(self, coords, interpolation='bilinear', precalculate_rotation_coords=True, apply_to_arr_rot=False,
-                     overwrite_arr=False, override_backend=None):
+                     overwrite_arr=False, override_backend=None, dtype=None):
         a = self.arr if not apply_to_arr_rot else self.arr_rot
         if precalculate_rotation_coords:
             if overwrite_arr:
@@ -79,8 +79,13 @@ class LargeArray(object):
                 self.arr = sp_rotate(a, coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
             else:
                 self.arr_rot = sp_rotate(a, coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+        if dtype is not None:
+            if overwrite_arr:
+                self.arr = w.cast(self.arr, dtype, override_backend=override_backend)
+            else:
+                self.arr_rot = w.cast(self.arr_rot, dtype, override_backend=override_backend)
 
-    def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None):
+    def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None, dtype='float32'):
         dset = self.dset if dset_2 is None else dset_2
         arr_channel_0 = w.to_numpy(arr_channel_0)
         if arr_channel_1 is not None: arr_channel_1 = w.to_numpy(arr_channel_1)
@@ -94,13 +99,14 @@ class LargeArray(object):
                 arr_channel_0 /= n_ranks
                 arr_channel_1 /= n_ranks
         write_subblocks_to_file(dset, this_pos_batch, arr_channel_0, arr_channel_1,
-                                probe_size, self.full_size, monochannel=self.monochannel)
+                                probe_size, self.full_size, monochannel=self.monochannel, dtype='float32')
 
     def sync_chunks_to_distributed_object(self, obj, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                          probe_size):
+                                          probe_size, dtype='float32'):
         obj = w.to_numpy(obj)
         slab = sync_subblocks_among_distributed_object_mpi(obj, self.slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                       minibatch_size, probe_size, self.full_size, output_folder=self.output_folder)
+                                                       minibatch_size, probe_size, self.full_size,
+                                                       output_folder=self.output_folder, dtype='float32')
         self.arr += slab
 
 
@@ -146,34 +152,35 @@ class ObjectFunction(LargeArray):
         self.arr = w.create_variable(np.stack([obj_delta, obj_beta], -1), device=device, requires_grad=True)
 
     def initialize_distributed_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
-                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
+                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta', dtype='float32'):
         delta, beta = \
             initialize_object_for_do(self.full_size[:-1], slice_catalog=self.slice_catalog, ds_level=self.ds_level, object_type=self.object_type,
                               initial_guess=initial_guess, output_folder=self.output_folder,
                               save_stdout=save_stdout, timestr=timestr,
                               not_first_level=not_first_level,
-                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=dtype)
         self.arr = np.stack([delta, beta], -1)
 
-    def initialize_distributed_array_with_values(self, obj_delta, obj_beta):
+    def initialize_distributed_array_with_values(self, obj_delta, obj_beta, dtype='float32'):
         if self.slice_catalog[rank] is not None:
             delta = obj_delta[slice(*self.slice_catalog[rank])]
             beta = obj_beta[slice(*self.slice_catalog[rank])]
-            self.arr = np.stack([delta, beta], -1)
+            self.arr = np.stack([delta, beta], -1).astype(dtype)
 
-    def initialize_distributed_array_with_zeros(self):
+    def initialize_distributed_array_with_zeros(self, dtype='float32'):
         if self.slice_catalog[rank] is not None:
-            delta = np.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.full_size[1:-1]])
-            beta = np.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.full_size[1:-1]])
+            delta = np.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.full_size[1:-1]], dtype=dtype)
+            beta = np.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.full_size[1:-1]], dtype=dtype)
             self.arr = np.stack([delta, beta], -1)
 
     def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
-                               random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
+                               random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta',
+                               dtype='float32'):
         initialize_object_for_sf(self.full_size[:-1], dset=self.dset, ds_level=self.ds_level, object_type=self.object_type,
                           initial_guess=initial_guess, output_folder=self.output_folder,
                           save_stdout=save_stdout, timestr=timestr,
                           not_first_level=not_first_level, random_guess_means_sigmas=random_guess_means_sigmas,
-                          unknown_type=unknown_type)
+                          unknown_type=unknown_type, dtype=dtype)
 
     def apply_finite_support_mask_to_array(self, mask, unknown_type='delta_beta', device=None):
         assert isinstance(mask, Mask)
@@ -221,8 +228,8 @@ class Gradient(ObjectFunction):
     def create_file_object(self):
         super(ObjectFunction, self).create_file_object('intermediate_grad.h5', use_checkpoint=False)
 
-    def initialize_gradient_file(self):
-        initialize_hdf5_with_constant(self.dset, rank, n_ranks)
+    def initialize_gradient_file(self, dtype='float32'):
+        initialize_hdf5_with_constant(self.dset, rank, n_ranks, dtype=dtype)
 
 
 class Mask(LargeArray):
@@ -237,17 +244,20 @@ class Mask(LargeArray):
     def create_file_object(self, use_checkpoint=False):
         super(Mask, self).create_file_object('intermediate_mask.h5', use_checkpoint=use_checkpoint)
 
-    def initialize_array_with_values(self, mask, device=None):
-        self.mask = w.create_variable(mask, requires_grad=False, device=device)
+    def initialize_array_with_values(self, mask, device=None, dtype=None):
+        args = {}
+        if dtype is not None:
+            args['dtype'] = dtype
+        self.mask = w.create_variable(mask, requires_grad=False, device=device, **args)
 
-    def initialize_distributed_array(self, mask):
+    def initialize_distributed_array(self, mask, dtype='float32'):
         if self.slice_catalog[rank] is not None:
-            self.mask = mask[slice(*self.slice_catalog[rank])]
+            self.mask = mask[slice(*self.slice_catalog[rank])].astype(dtype)
 
-    def initialize_file_object(self):
+    def initialize_file_object(self, dtype='float32'):
         # arr is a memmap.
         arr = dxchange.read_tiff(self.finite_support_mask_path)
-        initialize_hdf5_with_arrays(self.dset, rank, n_ranks, arr, None)
+        initialize_hdf5_with_arrays(self.dset, rank, n_ranks, arr, None, dtype=dtype)
 
     def update_mask_array(self, obj, threshold=1e-9):
         assert isinstance(obj, ObjectFunction)

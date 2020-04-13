@@ -93,20 +93,20 @@ def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='
 def initialize_object_for_sf(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta'):
+                             unknown_type='delta_beta', dtype='float32'):
     if initial_guess is None:
         print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout,
                     output_folder=output_folder, timestamp=timestr)
         initialize_hdf5_with_gaussian(dset, rank, n_ranks,
                                       random_guess_means_sigmas[0], random_guess_means_sigmas[2],
                                       random_guess_means_sigmas[1], random_guess_means_sigmas[3],
-                                      unknown_type=unknown_type)
+                                      unknown_type=unknown_type, dtype=dtype)
     else:
         print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                     timestamp=timestr)
         if unknown_type == 'real_imag':
             initial_guess = mag_phase_to_real_imag(*initial_guess)
-        initialize_hdf5_with_arrays(dset, rank, n_ranks, initial_guess[0], initial_guess[1])
+        initialize_hdf5_with_arrays(dset, rank, n_ranks, initial_guess[0], initial_guess[1], dtype=dtype)
     print_flush('Object HDF5 written.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                 timestamp=timestr)
     return
@@ -115,7 +115,7 @@ def initialize_object_for_sf(this_obj_size, dset=None, ds_level=1, object_type='
 def initialize_object_for_do(this_obj_size, slice_catalog=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta'):
+                             unknown_type='delta_beta', dtype='float32'):
     if slice_catalog[rank] is None:
         return None
     else:
@@ -149,7 +149,7 @@ def initialize_object_for_do(this_obj_size, slice_catalog=None, ds_level=1, obje
             obj_beta[obj_beta < 0] = 0
         elif unknown_type == 'real_imag':
             obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
-    return obj_delta, obj_beta
+    return obj_delta.astype(dtype), obj_beta.astype(dtype)
 
 
 def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
@@ -443,7 +443,7 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
 
     # PyTorch CPU doesn't support float16 computation.
     if global_settings.backend == 'pytorch' and device is None:
-        coord_old = w.cast(coord_old, 'float64', override_backend=override_backend)
+        coord_old = coord_old.astype('float64')
 
     s = obj.shape
     coord_old = w.create_variable(coord_old, device=device, requires_grad=False, override_backend=override_backend)
@@ -480,10 +480,10 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
         fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
         fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
         fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-        fac_ff = w.stack([fac_ff] * 2, axis=1)
-        fac_fc = w.stack([fac_fc] * 2, axis=1)
-        fac_cf = w.stack([fac_cf] * 2, axis=1)
-        fac_cc = w.stack([fac_cc] * 2, axis=1)
+        fac_ff = w.stack([fac_ff] * 2, axis=1, override_backend=override_backend)
+        fac_fc = w.stack([fac_fc] * 2, axis=1, override_backend=override_backend)
+        fac_cf = w.stack([fac_cf] * 2, axis=1, override_backend=override_backend)
+        fac_cc = w.stack([fac_cc] * 2, axis=1, override_backend=override_backend)
         for i_slice in range(s[0]):
             vals_ff = obj[i_slice, coord_old_floor_1, coord_old_floor_2]
             vals_fc = obj[i_slice, coord_old_floor_1, coord_old_ceil_2]
@@ -632,7 +632,7 @@ def revert_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilin
     return None
 
 
-def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma, unknown_type='delta_beta'):
+def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma, unknown_type='delta_beta', dtype='float32'):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
@@ -645,21 +645,21 @@ def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, be
             slice_delta, slice_beta = mag_phase_to_real_imag(slice_delta, slice_beta)
         slice_data = np.stack([slice_delta, slice_beta], axis=-1)
         slice_data[slice_data < 0] = 0
-        dset[i_slice] = slice_data
+        dset[i_slice] = slice_data.astype(dtype)
     return None
 
 
-def initialize_hdf5_with_constant(dset, rank, n_ranks, constant_value=0):
+def initialize_hdf5_with_constant(dset, rank, n_ranks, constant_value=0, dtype='float32'):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
 
     for i_slice in slice_ls:
-        dset[i_slice] = np.full(dset[i_slice].shape, constant_value)
+        dset[i_slice] = np.full(dset[i_slice].shape, constant_value, dtype=dtype)
     return None
 
 
-def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
+def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta, dtype='float32'):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
@@ -671,18 +671,13 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta):
         else:
             slice_data[...] = init_delta[i_slice]
         slice_data[slice_data < 0] = 0
-        dset[i_slice] = slice_data
+        dset[i_slice] = slice_data.astype(dtype)
     return None
 
 
 def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                              probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.', n_split=10):
-
-    tmp_folder = os.path.join(output_folder, 'tmp_comm')
-    if rank == 0:
-        if not os.path.exists(tmp_folder):
-            os.makedirs(tmp_folder)
-    comm.Barrier()
+                                              probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
+                                              n_split=10, dtype='float32'):
 
     chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape
@@ -790,22 +785,18 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                      np.pad(my_chunk[:, :, :, 1], pad_arr[:-1], mode='constant', constant_values=0)],
                     axis=-1)
         my_chunk_ls.append(my_chunk)
-    my_chunk_ls = np.stack(my_chunk_ls)
+    my_chunk_ls = np.stack(my_chunk_ls).astype('float64')
 
     return my_chunk_ls
 
 
 def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=10):
-
-    tmp_folder = os.path.join(output_folder, 'tmp_comm')
-    if rank == 0:
-        if not os.path.exists(tmp_folder):
-            os.makedirs(tmp_folder)
-    comm.Barrier()
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=10,
+                                                dtype='float32'):
 
     chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape[1:]
+    obj = obj.astype(dtype)
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -894,7 +885,8 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
 
 
 def get_subblocks_from_distributed_object(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                          probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.'):
+                                          probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
+                                          dtype='float32'):
 
     tmp_folder = os.path.join(output_folder, 'tmp_comm')
     if rank == 0:
@@ -971,7 +963,7 @@ def get_subblocks_from_distributed_object(obj, slice_catalog, probe_pos, this_in
                      np.pad(my_chunk[:, :, :, 1], pad_arr[:-1], mode='constant', constant_values=0)],
                     axis=-1)
         my_chunk_ls.append(my_chunk)
-    my_chunk_ls = np.stack(my_chunk_ls)
+    my_chunk_ls = np.stack(my_chunk_ls).astype(dtype)
 
     return my_chunk_ls
 
@@ -1077,11 +1069,11 @@ def get_rotated_subblocks(dset, this_pos_batch, probe_size, whole_object_size, m
                                                  [px_st_clip - px_st, px_end - px_end_clip],
                                                  [0, 0]], mode='constant')
         block_stack.append(this_block)
-    block_stack = np.stack(block_stack, axis=0)
+    block_stack = np.stack(block_stack, axis=0).astype('float64')
     return block_stack
 
 
-def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_size, whole_object_size, monochannel=False, interpolation='bilinear'):
+def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_size, whole_object_size, monochannel=False, interpolation='bilinear', dtype='float32'):
     """
     Write data back in the npy. If monochannel, give None to obj_beta.
     """
@@ -1090,6 +1082,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
         obj = np.stack([obj_delta, obj_beta], axis=-1)
     else:
         obj = obj_delta
+    obj = obj.astype(dtype)
     for i_batch, coords in enumerate(this_pos_batch):
         if len(coords) == 2:
             # For the case of ptychography

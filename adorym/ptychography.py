@@ -77,6 +77,7 @@ def reconstruct_ptychography(
         distribution_mode=None, # Choose from None (for data parallelism), 'shared_file', 'distributed_object'
         dist_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         precalculate_rotation_coords=True,
+        cache_dtype='float32',
         # _________________________
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
@@ -346,13 +347,13 @@ def reconstruct_ptychography(
                 print_flush('Initializing object function in file...', 0, rank, **stdout_options)
                 obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
                                            not_first_level=not_first_level, initial_guess=initial_guess,
-                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=cache_dtype)
         elif distribution_mode == 'distributed_object':
             if needs_initialize:
                 print_flush('Initializing object array...', 0, rank, **stdout_options)
                 obj.initialize_distributed_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess,
-                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=cache_dtype)
             else:
                 obj.delta = obj_delta
                 obj.beta = obj_beta
@@ -396,7 +397,7 @@ def reconstruct_ptychography(
             gradient.create_file_object()
             gradient.initialize_gradient_file()
         elif distribution_mode == 'distributed_object':
-            gradient.initialize_distributed_array_with_zeros()
+            gradient.initialize_distributed_array_with_zeros(dtype=cache_dtype)
         else:
             gradient.initialize_array_with_values(np.zeros(this_obj_size), np.zeros(this_obj_size), device=device_obj)
 
@@ -412,10 +413,10 @@ def reconstruct_ptychography(
                         output_folder=output_folder, ds_level=ds_level)
             if distribution_mode == 'shared_file':
                 mask.create_file_object(use_checkpoint=use_checkpoint)
-                mask.initialize_file_object()
+                mask.initialize_file_object(dtype=cache_dtype)
             elif distribution_mode == 'distributed_object':
                 mask_arr = dxchange.read_tiff(finite_support_mask_path)
-                mask.initialize_distributed_array(mask_arr)
+                mask.initialize_distributed_array(mask_arr, dtype=cache_dtype)
             else:
                 mask_arr = dxchange.read_tiff(finite_support_mask_path)
                 mask.initialize_array_with_values(mask_arr, device=device_obj)
@@ -702,7 +703,7 @@ def reconstruct_ptychography(
                     elif distribution_mode == 'distributed_object':
                         obj.rotate_array(coord_ls, interpolation=interpolation,
                                          precalculate_rotation_coords=precalculate_rotation_coords,
-                                         apply_to_arr_rot=False, override_backend='autograd')
+                                         apply_to_arr_rot=False, override_backend='autograd', dtype=cache_dtype)
                     # opt.rotate_files(coord_ls[this_i_theta], interpolation=interpolation)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
@@ -779,14 +780,14 @@ def reconstruct_ptychography(
                     obj_grads = w.stack(grads[:2], axis=-1)
                     t_grad_write_0 = time.time()
                     gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
-                                                  write_difference=False)
+                                                  write_difference=False, dtype=cache_dtype)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
                 elif distribution_mode == 'distributed_object':
                     obj_grads = w.stack(grads[:2], axis=-1)
                     t_grad_write_0 = time.time()
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
-                                                               minibatch_size, probe_size)
+                                                               minibatch_size, probe_size, dtype=cache_dtype)
                     comm.Barrier()
                     print_flush('  Gradient syncing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
@@ -952,7 +953,7 @@ def reconstruct_ptychography(
                     elif distribution_mode == 'distributed_object':
                         gradient.rotate_array(coord_new, interpolation=interpolation,
                                               precalculate_rotation_coords=precalculate_rotation_coords,
-                                              apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd')
+                                              apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd', dtype=cache_dtype)
                     comm.Barrier()
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
