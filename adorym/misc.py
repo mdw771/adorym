@@ -143,15 +143,11 @@ def restore_checkpoint(output_folder, distribution_mode=None, optimizer=None):
     i_epoch, i_batch = [int(i) for i in np.loadtxt(os.path.join(output_folder, 'checkpoint.txt'))]
     if distribution_mode is None:
         obj = np.load(os.path.join(output_folder, 'obj_checkpoint.npy'))
-        obj_delta = np.take(obj, 0, axis=-1)
-        obj_beta = np.take(obj, 1, axis=-1)
         optimizer.restore_param_arrays_from_checkpoint()
-        return i_epoch, i_batch, obj_delta, obj_beta
+        return i_epoch, i_batch, obj
     elif distribution_mode == 'distributed_object':
         obj = np.load(os.path.join(output_folder, 'obj_checkpoint_rank_{}.npy'.format(rank)))
-        obj_delta = np.take(obj, 0, axis=-1)
-        obj_beta = np.take(obj, 1, axis=-1)
         optimizer.restore_distributed_param_arrays_from_checkpoint()
-        return i_epoch, i_batch, obj_delta, obj_beta
+        return i_epoch, i_batch, obj
     else:
         return i_epoch, i_batch

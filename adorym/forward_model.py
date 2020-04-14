@@ -46,27 +46,28 @@ class ForwardModel(object):
     def update_l1_weight(self, weight_l1):
         self.regularizer_dict['reweighted_l1']['weight_l1'] = weight_l1
 
-    def get_regularization_value(self, obj_delta, obj_beta):
+    def get_regularization_value(self, obj):
         reg = w.create_variable(0., device=self.device)
         for name in list(self.regularizer_dict):
             if name == 'l1_norm':
-                reg = reg + l1_norm_term(obj_delta, obj_beta,
+                reg = reg + l1_norm_term(obj,
                                     self.regularizer_dict[name]['alpha_d'],
                                     self.regularizer_dict[name]['alpha_b'],
                                     device=self.device)
             elif name == 'reweighted_l1_norm':
-                reg = reg + reweighted_l1_norm_term(obj_delta, obj_beta,
+                reg = reg + reweighted_l1_norm_term(obj,
                                                self.regularizer_dict[name]['alpha_d'],
                                                self.regularizer_dict[name]['alpha_b'],
                                                self.regularizer_dict[name]['weight_l1'],
                                                device=self.device)
             elif name == 'tv':
                 if self.unknown_type == 'delta_beta':
-                    reg = reg + tv(obj_delta, obj_beta,
+                    reg = reg + tv(obj,
                               self.regularizer_dict[name]['gamma'],
                               self.distribution_mode, device=self.device)
                 elif self.unknown_type == 'real_imag':
-                    reg = reg + tv(w.arctan2(obj_beta, obj_delta), None,
+                    slicer = [slice(None)] * (len(obj.shape) - 1)
+                    reg = reg + tv(w.arctan2(obj[slicer + [1]], obj[slicer + [0]]), None,
                               self.regularizer_dict[name]['gamma'],
                               self.distribution_mode, device=self.device)
         return reg
@@ -85,11 +86,11 @@ class PtychographyModel(ForwardModel):
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
-        self.argument_ls = ['obj_delta', 'obj_beta', 'probe_real', 'probe_imag', 'probe_defocus_mm',
+        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
                             'probe_pos_correction', 'this_ind_batch']
 
-    def predict(self, obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+    def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch):
 
@@ -141,17 +142,16 @@ class PtychographyModel(ForwardModel):
             this_offset = probe_pos_offset[this_i_theta]
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
 
-        obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
                 if precalculate_rotation_coords:
-                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
                     raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                obj_rot = obj_stack
+                obj_rot = obj
         else:
-            obj_rot = obj_stack
+            obj_rot = obj
         ex_real_ls = []
         ex_imag_ls = []
 
@@ -161,8 +161,7 @@ class PtychographyModel(ForwardModel):
 
         pos_ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
-            subobj_delta_ls = []
-            subobj_beta_ls = []
+            subobj_ls = []
             probe_real_ls = []
             probe_imag_ls = []
 
@@ -186,19 +185,25 @@ class PtychographyModel(ForwardModel):
 
             # Get object list.
             if not self.distribution_mode:
-                for j in range(len(pos_batch)):
-                    pos = pos_batch[j]
+                if len(pos_batch) == 1:
+                    pos = pos_batch[0]
                     pos_y = pos[0] + pad_arr[0, 0]
                     pos_x = pos[1] + pad_arr[1, 0]
-                    subobj_delta = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, 0]
-                    subobj_beta = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, 1]
-                    subobj_delta_ls.append(subobj_delta)
-                    subobj_beta_ls.append(subobj_beta)
-                subobj_delta_ls = w.stack(subobj_delta_ls)
-                subobj_beta_ls = w.stack(subobj_beta_ls)
+                    if pos_y == 0 and pos_x == 0 and probe_size[0] == this_obj_size[0] and probe_size[1] == this_obj_size[1]:
+                        subobj = obj_rot
+                    else:
+                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                    subobj_ls = w.reshape(subobj, [1, *subobj.shape])
+                else:
+                    for j in range(len(pos_batch)):
+                        pos = pos_batch[j]
+                        pos_y = pos[0] + pad_arr[0, 0]
+                        pos_x = pos[1] + pad_arr[1, 0]
+                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                        subobj_ls.append(subobj)
+                    subobj_ls = w.stack(subobj_ls)
             else:
-                subobj_delta_ls = obj_delta[pos_ind:pos_ind + len(pos_batch), :, :, :]
-                subobj_beta_ls = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+                subobj_ls = obj[pos_ind:pos_ind + len(pos_batch), :, :, :, :]
                 pos_ind += len(pos_batch)
 
             gc.collect()
@@ -210,8 +215,9 @@ class PtychographyModel(ForwardModel):
                     this_probe_real_ls = probe_real_ls[:, 0, :, :]
                     this_probe_imag_ls = probe_imag_ls[:, 0, :, :]
                 ex_real, ex_imag = multislice_propagate_batch(
-                                subobj_delta_ls, subobj_beta_ls, this_probe_real_ls,
-                                this_probe_imag_ls, energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+                                subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1],
+                                this_probe_real_ls, this_probe_imag_ls,
+                                energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
@@ -228,7 +234,7 @@ class PtychographyModel(ForwardModel):
                         this_probe_real_ls = probe_real_ls[:, i_mode, :, :]
                         this_probe_imag_ls = probe_imag_ls[:, i_mode, :, :]
                     temp_real, temp_imag = multislice_propagate_batch(
-                                subobj_delta_ls, subobj_beta_ls,
+                                subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1],
                                 this_probe_real_ls, this_probe_imag_ls,
                                 energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
@@ -240,12 +246,15 @@ class PtychographyModel(ForwardModel):
                 ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
             ex_real_ls.append(ex_real)
             ex_imag_ls.append(ex_imag)
-        del subobj_delta_ls, subobj_beta_ls, probe_real_ls, probe_imag_ls
+        del subobj_ls, probe_real_ls, probe_imag_ls
 
         # Output shape is [minibatch_size, n_probe_modes, y, x].
-        ex_real_ls = w.concatenate(ex_real_ls, 0)
-        ex_imag_ls = w.concatenate(ex_imag_ls, 0)
-
+        if len(ex_real_ls) == 1:
+            ex_real_ls = ex_real_ls[0]
+            ex_imag_ls = ex_imag_ls[0]
+        else:
+            ex_real_ls = w.concatenate(ex_real_ls, 0)
+            ex_imag_ls = w.concatenate(ex_imag_ls, 0)
         if rank == 0 and debug and self.i_call % 10 == 0:
             ex_real_val = w.to_numpy(ex_real_ls)
             ex_imag_val = w.to_numpy(ex_imag_ls)
@@ -257,10 +266,11 @@ class PtychographyModel(ForwardModel):
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):
-        def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch):
-            ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+            t0 = time.time()
+            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
@@ -289,7 +299,6 @@ class PtychographyModel(ForwardModel):
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
                             rank)
-
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':
                     loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
@@ -300,7 +309,7 @@ class PtychographyModel(ForwardModel):
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
                 elif self.raw_data_type == 'intensity':
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
-            loss = loss + self.get_regularization_value(obj_delta, obj_beta)
+            loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
             del ex_real_ls, ex_imag_ls
             del this_prj_batch
@@ -315,11 +324,11 @@ class SparseMultisliceModel(ForwardModel):
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
-        self.argument_ls = ['obj_delta', 'obj_beta', 'probe_real', 'probe_imag', 'probe_defocus_mm',
+        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
                             'probe_pos_correction', 'this_ind_batch', 'slice_pos_cm_ls']
 
-    def predict(self, obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+    def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
 
@@ -373,17 +382,16 @@ class SparseMultisliceModel(ForwardModel):
             this_offset = probe_pos_offset[this_i_theta]
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
 
-        obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
                 if precalculate_rotation_coords:
-                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
                     raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                obj_rot = obj_stack
+                obj_rot = obj
         else:
-            obj_rot = obj_stack
+            obj_rot = obj
         ex_real_ls = []
         ex_imag_ls = []
 
@@ -393,8 +401,7 @@ class SparseMultisliceModel(ForwardModel):
 
         pos_ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
-            subobj_delta_ls = []
-            subobj_beta_ls = []
+            subobj_ls = []
             probe_real_ls = []
             probe_imag_ls = []
 
@@ -418,19 +425,22 @@ class SparseMultisliceModel(ForwardModel):
 
             # Get object list.
             if not self.distribution_mode:
-                for j in range(len(pos_batch)):
-                    pos = pos_batch[j]
+                if len(pos_batch) == 1:
+                    pos = pos_batch[0]
                     pos_y = pos[0] + pad_arr[0, 0]
                     pos_x = pos[1] + pad_arr[1, 0]
-                    subobj_delta = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, 0]
-                    subobj_beta = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, 1]
-                    subobj_delta_ls.append(subobj_delta)
-                    subobj_beta_ls.append(subobj_beta)
-                subobj_delta_ls = w.stack(subobj_delta_ls)
-                subobj_beta_ls = w.stack(subobj_beta_ls)
+                    subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                    subobj_ls = w.reshape(subobj, [1, *subobj.shape])
+                else:
+                    for j in range(len(pos_batch)):
+                        pos = pos_batch[j]
+                        pos_y = pos[0] + pad_arr[0, 0]
+                        pos_x = pos[1] + pad_arr[1, 0]
+                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                        subobj_ls.append(subobj)
+                    subobj_ls = w.stack(subobj_ls)
             else:
-                subobj_delta_ls = obj_delta[pos_ind:pos_ind + len(pos_batch), :, :, :]
-                subobj_beta_ls = obj_beta[pos_ind:pos_ind + len(pos_batch), :, :, :]
+                subobj_ls = obj[pos_ind:pos_ind + len(pos_batch), :, :, :, :]
                 pos_ind += len(pos_batch)
 
             gc.collect()
@@ -442,7 +452,7 @@ class SparseMultisliceModel(ForwardModel):
                     this_probe_real_ls = probe_real_ls[:, 0, :, :]
                     this_probe_imag_ls = probe_imag_ls[:, 0, :, :]
                 ex_real, ex_imag = sparse_multislice_propagate_batch(u, v,
-                                subobj_delta_ls, subobj_beta_ls, this_probe_real_ls,
+                                *w.split_channel(subobj_ls), this_probe_real_ls,
                                 this_probe_imag_ls, energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
@@ -460,7 +470,7 @@ class SparseMultisliceModel(ForwardModel):
                         this_probe_real_ls = probe_real_ls[:, i_mode, :, :]
                         this_probe_imag_ls = probe_imag_ls[:, i_mode, :, :]
                     temp_real, temp_imag = sparse_multislice_propagate_batch(
-                                u, v, subobj_delta_ls, subobj_beta_ls,
+                                u, v, *w.split_channel(subobj_ls),
                                 this_probe_real_ls, this_probe_imag_ls,
                                 energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
@@ -472,7 +482,7 @@ class SparseMultisliceModel(ForwardModel):
                 ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
             ex_real_ls.append(ex_real)
             ex_imag_ls.append(ex_imag)
-        del subobj_delta_ls, subobj_beta_ls, probe_real_ls, probe_imag_ls
+        del subobj_ls, probe_real_ls, probe_imag_ls
 
         # Output shape is [minibatch_size, n_probe_modes, y, x].
         ex_real_ls = w.concatenate(ex_real_ls, 0)
@@ -489,10 +499,10 @@ class SparseMultisliceModel(ForwardModel):
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):
-        def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
-            ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, slice_pos_cm_ls)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
@@ -532,7 +542,7 @@ class SparseMultisliceModel(ForwardModel):
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
                 elif self.raw_data_type == 'intensity':
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
-            loss = loss + self.get_regularization_value(obj_delta, obj_beta)
+            loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
             del ex_real_ls, ex_imag_ls
             del this_prj_batch
@@ -547,11 +557,11 @@ class MultiDistModel(ForwardModel):
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
-        self.argument_ls = ['obj_delta', 'obj_beta', 'probe_real', 'probe_imag', 'probe_defocus_mm',
+        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
                             'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width']
 
-    def predict(self, obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+    def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width):
 
@@ -602,17 +612,16 @@ class MultiDistModel(ForwardModel):
             probe_pos_batch_ls.append(this_pos_batch[i_dp:min([i_dp + n_dp_batch, minibatch_size])])
             i_dp += n_dp_batch
 
-        obj_stack = w.stack([obj_delta, obj_beta], axis=3)
         if not two_d_mode:
             if not self.rotate_out_of_loop:
                 if precalculate_rotation_coords:
-                    obj_rot = apply_rotation(obj_stack, coord_ls, device=device_obj)
+                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
                     raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
             else:
-                obj_rot = obj_stack
+                obj_rot = obj
         else:
-            obj_rot = obj_stack
+            obj_rot = obj
 
         # Pad object with safe zone width if not using low-mem mode (chunks will be read padded otherwise).
         szw_arr = np.array([safe_zone_width] * 2)
@@ -629,44 +638,50 @@ class MultiDistModel(ForwardModel):
             probe_imag_sz = probe_imag
             pad_arr = np.array([[0, 0], [0, 0]])
 
-        subobj_delta_ls_ls = []
-        subobj_beta_ls_ls = []
+        subobj_ls_ls = []
         subprobe_real_ls_ls = []
         subprobe_imag_ls_ls = []
         for k, pos_batch in enumerate(probe_pos_batch_ls):
             if n_blocks > 1:
-                subobj_subbatch_delta_ls = []
-                subobj_subbatch_beta_ls = []
+                subobj_subbatch_ls = []
                 subprobe_subbatch_real_ls = []
                 subprobe_subbatch_imag_ls = []
-                for j in range(len(pos_batch)):
-                    pos = pos_batch[j]
-                    pos_y = pos[0] + pad_arr[0, 0] - safe_zone_width
-                    pos_x = pos[1] + pad_arr[1, 0] - safe_zone_width
-                    subobj_delta = obj_rot[pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                           pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2, :, 0]
-                    subobj_beta = obj_rot[pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                          pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2, :, 1]
+                if len(pos_batch) == 1:
+                    pos = pos_batch[0]
+                    pos_y = pos[0] + pad_arr[0, 0]
+                    pos_x = pos[1] + pad_arr[1, 0]
+                    subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                    subobj_subbatch_ls = w.reshape(subobj, [1, *subobj.shape])
                     sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                      pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                                                    pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
                     sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                      pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
-                    subobj_subbatch_delta_ls.append(subobj_delta)
-                    subobj_subbatch_beta_ls.append(subobj_beta)
-                    subprobe_subbatch_real_ls.append(sub_probe_real)
-                    subprobe_subbatch_imag_ls.append(sub_probe_imag)
-                subobj_subbatch_delta_ls = w.stack(subobj_subbatch_delta_ls)
-                subobj_subbatch_beta_ls = w.stack(subobj_subbatch_beta_ls)
-                subprobe_subbatch_real_ls = w.stack(subprobe_subbatch_real_ls)
-                subprobe_subbatch_imag_ls = w.stack(subprobe_subbatch_imag_ls)
+                                                    pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                    subprobe_subbatch_real_ls = w.reshape(sub_probe_real, [1, *sub_probe_real.shape])
+                    subprobe_subbatch_imag_ls = w.reshape(sub_probe_imag, [1, *sub_probe_imag.shape])
+
+                else:
+                    for j in range(len(pos_batch)):
+                        pos = pos_batch[j]
+                        pos_y = pos[0] + pad_arr[0, 0] - safe_zone_width
+                        pos_x = pos[1] + pad_arr[1, 0] - safe_zone_width
+                        subobj = obj_rot[pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                               pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2, :, 0]
+                        sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                                          pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                        sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                                          pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                        subobj_subbatch_ls.append(subobj)
+                        subprobe_subbatch_real_ls.append(sub_probe_real)
+                        subprobe_subbatch_imag_ls.append(sub_probe_imag)
+                    subobj_subbatch_ls = w.stack(subobj_subbatch_ls)
+                    subprobe_subbatch_real_ls = w.stack(subprobe_subbatch_real_ls)
+                    subprobe_subbatch_imag_ls = w.stack(subprobe_subbatch_imag_ls)
             else:
-                subobj_subbatch_delta_ls = w.stack([obj_rot[:, :, :, 0]])
-                subobj_subbatch_beta_ls = w.stack([obj_rot[:, :, :, 1]])
-                subprobe_subbatch_real_ls = w.stack([probe_real_sz])
-                subprobe_subbatch_imag_ls = w.stack([probe_imag_sz])
+                subobj_subbatch_ls = w.reshape(obj_rot[:, :, :, 0], [1, *obj_rot.shape[:3]])
+                subprobe_subbatch_real_ls = w.reshape(probe_real_sz, [1, *probe_real_sz.shape])
+                subprobe_subbatch_imag_ls = w.reshape(probe_imag_sz, [1, *probe_imag_sz.shape])
             # Shape of subprobe_real_ls_ls is [n_subbatches, len(pos_batch), y, x, z].
-            subobj_delta_ls_ls.append(subobj_subbatch_delta_ls)
-            subobj_beta_ls_ls.append(subobj_subbatch_beta_ls)
+            subobj_ls_ls.append(subobj_subbatch_ls)
             # Shape of subprobe_real_ls_ls is [n_subbatches, len(pos_batch), n_probe_modes, y, x].
             subprobe_real_ls_ls.append(subprobe_subbatch_real_ls)
             subprobe_imag_ls_ls.append(subprobe_subbatch_imag_ls)
@@ -679,7 +694,7 @@ class MultiDistModel(ForwardModel):
                 ex_imag = []
                 for i_mode in range(n_probe_modes):
                     temp_real, temp_imag = multislice_propagate_batch(
-                        subobj_delta_ls_ls[k], subobj_beta_ls_ls[k],
+                        *w.split_channel(subobj_ls_ls[k]),
                         subprobe_real_ls_ls[k][:, i_mode, :, :], subprobe_imag_ls_ls[k][i_mode, :, :],
                         energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
                         obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
@@ -706,11 +721,11 @@ class MultiDistModel(ForwardModel):
             dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
             dxchange.write_tiff(np.arctan2(ex_imag_val, ex_real_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
 
-        del subobj_delta_ls_ls, subobj_beta_ls_ls, subprobe_real_ls_ls, subprobe_imag_ls_ls
+        del subobj_ls_ls, subprobe_real_ls_ls, subprobe_imag_ls_ls
         return ex_real_ls, ex_imag_ls
 
     def get_loss_function(self):
-        def calculate_loss(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width):
 
@@ -723,7 +738,7 @@ class MultiDistModel(ForwardModel):
             theta_downsample = self.common_vars['theta_downsample']
             if theta_downsample is None: theta_downsample = 1
 
-            ex_real_ls, ex_imag_ls = self.predict(obj_delta, obj_beta, probe_real, probe_imag, probe_defocus_mm,
+            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
@@ -776,7 +791,7 @@ class MultiDistModel(ForwardModel):
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
                 elif self.raw_data_type == 'intensity':
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
-            loss = loss + self.get_regularization_value(obj_delta, obj_beta)
+            loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
 
             del ex_real_ls, ex_imag_ls
@@ -785,26 +800,29 @@ class MultiDistModel(ForwardModel):
         return calculate_loss
 
 
-def l1_norm_term(obj_delta, obj_beta, alpha_d, alpha_b, device=None):
+def l1_norm_term(obj, alpha_d, alpha_b, device=None):
+    slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
     if alpha_d not in [None, 0]:
-        reg = reg + alpha_d * w.mean(w.abs(obj_delta))
+        reg = reg + alpha_d * w.mean(w.abs(obj[slicer + [0]]))
     if alpha_b not in [None, 0]:
-        reg = reg + alpha_b * w.mean(w.abs(obj_beta))
+        reg = reg + alpha_b * w.mean(w.abs(obj[slicer + [1]]))
     return reg
 
-def reweighted_l1_norm_term(obj_delta, obj_beta, alpha_d, alpha_b, weight_l1, device=None):
+def reweighted_l1_norm_term(obj, alpha_d, alpha_b, weight_l1, device=None):
+    slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
     if alpha_d not in [None, 0]:
-        reg = reg + alpha_d * w.mean(weight_l1 * w.abs(obj_delta))
+        reg = reg + alpha_d * w.mean(weight_l1 * w.abs(obj[slicer + [0]]))
     if alpha_b not in [None, 0]:
-        reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj_beta))
+        reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj[slicer + [1]]))
     return reg
 
-def tv(obj_delta, obj_beta, gamma, distribution_mode, device=None):
+def tv(obj, gamma, distribution_mode, device=None):
+    slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
     if distribution_mode:
-        reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=1)
+        reg = reg + gamma * total_variation_3d(obj[slicer + [0]], axis_offset=1)
     else:
-        reg = reg + gamma * total_variation_3d(obj_delta, axis_offset=0)
+        reg = reg + gamma * total_variation_3d(obj[slicer + [0]], axis_offset=0)
     return reg

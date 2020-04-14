@@ -332,7 +332,7 @@ def reconstruct_ptychography(
 
         elif use_checkpoint and (distribution_mode != 'shared_file'):
             try:
-                starting_epoch, starting_batch, obj_delta, obj_beta = restore_checkpoint(output_folder, distribution_mode, opt)
+                starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
             except:
                 needs_initialize = True
 
@@ -356,8 +356,7 @@ def reconstruct_ptychography(
                                      not_first_level=not_first_level, initial_guess=initial_guess,
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=cache_dtype)
             else:
-                obj.delta = obj_delta
-                obj.beta = obj_beta
+                obj.arr = obj_arr
 
         elif distribution_mode is None:
             if needs_initialize:
@@ -366,8 +365,7 @@ def reconstruct_ptychography(
                                      not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
             else:
-                obj.delta = obj_delta
-                obj.beta = obj_beta
+                obj.arr = obj_arr
 
 
         # ================================================================================
@@ -407,6 +405,7 @@ def reconstruct_ptychography(
         # create an instance of monochannel mask class. While finite_support_mask_path
         # has to point to a 3D tiff file, the mask will be written as an HDF5 if
         # share_file_mode is True.
+
         # ================================================================================
         mask = None
         if finite_support_mask_path is not None:
@@ -473,7 +472,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create other optimizers (probe, probe defocus, probe positions, etc.).
         # ================================================================================
-        opt_args_ls = [0, 1]
+        opt_args_ls = [0]
         if optimize_probe:
             opt_probe = AdamOptimizer([n_probe_modes, *probe_size, 2], output_folder=output_folder)
             opt_probe.create_param_arrays(device=device_obj)
@@ -767,13 +766,12 @@ def reconstruct_ptychography(
                 for arg in forward_model.argument_ls:
                     if distribution_mode is None:
                         if rotate_out_of_loop:
-                            delta, beta = w.split_channel(obj.arr_rot)
+                            obj_arr = obj.arr_rot
                         else:
-                            delta, beta = w.split_channel(obj.arr)
+                            obj_arr = obj.arr
                     else:
-                        delta, beta = w.split_channel(obj.chunks)
-                    if arg == 'obj_delta': grad_func_args[arg] = delta
-                    elif arg == 'obj_beta': grad_func_args[arg] = beta
+                        obj_arr = obj.chunks
+                    if arg == 'obj': grad_func_args[arg] = obj_arr
                     else:
                         grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
@@ -785,14 +783,14 @@ def reconstruct_ptychography(
                 # Save gradients to buffer, or write them to file.
                 # ================================================================================
                 if distribution_mode == 'shared_file':
-                    obj_grads = w.stack(grads[:2], axis=-1)
+                    obj_grads = grads[0]
                     t_grad_write_0 = time.time()
                     gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
                                                   write_difference=False, dtype=cache_dtype)
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
                 elif distribution_mode == 'distributed_object':
-                    obj_grads = w.stack(grads[:2], axis=-1)
+                    obj_grads = grads[0]
                     t_grad_write_0 = time.time()
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
                                                                minibatch_size, probe_size, dtype=cache_dtype)
@@ -802,8 +800,8 @@ def reconstruct_ptychography(
                 else:
                     if initialize_gradients:
                         del gradient.arr
-                        gradient.arr = w.zeros([*grads[0].shape, 2], requires_grad=False, device=device_obj)
-                    gradient.arr += w.stack(grads[:2], axis=-1)
+                        gradient.arr = w.zeros(grads[0].shape, requires_grad=False, device=device_obj)
+                    gradient.arr += grads[0]
                     # If rotation is not done in the AD loop, the above gradient array is at theta, and needs to be
                     # rotated back to 0.
                     if rotate_out_of_loop:
@@ -820,7 +818,7 @@ def reconstruct_ptychography(
                 if initialize_gradients:
                     initialize_gradients = False
                     if optimize_probe:
-                        probe_grads = w.zeros([*grads[2].shape, 2], requires_grad=False, device=device_obj)
+                        probe_grads = w.zeros([*grads[1].shape, 2], requires_grad=False, device=device_obj)
                     if optimize_probe_defocusing:
                         pd_grads = w.zeros_like(grads[opt_probe_defocus.index_in_grad_returns], requires_grad=False, device=device_obj)
                     if optimize_probe_pos_offset:
@@ -833,7 +831,7 @@ def reconstruct_ptychography(
                         slice_pos_grads = w.zeros_like(grads[opt_slice_pos.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
                 if optimize_probe:
-                    probe_grads += w.stack(grads[2:4], axis=-1)
+                    probe_grads += w.stack(grads[1:3], axis=-1)
                 if optimize_probe_defocusing:
                     pd_grads += grads[opt_probe_defocus.index_in_grad_returns]
                 if optimize_probe_pos_offset:
