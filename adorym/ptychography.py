@@ -86,6 +86,7 @@ def reconstruct_ptychography(
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
+        optimize_free_prop=False, free_prop_learning_rate=1e-2,
         # _________________________
         # |Alternative algorithms |_____________________________________________
         use_epie=False, epie_alpha=0.8,
@@ -212,6 +213,12 @@ def reconstruct_ptychography(
         probe_size = prj.shape[-2:]
         subprobe_size = probe_size
 
+    if is_multi_dist:
+        u_free, v_free = adorym.gen_freq_mesh(np.array([psize_cm * 1e7] * 3),
+                                    [subprobe_size[i] + 2 * safe_zone_width for i in range(2)])
+        u_free = w.create_variable(u_free, requires_grad=False, device=device_obj)
+        v_free = w.create_variable(v_free, requires_grad=False, device=device_obj)
+
     print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank, **stdout_options)
     print_flush('Data shape: {}'.format(original_shape), 0, rank, **stdout_options)
     comm.Barrier()
@@ -307,13 +314,14 @@ def reconstruct_ptychography(
         # Create object function optimizer.
         # ================================================================================
         if optimizer == 'adam':
-            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode)
             optimizer_options_obj = {'step_size': learning_rate}
+            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+                                options_dict=optimizer_options_obj)
         elif optimizer == 'gd':
-            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder)
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
+            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder, options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
         opt.create_container(use_checkpoint, device_obj)
@@ -474,20 +482,20 @@ def reconstruct_ptychography(
         # ================================================================================
         opt_args_ls = [0]
         if optimize_probe:
-            opt_probe = AdamOptimizer([n_probe_modes, *probe_size, 2], output_folder=output_folder)
-            opt_probe.create_param_arrays(device=device_obj)
             optimizer_options_probe = {'step_size': probe_learning_rate}
+            opt_probe = AdamOptimizer([n_probe_modes, *probe_size, 2], output_folder=output_folder, options_dict=optimizer_options_probe)
+            opt_probe.create_param_arrays(device=device_obj)
             opt_probe.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'), forward_model.get_argument_index('probe_imag')]
             opt_ls.append(opt_probe)
 
         probe_defocus_mm = w.create_variable(0.0)
         if optimize_probe_defocusing:
-            opt_probe_defocus = GDOptimizer([1], output_folder=output_folder)
-            opt_probe_defocus.create_param_arrays(device=device_obj)
             optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
                                                'dynamic_rate': True,
                                                'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
+            opt_probe_defocus = GDOptimizer([1], output_folder=output_folder, options_dict=optimizer_options_probe_defocus)
+            opt_probe_defocus.create_param_arrays(device=device_obj)
             opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('probe_defocus_mm'))
             opt_ls.append(opt_probe_defocus)
@@ -495,10 +503,10 @@ def reconstruct_ptychography(
         probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
         if optimize_probe_pos_offset:
             assert optimize_all_probe_pos == False
-            opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder)
-            opt_probe_pos_offset.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
                                                   'dynamic_rate': False}
+            opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder, options_dict=optimizer_options_probe_pos_offset)
+            opt_probe_pos_offset.create_param_arrays(device=device_obj)
             opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
             opt_ls.append(opt_probe_pos_offset)
@@ -513,9 +521,9 @@ def reconstruct_ptychography(
                                                      requires_grad=optimize_all_probe_pos, device=device_obj)
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
-            opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder)
-            opt_probe_pos.create_param_arrays(device=device_obj)
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
+            opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder, options_dict=optimizer_options_probe_pos)
+            opt_probe_pos.create_param_arrays(device=device_obj)
             opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
             opt_ls.append(opt_probe_pos)
@@ -523,12 +531,22 @@ def reconstruct_ptychography(
         if is_sparse_multislice:
             slice_pos_cm_ls = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
             if optimize_slice_pos:
-                opt_slice_pos = AdamOptimizer(slice_pos_cm_ls.shape, output_folder=output_folder)
-                opt_slice_pos.create_param_arrays(device=device_obj)
                 optimizer_options_slice_pos = {'step_size': slice_pos_learning_rate}
+                opt_slice_pos = AdamOptimizer(slice_pos_cm_ls.shape, output_folder=output_folder, options_dict=optimizer_options_slice_pos)
+                opt_slice_pos.create_param_arrays(device=device_obj)
                 opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
                 opt_args_ls.append(forward_model.get_argument_index('slice_pos_cm_ls'))
                 opt_ls.append(opt_slice_pos)
+
+        if is_multi_dist:
+            free_prop_cm = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
+            if optimize_free_prop:
+                optimizer_options_free_prop = {'step_size': free_prop_learning_rate}
+                opt_free_prop = AdamOptimizer(free_prop_cm.shape, output_folder=output_folder, options_dict=optimizer_options_free_prop)
+                opt_free_prop.create_param_arrays(device=device_obj)
+                opt_free_prop.set_index_in_grad_return(len(opt_args_ls))
+                opt_args_ls.append(forward_model.get_argument_index('free_prop_cm'))
+                opt_ls.append(opt_free_prop)
 
         # ================================================================================
         # Use ePIE?
@@ -832,6 +850,9 @@ def reconstruct_ptychography(
                     if optimize_slice_pos:
                         slice_pos_grads = w.zeros_like(grads[opt_slice_pos.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
+                    if optimize_free_prop:
+                        free_prop_grads = w.zeros_like(grads[opt_free_prop.index_in_grad_returns], requires_grad=False,
+                                                device=device_obj)
                 if optimize_probe:
                     probe_grads += w.stack(grads[1:3], axis=-1)
                 if optimize_probe_defocusing:
@@ -842,6 +863,8 @@ def reconstruct_ptychography(
                     all_pos_grads += grads[opt_probe_pos.index_in_grad_returns]
                 if optimize_slice_pos:
                     slice_pos_grads += grads[opt_slice_pos.index_in_grad_returns]
+                if optimize_free_prop:
+                    free_prop_grads += grads[opt_free_prop.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
@@ -875,8 +898,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     if distribution_mode is None:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle,
-                                                                **optimizer_options_obj)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **opt.options_dict)
                 if distribution_mode is None:
                     w.reattach(obj.arr)
 
@@ -913,7 +935,7 @@ def reconstruct_ptychography(
                     if i_epoch >= probe_update_delay:
                         with w.no_grad():
                             probe_grads = comm.allreduce(probe_grads)
-                            probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **optimizer_options_probe)
+                            probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **opt_probe.options_dict)
                             probe_real, probe_imag = w.split_channel(probe_temp)
                             del probe_grads, probe_temp
                         w.reattach(probe_real)
@@ -925,7 +947,7 @@ def reconstruct_ptychography(
                     with w.no_grad():
                         pd_grads = comm.allreduce(pd_grads)
                         probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
-                                                                            **optimizer_options_probe_defocus)
+                                                                            **opt_probe_defocus.options_dict)
                         print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
                                     **stdout_options)
                     w.reattach(probe_defocus_mm)
@@ -934,14 +956,14 @@ def reconstruct_ptychography(
                     with w.no_grad():
                         pos_offset_grads = comm.allreduce(pos_offset_grads)
                         probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
-                                                                            **optimizer_options_probe_pos_offset)
+                                                                            **opt_probe_pos_offset.options_dict)
                     w.reattach(probe_pos_offset)
 
                 if optimize_all_probe_pos:
                     with w.no_grad():
                         all_pos_grads = comm.allreduce(all_pos_grads)
                         probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
-                                                                            **optimizer_options_probe_pos)
+                                                                            **opt_probe_pos.options_dict)
                         # Prevent position drifting
                         slicer = tuple(range(len(probe_pos_correction.shape) - 1))
                         probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
@@ -951,10 +973,17 @@ def reconstruct_ptychography(
                     with w.no_grad():
                         all_pos_grads = comm.allreduce(slice_pos_grads)
                         slice_pos_cm_ls = opt_slice_pos.apply_gradient(slice_pos_cm_ls, slice_pos_grads, i_full_angle,
-                                                                       **optimizer_options_slice_pos)
+                                                                       **opt_slice_pos.options_dict)
                         # Prevent position drifting
                         slice_pos_cm_ls = slice_pos_cm_ls - slice_pos_cm_ls[0]
                     w.reattach(slice_pos_cm_ls)
+
+                if optimize_free_prop:
+                    with w.no_grad():
+                        free_prop_grads = comm.allreduce(free_prop_grads)
+                        free_prop_cm = opt_free_prop.apply_gradient(free_prop_cm, free_prop_grads, i_full_angle,
+                                                                       **opt_free_prop.options_dict)
+                    w.reattach(free_prop_cm)
 
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
@@ -1050,6 +1079,13 @@ def reconstruct_ptychography(
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
                                                     'slice_pos_correction_{}.txt'.format(i_epoch)),
                                        w.to_numpy(slice_pos_cm_ls))
+
+                        if optimize_free_prop:
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'free_prop_cm')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'free_prop_cm'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'free_prop_cm',
+                                                    'free_prop_correction_{}.txt'.format(i_epoch)),
+                                       w.to_numpy(free_prop_cm))
                 comm.Barrier()
 
                 # ================================================================================

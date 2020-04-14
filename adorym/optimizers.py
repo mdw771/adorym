@@ -14,7 +14,7 @@ rank = comm.Get_rank()
 
 class Optimizer(object):
 
-    def __init__(self, whole_object_size, output_folder='.', params_list=(), distribution_mode=None):
+    def __init__(self, whole_object_size, output_folder='.', params_list=(), distribution_mode=None, options_dict=None):
         """
         :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
                                   or a 3-D vector for probe, or a 1-D scalar for other variables.
@@ -34,6 +34,7 @@ class Optimizer(object):
         self.index_in_grad_returns = None
         self.slice_catalog = None
         self.distribution_mode = distribution_mode
+        self.options_dict = options_dict
         if distribution_mode == 'distributed_object':
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
@@ -165,9 +166,9 @@ class Optimizer(object):
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None):
+    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
         super(AdamOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=['m', 'v'],
-                                            distribution_mode=distribution_mode)
+                                            distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
@@ -228,9 +229,9 @@ class AdamOptimizer(Optimizer):
 
 class GDOptimizer(Optimizer):
 
-    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None):
+    def __init__(self, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
         super(GDOptimizer, self).__init__(whole_object_size, output_folder=output_folder, params_list=[],
-                                          distribution_mode=distribution_mode)
+                                          distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
@@ -295,3 +296,4 @@ def apply_gradient_gd(x, g, step_size=0.001, dynamic_rate=True, i_batch=0, first
     x = x - step_size * g
 
     return x
+

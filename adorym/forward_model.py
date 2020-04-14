@@ -583,6 +583,7 @@ class MultiDistModel(ForwardModel):
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
+        optimize_free_prop = self.common_vars['optimize_free_prop']
         debug = self.common_vars['debug']
         output_folder = self.common_vars['output_folder']
         unknown_type = self.common_vars['unknown_type']
@@ -590,6 +591,8 @@ class MultiDistModel(ForwardModel):
         n_probe_modes = self.common_vars['n_probe_modes']
         n_theta = self.common_vars['n_theta']
         precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
+        u_free = self.common_vars['u_free']
+        v_free = self.common_vars['v_free']
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -604,7 +607,6 @@ class MultiDistModel(ForwardModel):
             h_probe_real, h_probe_imag = w.real(h_probe), w.imag(h_probe)
             probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_probe_real,
                                                                        h_probe_imag)
-
         # Allocate subbatches.
         probe_pos_batch_ls = []
         i_dp = 0
@@ -641,50 +643,68 @@ class MultiDistModel(ForwardModel):
         subobj_ls_ls = []
         subprobe_real_ls_ls = []
         subprobe_imag_ls_ls = []
+        pos_ind = 0
         for k, pos_batch in enumerate(probe_pos_batch_ls):
-            if n_blocks > 1:
-                subobj_subbatch_ls = []
-                subprobe_subbatch_real_ls = []
-                subprobe_subbatch_imag_ls = []
-                if len(pos_batch) == 1:
-                    pos = pos_batch[0]
-                    pos_y = pos[0] + pad_arr[0, 0]
-                    pos_x = pos[1] + pad_arr[1, 0]
-                    subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
-                    subobj_subbatch_ls = w.reshape(subobj, [1, *subobj.shape])
-                    sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                    pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
-                    sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                    pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
-                    subprobe_subbatch_real_ls = w.reshape(sub_probe_real, [1, *sub_probe_real.shape])
-                    subprobe_subbatch_imag_ls = w.reshape(sub_probe_imag, [1, *sub_probe_imag.shape])
-
-                else:
-                    for j in range(len(pos_batch)):
-                        pos = pos_batch[j]
-                        pos_y = pos[0] + pad_arr[0, 0] - safe_zone_width
-                        pos_x = pos[1] + pad_arr[1, 0] - safe_zone_width
-                        subobj = obj_rot[pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                               pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2, :, 0]
+            if self.distribution_mode is None:
+                if n_blocks > 1:
+                    subobj_subbatch_ls = []
+                    subprobe_subbatch_real_ls = []
+                    subprobe_subbatch_imag_ls = []
+                    if len(pos_batch) == 1:
+                        pos = pos_batch[0]
+                        pos_y = pos[0] + pad_arr[0, 0]
+                        pos_x = pos[1] + pad_arr[1, 0]
+                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+                        subobj_subbatch_ls = w.reshape(subobj, [1, *subobj.shape])
                         sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                          pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                                                        pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
                         sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
-                                                          pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
-                        subobj_subbatch_ls.append(subobj)
-                        subprobe_subbatch_real_ls.append(sub_probe_real)
-                        subprobe_subbatch_imag_ls.append(sub_probe_imag)
-                    subobj_subbatch_ls = w.stack(subobj_subbatch_ls)
-                    subprobe_subbatch_real_ls = w.stack(subprobe_subbatch_real_ls)
-                    subprobe_subbatch_imag_ls = w.stack(subprobe_subbatch_imag_ls)
+                                                        pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                        subprobe_subbatch_real_ls = w.reshape(sub_probe_real, [1, *sub_probe_real.shape])
+                        subprobe_subbatch_imag_ls = w.reshape(sub_probe_imag, [1, *sub_probe_imag.shape])
+
+                    else:
+                        for j in range(len(pos_batch)):
+                            pos = pos_batch[j]
+                            pos_y = pos[0] + pad_arr[0, 0] - safe_zone_width
+                            pos_x = pos[1] + pad_arr[1, 0] - safe_zone_width
+                            subobj = obj_rot[pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                             pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2, :, :]
+                            sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                                              pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                            sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                                              pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                            subobj_subbatch_ls.append(subobj)
+                            subprobe_subbatch_real_ls.append(sub_probe_real)
+                            subprobe_subbatch_imag_ls.append(sub_probe_imag)
+                        subobj_subbatch_ls = w.stack(subobj_subbatch_ls)
+                        subprobe_subbatch_real_ls = w.stack(subprobe_subbatch_real_ls)
+                        subprobe_subbatch_imag_ls = w.stack(subprobe_subbatch_imag_ls)
+                else:
+                    subobj_subbatch_ls = w.reshape(obj_rot, [1, *obj_rot.shape])
+                    subprobe_subbatch_real_ls = w.reshape(probe_real_sz, [1, *probe_real_sz.shape])
+                    subprobe_subbatch_imag_ls = w.reshape(probe_imag_sz, [1, *probe_imag_sz.shape])
+                # Shape of subprobe_real_ls_ls is [n_subbatches, len(pos_batch), y, x, z].
+                subobj_ls_ls.append(subobj_subbatch_ls)
             else:
-                subobj_subbatch_ls = w.reshape(obj_rot[:, :, :, 0], [1, *obj_rot.shape[:3]])
-                subprobe_subbatch_real_ls = w.reshape(probe_real_sz, [1, *probe_real_sz.shape])
-                subprobe_subbatch_imag_ls = w.reshape(probe_imag_sz, [1, *probe_imag_sz.shape])
-            # Shape of subprobe_real_ls_ls is [n_subbatches, len(pos_batch), y, x, z].
-            subobj_ls_ls.append(subobj_subbatch_ls)
+                subobj_ls_ls.append(obj[pos_ind:pos_ind + len(pos_batch)])
+                for j in range(len(pos_batch)):
+                    pos = pos_batch[j]
+                    pos_y = pos[0] + pad_arr[0, 0] - safe_zone_width
+                    pos_x = pos[1] + pad_arr[1, 0] - safe_zone_width
+                    sub_probe_real = probe_real_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                     pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                    sub_probe_imag = probe_imag_sz[:, pos_y:pos_y + subprobe_size[0] + safe_zone_width * 2,
+                                     pos_x:pos_x + subprobe_size[1] + safe_zone_width * 2]
+                    subprobe_subbatch_real_ls.append(sub_probe_real)
+                    subprobe_subbatch_imag_ls.append(sub_probe_imag)
+                subprobe_subbatch_real_ls = w.stack(subprobe_subbatch_real_ls)
+                subprobe_subbatch_imag_ls = w.stack(subprobe_subbatch_imag_ls)
+
             # Shape of subprobe_real_ls_ls is [n_subbatches, len(pos_batch), n_probe_modes, y, x].
             subprobe_real_ls_ls.append(subprobe_subbatch_real_ls)
             subprobe_imag_ls_ls.append(subprobe_subbatch_imag_ls)
+            pos_ind += len(pos_batch)
 
         ex_real_ls = []
         ex_imag_ls = []
@@ -699,7 +719,8 @@ class MultiDistModel(ForwardModel):
                         energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
                         obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                         fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                        type=unknown_type, sign_convention=self.sign_convention)
+                        type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
+                        u_free=u_free, v_free=v_free)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])

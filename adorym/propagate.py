@@ -116,7 +116,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape, sign_convention=1):
 def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
-                               normalize_fft=False, sign_convention=1):
+                               normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None):
 
     minibatch_size = obj_batch_shape[0]
     grid_shape = obj_batch_shape[1:]
@@ -131,13 +131,15 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
 
     if pure_projection:
         k1 = 2. * PI * delta_nm * n_slices / lmbda_nm
-        delta_slice = w.sum(grid_delta_batch, axis=-1)
-        beta_slice = w.sum(grid_beta_batch, axis=-1)
         if type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+            delta_slice = w.sum(grid_delta_batch, axis=-1)
+            beta_slice = w.sum(grid_beta_batch, axis=-1)
             c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
+            delta_slice = w.prod(grid_delta_batch, axis=-1)
+            beta_slice = w.prod(grid_beta_batch, axis=-1)
             c_real, c_imag = delta_slice, beta_slice
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
@@ -192,7 +194,11 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
             crit_samp = lmbda_nm * dist_nm / l
-            probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+            if optimize_free_prop:
+                probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
+                                                                   device=device, sign_convention=sign_convention)
+            else:
+                probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
     return probe_real, probe_imag
 
 
