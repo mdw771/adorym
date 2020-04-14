@@ -733,11 +733,13 @@ def reconstruct_ptychography(
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
                                                                               this_ind_batch_allranks,
                                                                               minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
-                                                                              device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True)
+                                                                              device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                              dtype=cache_dtype)
                         else:
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
                                                                               minibatch_size, probe_size, device=device_obj,
-                                                                              unknown_type=unknown_type, apply_to_arr_rot=True)
+                                                                              unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                              dtype=cache_dtype)
                     comm.Barrier()
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
                     obj.chunks = obj_rot

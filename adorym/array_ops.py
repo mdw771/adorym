@@ -51,10 +51,10 @@ class LargeArray(object):
         return obj
 
     def read_chunks_from_distributed_object(self, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False):
+                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False, dtype='float32'):
         a = self.arr if not apply_to_arr_rot else self.arr_rot
         obj = get_subblocks_from_distributed_object_mpi(a, self.slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                                    probe_size, self.full_size, unknown_type, output_folder=self.output_folder)
+                                                    probe_size, self.full_size, unknown_type, output_folder=self.output_folder, dtype=dtype)
         obj = w.create_variable(obj, device=device)
         return obj
 

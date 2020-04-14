@@ -54,7 +54,7 @@ def convert_cone_to_parallel(data, z_sd, z_od_ls, psize=None, crop=True):
                 if crop:
                     center = (np.array(img.shape) / 2).astype('int')
                     img = img[center[0] - shape_ref_half[0]:center[0] - shape_ref_half[0] + shape_ref[0],
-                          center[1] - shape_ref_half[1]:center[1] - shape_ref_half[1] + shape_ref[1]]
+                              center[1] - shape_ref_half[1]:center[1] - shape_ref_half[1] + shape_ref[1]]
             new_data.append(img)
     else:
         # unify zooming of all images to the one with largest magnification

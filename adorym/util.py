@@ -9,6 +9,7 @@ import datetime
 from math import ceil, floor
 from scipy.ndimage import rotate as sp_rotate
 import time
+import re
 
 try:
     import sys
@@ -677,10 +678,18 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta, dtyp
 
 def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
                                               probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
-                                              n_split=10, dtype='float32'):
+                                              n_split='auto', dtype='float32'):
 
     chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape
+
+    if n_split == 'auto':
+        chunk_thickness = ceil(whole_object_size[0] / n_ranks)
+        chunk_width = probe_size[1]
+        chunk_depth = whole_object_size[2]
+        n_recipients = min([n_ranks * minibatch_size, ceil(whole_object_size[1] / probe_size[1])])
+        n_byte = int(re.findall('\d+', dtype)[0]) / 8
+        n_split = ceil((chunk_thickness * chunk_width * chunk_depth * 2 * n_byte * n_recipients) / (2 ** 31))
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -791,12 +800,20 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
 
 def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=10,
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
                                                 dtype='float32'):
 
     chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape[1:]
     obj = obj.astype(dtype)
+
+    if n_split == 'auto':
+        chunk_thickness = ceil(whole_object_size[0] / n_ranks)
+        chunk_width = probe_size[1]
+        chunk_depth = whole_object_size[2]
+        n_recipients = ceil(chunk_depth / chunk_thickness)
+        n_byte = int(re.findall('\d+', dtype)[0]) / 8
+        n_split = ceil((chunk_thickness * chunk_width * chunk_depth * 2 * n_byte * n_recipients) / (2 ** 31))
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
