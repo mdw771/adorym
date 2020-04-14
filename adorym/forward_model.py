@@ -88,11 +88,11 @@ class PtychographyModel(ForwardModel):
         # ==========================================================================================
         self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch']
+                            'probe_pos_correction', 'this_ind_batch', 'tilt_ls']
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch):
+                probe_pos_correction, this_ind_batch, tilt_ls):
 
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']
@@ -112,6 +112,7 @@ class PtychographyModel(ForwardModel):
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
+        optimize_tilt = self.common_vars['optimize_tilt']
         debug = self.common_vars['debug']
         output_folder = self.common_vars['output_folder']
         unknown_type = self.common_vars['unknown_type']
@@ -141,13 +142,17 @@ class PtychographyModel(ForwardModel):
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
-
         if not two_d_mode and not self.distribution_mode:
-            if not self.rotate_out_of_loop:
-                if precalculate_rotation_coords:
-                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
+            if not optimize_tilt:
+                if not self.rotate_out_of_loop:
+                    if precalculate_rotation_coords:
+                        obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
+                    else:
+                        obj_rot = rotate(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
                 else:
-                    pass
+                    obj_rot = rotate(obj, tilt_ls[0, this_i_theta], axis=0, device=device_obj)
+                    obj_rot = rotate(obj_rot, tilt_ls[1, this_i_theta], axis=1, device=device_obj)
+                    obj_rot = rotate(obj_rot, tilt_ls[2, this_i_theta], axis=2, device=device_obj)
             else:
                 obj_rot = obj
         else:
@@ -184,7 +189,7 @@ class PtychographyModel(ForwardModel):
                 probe_imag_ls = probe_imag
 
             # Get object list.
-            if not self.distribution_mode:
+            if self.distribution_mode is None:
                 if len(pos_batch) == 1:
                     pos = pos_batch[0]
                     pos_y = pos[0] + pad_arr[0, 0]
@@ -203,7 +208,7 @@ class PtychographyModel(ForwardModel):
                         subobj_ls.append(subobj)
                     subobj_ls = w.stack(subobj_ls)
             else:
-                subobj_ls = obj[pos_ind:pos_ind + len(pos_batch), :, :, :, :]
+                subobj_ls = obj_rot[pos_ind:pos_ind + len(pos_batch), :, :, :, :]
                 pos_ind += len(pos_batch)
 
             gc.collect()
@@ -268,11 +273,11 @@ class PtychographyModel(ForwardModel):
     def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch):
+                           probe_pos_correction, this_ind_batch, tilt_ls):
             t0 = time.time()
             ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch)
+                           probe_pos_correction, this_ind_batch, tilt_ls)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
             if self.common_vars['n_probe_modes'] == 1:
                 this_pred_batch = this_pred_batch[:, 0, :, :]
@@ -387,7 +392,7 @@ class SparseMultisliceModel(ForwardModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                    obj_rot = rotate(obj, theta_ls[this_i_theta], device=device_obj)
             else:
                 obj_rot = obj
         else:
@@ -591,6 +596,7 @@ class MultiDistModel(ForwardModel):
         n_probe_modes = self.common_vars['n_probe_modes']
         n_theta = self.common_vars['n_theta']
         precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
+        theta_ls = self.common_vars['theta_ls']
         u_free = self.common_vars['u_free']
         v_free = self.common_vars['v_free']
 
@@ -619,7 +625,7 @@ class MultiDistModel(ForwardModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                    obj_rot = rotate(obj, theta_ls[this_i_theta], device=device_obj)
             else:
                 obj_rot = obj
         else:

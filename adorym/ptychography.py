@@ -87,6 +87,7 @@ def reconstruct_ptychography(
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
         optimize_free_prop=False, free_prop_learning_rate=1e-2,
+        optimize_tilt=False, tilt_learning_rate=1e-3,
         # _________________________
         # |Alternative algorithms |_____________________________________________
         use_epie=False, epie_alpha=0.8,
@@ -548,6 +549,18 @@ def reconstruct_ptychography(
                 opt_args_ls.append(forward_model.get_argument_index('free_prop_cm'))
                 opt_ls.append(opt_free_prop)
 
+        tilt_ls = np.zeros([3, n_theta])
+        tilt_ls[0] = theta_ls
+        if optimize_tilt:
+            tilt_ls = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
+            optimizer_options_tilt = {'step_size': free_prop_learning_rate}
+            opt_tilt = AdamOptimizer(tilt_ls.shape, output_folder=output_folder,
+                                     options_dict=optimizer_options_tilt)
+            opt_tilt.create_param_arrays(device=device_obj)
+            opt_tilt.set_index_in_grad_return(len(opt_args_ls))
+            opt_args_ls.append(forward_model.get_argument_index('tilt_ls'))
+            opt_ls.append(opt_tilt)
+
         # ================================================================================
         # Use ePIE?
         # ================================================================================
@@ -853,6 +866,9 @@ def reconstruct_ptychography(
                     if optimize_free_prop:
                         free_prop_grads = w.zeros_like(grads[opt_free_prop.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
+                    if optimize_tilt:
+                        tilt_grads = w.zeros_like(grads[optimize_tilt.index_in_grad_returns], requires_grad=False,
+                                                device=device_obj)
                 if optimize_probe:
                     probe_grads += w.stack(grads[1:3], axis=-1)
                 if optimize_probe_defocusing:
@@ -865,6 +881,8 @@ def reconstruct_ptychography(
                     slice_pos_grads += grads[opt_slice_pos.index_in_grad_returns]
                 if optimize_free_prop:
                     free_prop_grads += grads[opt_free_prop.index_in_grad_returns]
+                if optimize_tilt:
+                    tilt_ls += grads[opt_tilt.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
@@ -1086,6 +1104,13 @@ def reconstruct_ptychography(
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'free_prop_cm',
                                                     'free_prop_correction_{}.txt'.format(i_epoch)),
                                        w.to_numpy(free_prop_cm))
+
+                        if optimize_tilt:
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'tilt')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'tilt'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'tilt',
+                                                    'tilt_{}.txt'.format(i_epoch)),
+                                       w.to_numpy(tilt_ls))
                 comm.Barrier()
 
                 # ================================================================================

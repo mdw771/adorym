@@ -33,6 +33,15 @@ n_ranks = comm.Get_size()
 rank = comm.Get_rank()
 
 
+def timeit(fun):
+    def func(*args, **kwargs):
+        t0 = time.time()
+        a = fun(*args, **kwargs)
+        print('[{}][{}]'.format(rank, fun.__name__), time.time() - t0)
+        return a
+    return func
+
+
 def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
@@ -518,7 +527,6 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None
             vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
             obj_rot.append(w.reshape(vals, [s[axes_rot[0]], s[axes_rot[1]], 2], override_backend=override_backend))
         obj_rot = w.stack(obj_rot, axis=axis, override_backend=override_backend)
-        print(obj_rot.shape)
     return obj_rot
 
 
@@ -706,7 +714,6 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                                               probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
                                               n_split='auto', dtype='float32'):
 
-    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape
 
     if n_split == 'auto':
@@ -716,6 +723,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
         n_recipients = min([n_ranks * minibatch_size, ceil(whole_object_size[1] / probe_size[1])])
         n_byte = int(re.findall('\d+', dtype)[0]) / 8
         n_split = ceil((chunk_thickness * chunk_width * chunk_depth * 2 * n_byte * n_recipients) / (2 ** 31))
+    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
@@ -821,7 +829,6 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                     axis=-1)
         my_chunk_ls.append(my_chunk)
     my_chunk_ls = np.stack(my_chunk_ls).astype('float64')
-
     return my_chunk_ls
 
 
@@ -829,7 +836,6 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                                                 minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
                                                 dtype='float32'):
 
-    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
     s = obj.shape[1:]
     obj = obj.astype(dtype)
 
@@ -840,6 +846,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
         n_recipients = ceil(chunk_depth / chunk_thickness)
         n_byte = int(re.findall('\d+', dtype)[0]) / 8
         n_split = ceil((chunk_thickness * chunk_width * chunk_depth * 2 * n_byte * n_recipients) / (2 ** 31))
+    chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
 
     my_slice_range = slice_catalog[rank]
     my_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
