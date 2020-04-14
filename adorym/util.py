@@ -368,32 +368,51 @@ def create_batches(arr, batch_size):
     return batches
 
 
+def get_cooridnates_stack_for_rotation(array_size, axis=0):
+    image_center = [floor(x / 2) for x in array_size]
+    coords_ls = []
+    for this_axis, s in enumerate(array_size):
+        if this_axis != axis:
+            coord = np.arange(s)
+            for i in range(len(array_size)):
+                if i != axis and i != this_axis:
+                    other_axis = i
+                    break
+            if other_axis < this_axis:
+                coord = np.tile(coord, array_size[other_axis])
+            else:
+                coord = np.repeat(coord, array_size[other_axis])
+            coords_ls.append(coord - image_center[i])
+    coord_new = np.stack(coords_ls)
+    return coord_new
+
+
+def calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend=None, device=None):
+    image_center = [floor(x / 2) for x in array_size]
+    m_rot = w.create_variable([[w.cos(theta, override_backend), -w.sin(theta, override_backend)],
+                               [w.sin(theta, override_backend), w.cos(theta, override_backend)]],
+                              override_backend=override_backend, device=device)
+    coord_old = w.matmul(m_rot, coord_new, override_backend=override_backend)
+    coord1_old = coord_old[0, :] + image_center[1]
+    coord2_old = coord_old[1, :] + image_center[2]
+    coord_old = np.stack([coord1_old, coord2_old], axis=1)
+    return coord_old
+
+
+def rotate(obj, theta, axis=0, override_backend=None, interpolation='bilinear', device=None):
+    arr_size = obj.shape[:-1]
+    coord_new = get_cooridnates_stack_for_rotation(arr_size, axis=axis)
+    coord_new = w.create_variable(coord_new, device=device, override_backend=override_backend)
+    coord_old = calculate_original_coordinates_for_rotation(arr_size, coord_new, theta, override_backend=override_backend)
+    obj_rot = apply_rotation(obj, coord_old, interpolation, axis=axis, device=device, override_backend=override_backend)
+    return obj_rot
+
+
 def save_rotation_lookup(array_size, n_theta, dest_folder=None):
 
-    image_center = [np.floor(x / 2) for x in array_size]
-
-    # coord0 = np.arange(array_size[0])
-    coord1 = np.arange(array_size[1])
-    coord2 = np.arange(array_size[2])
-
-    coord2_vec = np.tile(coord2, array_size[1])
-
-    coord1_vec = np.tile(coord1, array_size[2])
-    coord1_vec = np.reshape(coord1_vec, [array_size[1], array_size[2]])
-    coord1_vec = np.reshape(np.transpose(coord1_vec), [-1])
-
-    # coord0_vec = np.tile(coord0, [array_size[1] * array_size[2]])
-    # coord0_vec = np.reshape(coord0_vec, [array_size[1] * array_size[2], array_size[0]])
-    # coord0_vec = np.reshape(np.transpose(coord0_vec), [-1])
-
-    # move origin to image center
-    coord1_vec = coord1_vec - image_center[1]
-    coord2_vec = coord2_vec - image_center[2]
-
     # create matrix of coordinates
-    coord_new = np.stack([coord1_vec, coord2_vec]).astype(np.float32)
+    coord_new = get_cooridnates_stack_for_rotation(array_size, axis=0)
 
-    # create rotation matrix
     theta_ls = np.linspace(0, 2 * np.pi, n_theta)
     if dest_folder is None:
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
@@ -401,25 +420,12 @@ def save_rotation_lookup(array_size, n_theta, dest_folder=None):
         os.mkdir(dest_folder)
     for i, theta in enumerate(theta_ls[rank:n_theta:n_ranks]):
         i_theta = rank + n_ranks * i
-        m_rot = np.array([[np.cos(theta),  -np.sin(theta)],
-                          [np.sin(theta), np.cos(theta)]])
-        coord_old = np.matmul(m_rot, coord_new)
-        coord1_old = coord_old[0, :] + image_center[1]
-        coord2_old = coord_old[1, :] + image_center[2]
-        coord_old = np.stack([coord1_old, coord2_old], axis=1)
-
-        m_rot = np.array([[np.cos(-theta),  -np.sin(-theta)],
-                          [np.sin(-theta), np.cos(-theta)]])
-        coord_inv = np.matmul(m_rot, coord_new)
-        coord1_inv = coord_inv[0, :] + image_center[1]
-        coord2_inv = coord_inv[1, :] + image_center[2]
-        coord_inv = np.stack([coord1_inv, coord2_inv], axis=1)
-
+        coord_old = calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend='autograd')
+        coord_inv = calculate_original_coordinates_for_rotation(array_size, coord_new, -theta, override_backend='autograd')
         # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
         # voxel in the object at that angle.
         np.save(os.path.join(dest_folder, '{:04}'.format(i_theta)), coord_old.astype('float16'))
         np.save(os.path.join(dest_folder, '_{:04}'.format(i_theta)), coord_inv.astype('float16'))
-
     return None
 
 
@@ -440,13 +446,17 @@ def read_all_origin_coords(src_folder, n_theta):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, override_backend=None):
+def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None, override_backend=None):
 
     # PyTorch CPU doesn't support float16 computation.
     if global_settings.backend == 'pytorch' and device is None:
         coord_old = coord_old.astype('float64')
 
     s = obj.shape
+    axes_rot = []
+    for i in range(len(obj.shape)):
+        if i != axis and i <= 2:
+            axes_rot.append(i)
     coord_old = w.create_variable(coord_old, device=device, requires_grad=False, override_backend=override_backend)
 
     if interpolation == 'nearest':
@@ -457,11 +467,14 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
         coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old_1 = w.clip(coord_old_1, 0, s[1] - 1, override_backend=override_backend)
-    coord_old_2 = w.clip(coord_old_2, 0, s[2] - 1, override_backend=override_backend)
+    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
 
     if interpolation == 'nearest':
-        obj_rot = w.reshape(obj[:, coord_old_1, coord_old_2], s, override_backend=override_backend)
+        slicer = [slice(None), slice(None), slice(None)]
+        slicer[axes_rot[0]] = coord_old_1
+        slicer[axes_rot[1]] = coord_old_2
+        obj_rot = w.reshape(obj[slicer], s, override_backend=override_backend)
     else:
         coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
         coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
@@ -469,10 +482,10 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
         coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
         # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
         # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
-        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[1] - 1, override_backend=override_backend)
-        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[2] - 1, override_backend=override_backend)
-        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[1] - 1, override_backend=override_backend)
-        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[2] - 1, override_backend=override_backend)
+        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
+        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
+        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
+        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
         integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
         integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
 
@@ -485,14 +498,27 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', device=None, overri
         fac_fc = w.stack([fac_fc] * 2, axis=1, override_backend=override_backend)
         fac_cf = w.stack([fac_cf] * 2, axis=1, override_backend=override_backend)
         fac_cc = w.stack([fac_cc] * 2, axis=1, override_backend=override_backend)
-        for i_slice in range(s[0]):
-            vals_ff = obj[i_slice, coord_old_floor_1, coord_old_floor_2]
-            vals_fc = obj[i_slice, coord_old_floor_1, coord_old_ceil_2]
-            vals_cf = obj[i_slice, coord_old_ceil_1, coord_old_floor_2]
-            vals_cc = obj[i_slice, coord_old_ceil_1, coord_old_ceil_2]
+        for i_slice in range(s[axis]):
+            slicer_ff = [i_slice, i_slice, i_slice]
+            slicer_ff[axes_rot[0]] = coord_old_floor_1
+            slicer_ff[axes_rot[1]] = coord_old_floor_2
+            slicer_fc = [i_slice, i_slice, i_slice]
+            slicer_fc[axes_rot[0]] = coord_old_floor_1
+            slicer_fc[axes_rot[1]] = coord_old_ceil_2
+            slicer_cf = [i_slice, i_slice, i_slice]
+            slicer_cf[axes_rot[0]] = coord_old_ceil_1
+            slicer_cf[axes_rot[1]] = coord_old_floor_2
+            slicer_cc = [i_slice, i_slice, i_slice]
+            slicer_cc[axes_rot[0]] = coord_old_ceil_1
+            slicer_cc[axes_rot[1]] = coord_old_ceil_2
+            vals_ff = obj[tuple(slicer_ff)]
+            vals_fc = obj[tuple(slicer_fc)]
+            vals_cf = obj[tuple(slicer_cf)]
+            vals_cc = obj[tuple(slicer_cc)]
             vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
-            obj_rot.append(vals)
-        obj_rot = w.reshape(w.stack(obj_rot, override_backend=override_backend), s, override_backend=override_backend)
+            obj_rot.append(w.reshape(vals, [s[axes_rot[0]], s[axes_rot[1]], 2], override_backend=override_backend))
+        obj_rot = w.stack(obj_rot, axis=axis, override_backend=override_backend)
+        print(obj_rot.shape)
     return obj_rot
 
 
@@ -745,7 +771,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
         chunk_batch_ls_ls[i_split] = comm.alltoall(chunk_batch_ls_ls[i_split])
     # for i_rank in range(n_ranks):
     #     buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
-    #     if buf is not None:
+    #     if buf is not None:of
     #         chunk_batch_ls[i_rank] = buf
     chunk_batch_ls = []
     for i_rank in range(n_ranks):

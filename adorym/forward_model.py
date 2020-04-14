@@ -147,7 +147,7 @@ class PtychographyModel(ForwardModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    raise NotImplementedError('Rotate on the fly is not yet implemented for non-shared-file mode.')
+                    pass
             else:
                 obj_rot = obj
         else:

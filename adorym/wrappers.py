@@ -286,14 +286,16 @@ def log(var):
     return arr
 
 
-def sin(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sin'][global_settings.backend])
+def sin(var, override_backend=None):
+    bn = global_settings.backend if override_backend is None else override_backend
+    func = getattr(engine_dict[bn], func_mapping_dict['sin'][bn])
     arr = func(var)
     return arr
 
 
-def cos(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['cos'][global_settings.backend])
+def cos(var, override_backend=None):
+    bn = global_settings.backend if override_backend is None else override_backend
+    func = getattr(engine_dict[bn], func_mapping_dict['cos'][bn])
     arr = func(var)
     return arr
 
@@ -690,3 +692,11 @@ def swap_axes(arr, axes=(0, 1)):
         return anp.transpose(arr, axes)
     elif global_settings.backend == 'pytorch':
         return tc.transpose(arr, axes[0], axes[1])
+
+
+def matmul(a, b, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        return anp.matmul(a, b)
+    elif bn == 'pytorch':
+        return tc.matmul(a, b)
