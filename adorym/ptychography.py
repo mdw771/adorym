@@ -160,11 +160,11 @@ def reconstruct_ptychography(
     if two_d_mode:
         n_theta = 1
     prj_theta_ind = np.arange(n_theta, dtype=int)
-    theta = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+    theta_ls = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
-        theta = theta[::theta_downsample]
+        theta_ls = theta_ls[::theta_downsample]
         prj_theta_ind = prj_theta_ind[::theta_downsample]
-        n_theta = len(theta)
+        n_theta = len(theta_ls)
 
     original_shape = [n_theta, *prj.shape[1:]]
 
@@ -300,7 +300,7 @@ def reconstruct_ptychography(
                     os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
                 comm.Barrier()
                 print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
-                save_rotation_lookup(this_obj_size, n_theta)
+                save_rotation_lookup(this_obj_size, theta_ls)
         comm.Barrier()
 
         # ================================================================================
@@ -623,18 +623,17 @@ def reconstruct_ptychography(
             np.random.seed(i_epoch)
             comm.Barrier()
             if not two_d_mode:
-                theta_ls = np.arange(n_theta)
-                np.random.shuffle(theta_ls)
+                theta_ind_ls = np.arange(n_theta)
+                np.random.shuffle(theta_ind_ls)
             else:
-                theta_ls = np.linspace(0, 2 * PI, prj.shape[0])
-                theta_ls = abs(theta_ls - theta_st) < 1e-5
-                i_theta = np.nonzero(theta_ls)[0][0]
-                theta_ls = np.array([i_theta])
+                temp = abs(theta_ls - theta_st) < 1e-5
+                i_theta = np.nonzero(temp)[0][0]
+                theta_ind_ls = np.array([i_theta])
 
             # ================================================================================
             # Put diffraction spots from all angles together, and divide into minibatches.
             # ================================================================================
-            for i, i_theta in enumerate(theta_ls):
+            for i, i_theta in enumerate(theta_ind_ls):
                 spots_ls = range(n_pos)
                 if randomize_probe_pos:
                     spots_ls = np.random.choice(spots_ls, len(spots_ls), replace=False)

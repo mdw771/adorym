@@ -417,12 +417,12 @@ def rotate(obj, theta, axis=0, override_backend=None, interpolation='bilinear', 
     return obj_rot
 
 
-def save_rotation_lookup(array_size, n_theta, dest_folder=None):
+def save_rotation_lookup(array_size, theta_ls, dest_folder=None):
 
     # create matrix of coordinates
     coord_new = get_cooridnates_stack_for_rotation(array_size, axis=0)
 
-    theta_ls = np.linspace(0, 2 * np.pi, n_theta)
+    n_theta = len(theta_ls)
     if dest_folder is None:
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
     if not os.path.exists(dest_folder):
