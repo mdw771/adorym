@@ -1031,7 +1031,7 @@ def reconstruct_ptychography(
                         opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **optimizer_options_obj)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, **optimizer_options_obj)
                         gradient.arr[...] = 0
                     comm.Barrier()
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)

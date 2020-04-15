@@ -214,7 +214,7 @@ class AdamOptimizer(Optimizer):
 
         for i_slice in slice_ls:
             x = obj.dset[i_slice]
-            g = gradient.dset[i_slice]
+            g = gradient.dset[i_slice] / n_ranks
             m = self.params_dset_dict['m'][i_slice]
             v = self.params_dset_dict['v'][i_slice]
             x, m, v = self.apply_gradient(x, g, i_batch, step_size=step_size,
