@@ -746,23 +746,6 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                     px_st = max([their_pos[1], 0])
                     px_end = min([their_pos[1] + probe_size[1], whole_object_size[1]])
                     my_chunk = obj[line_st:line_end, px_st:px_end]
-                    # Pad left-right.
-                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
-                    flag_pad = False
-                    if their_pos[1] < 0:
-                        pad_arr[1][0] = -their_pos[1]
-                        flag_pad = True
-                    if their_pos[1] + probe_size[1] > whole_object_size[1]:
-                        pad_arr[1][1] = their_pos[1] + probe_size[1] - whole_object_size[1]
-                        flag_pad = True
-                    if flag_pad:
-                        if unknown_type == 'delta_beta':
-                            my_chunk = np.pad(my_chunk, pad_arr, mode='constant')
-                        elif unknown_type == 'real_imag':
-                            my_chunk = np.stack(
-                                [np.pad(my_chunk[:, :, :, 0], pad_arr, mode='constant', constant_values=1),
-                                 np.pad(my_chunk[:, :, :, 1], pad_arr, mode='constant', constant_values=0)],
-                                axis=-1)
                     for i_split in range(n_split):
                         step = s[2] // n_split
                         st = step * i_split
@@ -804,15 +787,22 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                 if their_slice_range[1] <= my_chunk_slice_range[0]:
                     continue
                 if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
-                    partial_chunk = chunk_batch_ls[i_rank][rank_pos_ind_ls[i_rank]]
-                    my_chunk.append(partial_chunk)
+                    their_chunk = chunk_batch_ls[i_rank][rank_pos_ind_ls[i_rank]]
+                    my_chunk.append(their_chunk)
                     rank_pos_ind_ls[i_rank] += 1
                 else:
                     break
         my_chunk = np.concatenate(my_chunk, axis=0)
-        # Pad top-bottom.
+        # Pad left-right.
         pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
         flag_pad = False
+        if my_pos[1] < 0:
+            pad_arr[1][0] = -my_pos[1]
+            flag_pad = True
+        if my_pos[1] + probe_size[1] > whole_object_size[1]:
+            pad_arr[1][1] = my_pos[1] + probe_size[1] - whole_object_size[1]
+            flag_pad = True
+        # Pad top-bottom.
         if my_pos[0] < 0:
             pad_arr[0][0] = -my_pos[0]
             flag_pad = True
@@ -832,7 +822,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
     return my_chunk_ls
 
 
-def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks,
+def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks,
                                                 minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
                                                 dtype='float32'):
 
@@ -858,32 +848,16 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
             for i_split in range(n_split):
                 send_chunk_ls_ls.append([])
             for i_pos, my_pos in enumerate(my_pos_batch):
-                my_chunk = obj[i_pos]
                 my_chunk_slice_range = [max([my_pos[0], 0]), min([my_pos[0] + probe_size[0], whole_object_size[0]])]
                 if their_slice_range[1] <= my_chunk_slice_range[0]:
                     continue
                 if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
-                    my_chunk_send = np.copy(my_chunk)
-                    # Pad/trim top-bottom.
-                    if my_pos[0] < their_slice_range[0]:
-                        my_chunk_send = my_chunk_send[their_slice_range[0] - my_pos[0]:]
-                    if my_pos[0] + probe_size[0] > their_slice_range[1]:
-                        my_chunk_send = my_chunk_send[:-(my_pos[0] + probe_size[0] - their_slice_range[1])]
-                    pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(my_chunk_send.shape) - 2)
-                    flag_pad = False
-                    if my_chunk_slice_range[0] > their_slice_range[0]:
-                        pad_arr[0][0] = my_chunk_slice_range[0] - their_slice_range[0]
-                        flag_pad = True
-                    if my_chunk_slice_range[1] < their_slice_range[1]:
-                        pad_arr[0][1] = their_slice_range[1] - my_chunk_slice_range[1]
-                        flag_pad = True
-                    if flag_pad:
-                        my_chunk_send = np.pad(my_chunk_send, pad_arr, mode='constant')
+                    my_chunk = obj[i_pos]
                     for i_split in range(n_split):
                         step = s[2] // n_split
                         st = step * i_split
                         end = s[2] if i_split == n_split - 1 else step * (i_split + 1)
-                        send_chunk_ls_ls[i_split].append(my_chunk_send[:, :, st:end, :])
+                        send_chunk_ls_ls[i_split].append(my_chunk[:, :, st:end, :])
                 else:
                     continue
             if len(send_chunk_ls_ls[0]) > 0:
@@ -912,7 +886,6 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
 
     # See what others are doing.
     if my_slice_range is not None:
-        my_slab = np.zeros([my_slice_range[1] - my_slice_range[0], whole_object_size[1], whole_object_size[2], 2])
         for i_rank in range(n_ranks):
             their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
             their_pos_batch = probe_pos[their_ind_batch]
@@ -923,12 +896,25 @@ def sync_subblocks_among_distributed_object_mpi(obj, slice_catalog, probe_pos, t
                 if (their_slice_range[1] - my_slice_range[0]) * (their_slice_range[0] - my_slice_range[1]) < 0:
                     their_chunk = chunk_batch_ls[i_rank][ind_pos]
                     ind_pos += 1
+                    line_st = 0
+                    line_end = my_slab.shape[0]
+                    # Pad/trim top-bottom.
+                    if their_pos[0] < my_slice_range[0]:
+                        their_chunk = their_chunk[my_slice_range[0] - their_pos[0]:]
+                    if their_pos[0] + probe_size[0] > my_slice_range[1]:
+                        their_chunk = their_chunk[:-(their_pos[0] + probe_size[0] - my_slice_range[1])]
+                    if their_slice_range[0] > my_slice_range[0]:
+                        line_st += their_slice_range[0] - my_slice_range[0]
+                    if their_slice_range[1] < my_slice_range[1]:
+                        line_end -= (my_slice_range[1] - their_slice_range[1])
                     # Trim left-right.
                     if their_pos[1] < 0:
                         their_chunk = their_chunk[:, -their_pos[1]:, :, :]
                     if their_pos[1] + probe_size[1] > whole_object_size[1]:
                         their_chunk = their_chunk[:, :-(their_pos[1] + probe_size[1] - whole_object_size[1]), :, :]
-                    my_slab[:, max([0, their_pos[1]]):min([whole_object_size[1], their_pos[1] + probe_size[1]]), :, :] += their_chunk
+                    my_slab[line_st:line_end,
+                            max([0, their_pos[1]]):min([whole_object_size[1], their_pos[1] + probe_size[1]]),
+                            :, :] += their_chunk
         return my_slab
     else:
         return None

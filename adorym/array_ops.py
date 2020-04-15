@@ -111,10 +111,9 @@ class LargeArray(object):
     def sync_chunks_to_distributed_object(self, obj, probe_pos, this_ind_batch_allranks, minibatch_size,
                                           probe_size, dtype='float32'):
         obj = w.to_numpy(obj)
-        slab = sync_subblocks_among_distributed_object_mpi(obj, self.slice_catalog, probe_pos, this_ind_batch_allranks,
+        self.arr = sync_subblocks_among_distributed_object_mpi(obj, self.arr, self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                        minibatch_size, probe_size, self.full_size,
                                                        output_folder=self.output_folder, dtype='float32')
-        self.arr += slab
 
 
 class ObjectFunction(LargeArray):
