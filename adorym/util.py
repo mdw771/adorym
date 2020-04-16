@@ -858,7 +858,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
 
 def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=3,
                                                 dtype='float32'):
 
     s = obj.shape[1:]
@@ -868,7 +868,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, pro
         chunk_thickness = ceil(whole_object_size[0] / n_ranks)
         chunk_width = probe_size[1]
         chunk_depth = whole_object_size[2]
-        n_recipients = ceil(probe_size[0] / chunk_thickness * minibatch_size)
+        n_recipients = ceil(probe_size[0] / chunk_thickness) * minibatch_size
         n_byte = int(re.findall('\d+', dtype)[0]) / 8
         n_split = ceil((chunk_thickness * chunk_width * chunk_depth * 2 * 2 * n_byte * n_recipients) / (2 ** 31))
     chunk_batch_ls_ls = [[None] * n_ranks for _ in range(n_split)]
