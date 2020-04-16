@@ -10,14 +10,18 @@ try:
     import autograd.numpy as anp
     import autograd as ag
     engine_dict['autograd'] = anp
+    flag_autograd_avail = True
 except:
     warnings.warn('Autograd backend is not available.')
+    flag_autograd_avail = False
 try:
     import torch as tc
     import torch.autograd as tag
     engine_dict['pytorch'] = tc
+    flag_pytorch_avail = True
 except:
     warnings.warn('PyTorch backend is not available.')
+    flag_pytorch_avail = False
 
 
 func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'zeros',      'pytorch': 'zeros'},
@@ -55,9 +59,12 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
                       'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool'},
                       }
 
-pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
-                                    tc.float64: 'float64'}
-
+if flag_pytorch_avail:
+    try:
+        pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
+                                            tc.float64: 'float64'}
+    except:
+        pass
 # _____________
 # |Flow control|_____________________________________________________________
 
