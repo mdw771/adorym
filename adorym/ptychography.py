@@ -1026,6 +1026,12 @@ def reconstruct_ptychography(
                         prj_affine_grads = comm.allreduce(prj_affine_grads)
                         prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
                                                                        **opt_prj_affine.options_dict)
+                        # Normalize scaling
+                        prj_affine_ls[:, 0, 0] = prj_affine_ls[:, 0, 0] / prj_affine_ls[0, 0, 0]
+                        prj_affine_ls[:, 1, 1] = prj_affine_ls[:, 1, 1] / prj_affine_ls[0, 1, 1]
+                        # Normalize shifting
+                        prj_affine_ls[:, 0, 2] = prj_affine_ls[:, 0, 2] - w.mean(prj_affine_ls[:, 0, 2])
+                        prj_affine_ls[:, 1, 2] = prj_affine_ls[:, 1, 2] - w.mean(prj_affine_ls[:, 1, 2])
                     w.reattach(prj_affine_ls)
 
                 # ================================================================================
@@ -1139,10 +1145,10 @@ def reconstruct_ptychography(
                                        w.to_numpy(tilt_ls))
 
                         if optimize_prj_affine:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'prj_scale')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'prj_scale'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_scale',
-                                                    'prj_scale_{}.txt'.format(i_epoch)),
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'prj_affine')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'prj_affine'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_affine',
+                                                    'prj_affine_{}.txt'.format(i_epoch)),
                                        np.concatenate(w.to_numpy(prj_affine_ls), 0))
                 comm.Barrier()
 
