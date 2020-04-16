@@ -142,21 +142,26 @@ class PtychographyModel(ForwardModel):
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
             probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
+
         if not two_d_mode and not self.distribution_mode:
             if not optimize_tilt:
                 if not self.rotate_out_of_loop:
                     if precalculate_rotation_coords:
                         obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                     else:
-                        obj_rot = rotate(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
+                        obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], axis=0)
                 else:
-                    obj_rot = rotate(obj, tilt_ls[0, this_i_theta], axis=0, device=device_obj)
-                    obj_rot = rotate(obj_rot, tilt_ls[1, this_i_theta], axis=1, device=device_obj)
-                    obj_rot = rotate(obj_rot, tilt_ls[2, this_i_theta], axis=2, device=device_obj)
+                    obj_rot = obj
             else:
-                obj_rot = obj
+                obj_rot = w.rotate(obj, tilt_ls[0, this_i_theta], axis=0)
+                obj_rot = w.rotate(obj_rot, tilt_ls[1, this_i_theta], axis=1)
+                obj_rot = w.rotate(obj_rot, tilt_ls[2, this_i_theta], axis=2)
+
         else:
+            if optimize_tilt:
+                raise NotImplementedError('Tilt optimization is not impemented for distributed mode or when two_d_mode is on.')
             obj_rot = obj
+
         ex_real_ls = []
         ex_imag_ls = []
 
@@ -358,7 +363,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    obj_rot = rotate(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
+                    obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
             else:
                 obj_rot = obj
             obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
@@ -480,7 +485,7 @@ class SparseMultisliceModel(ForwardModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    obj_rot = rotate(obj, theta_ls[this_i_theta], device=device_obj)
+                    obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], device=device_obj)
             else:
                 obj_rot = obj
         else:
@@ -713,7 +718,7 @@ class MultiDistModel(ForwardModel):
                 if precalculate_rotation_coords:
                     obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
                 else:
-                    obj_rot = rotate(obj, theta_ls[this_i_theta], device=device_obj)
+                    obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], device=device_obj)
             else:
                 obj_rot = obj
         else:

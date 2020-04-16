@@ -738,8 +738,38 @@ def affine_transform(arr, transform, override_backend=None):
 
 
 def rotate(arr, theta, axis=0, override_backend=None):
+    """
+    A rotate function that allows taking gradient with regards to theta.
+    :param arr: a 3D object in [N, H, W, C].
+    """
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         raise NotImplementedError('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
     elif bn == 'pytorch':
-        pass
+        theta = theta.view(1)
+
+        axis_arrangement = [0, 1, 2, 3]
+        # Move channel to the 2nd dimension.
+        arr = swap_axes(arr, (1, 3))
+        axis_arrangement[1], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[1]
+        # Move invariant axis to front.
+        if axis != 0:
+            q = axis_arrangement.index(axis)
+            arr = swap_axes(arr, (0, q))
+            axis_arrangement[0], axis_arrangement[q] = axis_arrangement[q], axis_arrangement[0]
+
+        if axis_arrangement[2] < axis_arrangement[3]:
+            theta = -theta
+        naught = cast(tc.tensor([0.]), pytorch_dtype_query_mapping_dict[theta.dtype])
+        m0 = tc.cat([tc.cos(theta), -tc.sin(theta), naught])
+        m1 = tc.cat([tc.sin(theta), tc.cos(theta), naught])
+        m = tc.stack([m0, m1]).view(1, 2, 3)
+        m = cast(tile(m, [arr.shape[0], 1, 1]), pytorch_dtype_query_mapping_dict[arr.dtype])
+        g = tc.nn.functional.affine_grid(m, arr.shape)
+
+        arr = tc.nn.functional.grid_sample(arr, g, padding_mode='border')
+        if axis != 0:
+            arr = swap_axes(arr, (0, q))
+        arr = swap_axes(arr, (1, 3))
+        return arr
+

@@ -443,7 +443,10 @@ def calculate_original_coordinates_for_rotation(array_size, coord_new, theta, ov
     return coord_old
 
 
-def rotate(obj, theta, axis=0, override_backend=None, interpolation='bilinear', device=None):
+def rotate_no_grad(obj, theta, axis=0, override_backend=None, interpolation='bilinear', device=None):
+    """
+    Only the VJP with regards to obj is possible. To differentiate with regards to theta, use wrappers.rotate.
+    """
     arr_size = obj.shape[:-1]
     coord_new = get_cooridnates_stack_for_rotation(arr_size, axis=axis)
     coord_new = w.create_variable(coord_new, device=device, override_backend=override_backend)
