@@ -89,6 +89,7 @@ def reconstruct_ptychography(
         optimize_free_prop=False, free_prop_learning_rate=1e-2,
         optimize_prj_affine=False, prj_affine_learning_rate=1e-3,
         optimize_tilt=False, tilt_learning_rate=1e-3,
+        other_params_update_delay=0,
         # _________________________
         # |Alternative algorithms |_____________________________________________
         use_epie=False, epie_alpha=0.8,
@@ -983,60 +984,72 @@ def reconstruct_ptychography(
                     else:
                         print_flush('Probe is not updated because current epoch is smaller than specified delay ({}).'.format(probe_update_delay), 0, rank, **stdout_options)
 
-                if optimize_probe_defocusing:
-                    with w.no_grad():
-                        pd_grads = comm.allreduce(pd_grads)
-                        probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
-                                                                            **opt_probe_defocus.options_dict)
-                        print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
-                                    **stdout_options)
-                    w.reattach(probe_defocus_mm)
+                if i_epoch >= other_params_update_delay:
+                    if optimize_probe_defocusing:
+                        with w.no_grad():
+                            pd_grads = comm.allreduce(pd_grads)
+                            probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
+                                                                                **opt_probe_defocus.options_dict)
+                            print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
+                                        **stdout_options)
+                        w.reattach(probe_defocus_mm)
 
-                if optimize_probe_pos_offset:
-                    with w.no_grad():
-                        pos_offset_grads = comm.allreduce(pos_offset_grads)
-                        probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
-                                                                            **opt_probe_pos_offset.options_dict)
-                    w.reattach(probe_pos_offset)
+                    if optimize_probe_pos_offset:
+                        with w.no_grad():
+                            pos_offset_grads = comm.allreduce(pos_offset_grads)
+                            probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
+                                                                                **opt_probe_pos_offset.options_dict)
+                        w.reattach(probe_pos_offset)
 
-                if optimize_all_probe_pos:
-                    with w.no_grad():
-                        all_pos_grads = comm.allreduce(all_pos_grads)
-                        probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
-                                                                            **opt_probe_pos.options_dict)
-                        # Prevent position drifting
-                        slicer = tuple(range(len(probe_pos_correction.shape) - 1))
-                        probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
-                    w.reattach(probe_pos_correction)
+                    if optimize_all_probe_pos:
+                        with w.no_grad():
+                            all_pos_grads = comm.allreduce(all_pos_grads)
+                            probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
+                                                                                **opt_probe_pos.options_dict)
+                            # Prevent position drifting
+                            slicer = tuple(range(len(probe_pos_correction.shape) - 1))
+                            probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
+                        w.reattach(probe_pos_correction)
 
-                if optimize_slice_pos:
-                    with w.no_grad():
-                        all_pos_grads = comm.allreduce(slice_pos_grads)
-                        slice_pos_cm_ls = opt_slice_pos.apply_gradient(slice_pos_cm_ls, slice_pos_grads, i_full_angle,
-                                                                       **opt_slice_pos.options_dict)
-                        # Prevent position drifting
-                        slice_pos_cm_ls = slice_pos_cm_ls - slice_pos_cm_ls[0]
-                    w.reattach(slice_pos_cm_ls)
+                    if optimize_slice_pos:
+                        with w.no_grad():
+                            all_pos_grads = comm.allreduce(slice_pos_grads)
+                            slice_pos_cm_ls = opt_slice_pos.apply_gradient(slice_pos_cm_ls, slice_pos_grads, i_full_angle,
+                                                                           **opt_slice_pos.options_dict)
+                            # Prevent position drifting
+                            slice_pos_cm_ls = slice_pos_cm_ls - slice_pos_cm_ls[0]
+                        w.reattach(slice_pos_cm_ls)
 
-                if optimize_free_prop:
-                    with w.no_grad():
-                        free_prop_grads = comm.allreduce(free_prop_grads)
-                        free_prop_cm = opt_free_prop.apply_gradient(free_prop_cm, free_prop_grads, i_full_angle,
-                                                                       **opt_free_prop.options_dict)
-                    w.reattach(free_prop_cm)
+                    if optimize_tilt:
+                        with w.no_grad():
+                            tilt_grads = comm.allreduce(tilt_grads)
+                            tilt_ls = opt_tilt.apply_gradient(tilt_ls, tilt_grads, i_full_angle,
+                                                                           **opt_tilt.options_dict)
+                        w.reattach(tilt_ls)
 
-                if optimize_prj_affine:
-                    with w.no_grad():
-                        prj_affine_grads = comm.allreduce(prj_affine_grads)
-                        prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
-                                                                       **opt_prj_affine.options_dict)
-                        # Normalize scaling
-                        prj_affine_ls[:, 0, 0] = prj_affine_ls[:, 0, 0] / prj_affine_ls[0, 0, 0]
-                        prj_affine_ls[:, 1, 1] = prj_affine_ls[:, 1, 1] / prj_affine_ls[0, 1, 1]
-                        # Normalize shifting
-                        prj_affine_ls[:, 0, 2] = prj_affine_ls[:, 0, 2] - w.mean(prj_affine_ls[:, 0, 2])
-                        prj_affine_ls[:, 1, 2] = prj_affine_ls[:, 1, 2] - w.mean(prj_affine_ls[:, 1, 2])
-                    w.reattach(prj_affine_ls)
+                    if optimize_free_prop:
+                        with w.no_grad():
+                            free_prop_grads = comm.allreduce(free_prop_grads)
+                            free_prop_cm = opt_free_prop.apply_gradient(free_prop_cm, free_prop_grads, i_full_angle,
+                                                                           **opt_free_prop.options_dict)
+                        w.reattach(free_prop_cm)
+
+                    if optimize_prj_affine:
+                        with w.no_grad():
+                            prj_affine_grads = comm.allreduce(prj_affine_grads)
+                            prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
+                                                                           **opt_prj_affine.options_dict)
+                            # Normalize scaling
+                            prj_affine_ls[:, 0, 0] = prj_affine_ls[:, 0, 0] / prj_affine_ls[0, 0, 0]
+                            prj_affine_ls[:, 1, 1] = prj_affine_ls[:, 1, 1] / prj_affine_ls[0, 1, 1]
+                            # Normalize shifting
+                            prj_affine_ls[:, 0, 2] = prj_affine_ls[:, 0, 2] - w.mean(prj_affine_ls[:, 0, 2])
+                            prj_affine_ls[:, 1, 2] = prj_affine_ls[:, 1, 2] - w.mean(prj_affine_ls[:, 1, 2])
+                        w.reattach(prj_affine_ls)
+                else:
+                    print_flush(
+                        'Params are not updated because current epoch is smaller than specified delay ({}).'.format(
+                            other_params_update_delay), 0, rank, **stdout_options)
 
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
