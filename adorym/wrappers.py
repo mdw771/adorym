@@ -735,3 +735,11 @@ def affine_transform(arr, transform, override_backend=None):
         arr_new = tc.reshape(arr, [n, 1, *arr.shape[1:]])
         arr_new = tc.nn.functional.grid_sample(arr_new, g, padding_mode='border')
         return arr_new[:, 0, :, :]
+
+
+def rotate(arr, theta, axis=0, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        raise NotImplementedError('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
+    elif bn == 'pytorch':
+        pass

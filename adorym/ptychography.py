@@ -390,8 +390,12 @@ def reconstruct_ptychography(
             forward_model = MultiDistModel(**forwardmodel_args)
         elif is_sparse_multislice:
             forward_model = SparseMultisliceModel(**forwardmodel_args)
+        elif minibatch_size == 1 and  n_pos == 1 and np.allclose(probe_pos[0], 0):
+            forward_model = SingleBatchFullfieldModel(**forwardmodel_args)
         else:
             forward_model = PtychographyModel(**forwardmodel_args)
+        print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), 0, rank, **stdout_options)
+
         if reweighted_l1:
             forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
         else:

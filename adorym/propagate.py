@@ -113,7 +113,7 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape, sign_convention=1):
     return H
 
 
-def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
+def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None):
@@ -134,12 +134,12 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         if type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-            delta_slice = w.sum(grid_delta_batch, axis=-1)
-            beta_slice = w.sum(grid_beta_batch, axis=-1)
+            delta_slice = w.sum(grid_batch, axis=-2)[:, :, :, 0]
+            beta_slice = w.sum(grid_batch, axis=-2)[:, :, :, 1]
             c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
-            delta_slice = w.prod(grid_delta_batch, axis=-1)
-            beta_slice = w.prod(grid_beta_batch, axis=-1)
+            delta_slice = w.prod(grid_batch, axis=-2)[:, :, :, 0]
+            beta_slice = w.prod(grid_batch, axis=-2)[:, :, :, 1]
             c_real, c_imag = delta_slice, beta_slice
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
@@ -160,8 +160,8 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
         for i in range(n_slices):
             k1 = 2. * PI * delta_nm / lmbda_nm
             # At the start of bin, initialize slice array.
-            delta_slice = grid_delta_batch[:, :, :, i]
-            beta_slice = grid_beta_batch[:, :, :, i]
+            delta_slice = grid_batch[:, :, :, i, 0]
+            beta_slice = grid_batch[:, :, :, i, 1]
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -202,7 +202,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
     return probe_real, probe_imag
 
 
-def sparse_multislice_propagate_batch(u, v, grid_delta_batch, grid_beta_batch, probe_real, probe_imag, energy_ev, psize_cm,
+def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                       slice_pos_cm_ls, free_prop_cm=None, obj_batch_shape=None, fresnel_approx=True,
                                       device=None, type='delta_beta', normalize_fft=False, sign_convention=1):
 
@@ -220,8 +220,8 @@ def sparse_multislice_propagate_batch(u, v, grid_delta_batch, grid_beta_batch, p
 
     for i in range(n_slices):
         # At the start of bin, initialize slice array.
-        delta_slice = grid_delta_batch[:, :, :, i]
-        beta_slice = grid_beta_batch[:, :, :, i]
+        delta_slice = grid_batch[:, :, :, i, 0]
+        beta_slice = grid_batch[:, :, :, i, 1]
 
         k1 = 2. * PI * delta_nm / lmbda_nm
         if type == 'delta_beta':

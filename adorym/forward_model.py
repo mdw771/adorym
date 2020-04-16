@@ -220,7 +220,7 @@ class PtychographyModel(ForwardModel):
                     this_probe_real_ls = probe_real_ls[:, 0, :, :]
                     this_probe_imag_ls = probe_imag_ls[:, 0, :, :]
                 ex_real, ex_imag = multislice_propagate_batch(
-                                subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1],
+                                subobj_ls,
                                 this_probe_real_ls, this_probe_imag_ls,
                                 energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
@@ -239,7 +239,7 @@ class PtychographyModel(ForwardModel):
                         this_probe_real_ls = probe_real_ls[:, i_mode, :, :]
                         this_probe_imag_ls = probe_imag_ls[:, i_mode, :, :]
                     temp_real, temp_imag = multislice_propagate_batch(
-                                subobj_ls[:, :, :, :, 0], subobj_ls[:, :, :, :, 1],
+                                subobj_ls,
                                 this_probe_real_ls, this_probe_imag_ls,
                                 energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
@@ -319,6 +319,94 @@ class PtychographyModel(ForwardModel):
             del ex_real_ls, ex_imag_ls
             del this_prj_batch
             return loss
+        return calculate_loss
+
+
+class SingleBatchFullfieldModel(PtychographyModel):
+
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude'):
+        super(SingleBatchFullfieldModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
+                                                raw_data_type)
+
+    def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
+                probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                probe_pos_correction, this_ind_batch, tilt_ls):
+
+        device_obj = self.common_vars['device_obj']
+        probe_size = self.common_vars['probe_size']
+        fresnel_approx = self.common_vars['fresnel_approx']
+        two_d_mode = self.common_vars['two_d_mode']
+        ds_level = self.common_vars['ds_level']
+        this_obj_size = self.common_vars['this_obj_size']
+        energy_ev = self.common_vars['energy_ev']
+        psize_cm = self.common_vars['psize_cm']
+        h = self.common_vars['h']
+        pure_projection = self.common_vars['pure_projection']
+        free_prop_cm = self.common_vars['free_prop_cm']
+        unknown_type = self.common_vars['unknown_type']
+        n_theta = self.common_vars['n_theta']
+        precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
+        theta_ls = self.common_vars['theta_ls']
+
+        if precalculate_rotation_coords:
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                          this_i_theta, reverse=False)
+
+        if not two_d_mode and not self.distribution_mode:
+            if not self.rotate_out_of_loop:
+                if precalculate_rotation_coords:
+                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
+                else:
+                    obj_rot = rotate(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
+            else:
+                obj_rot = obj
+            obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
+        else:
+            obj_rot = obj
+
+        ex_real, ex_imag = multislice_propagate_batch(
+            obj_rot,
+            probe_real, probe_imag,
+            energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+            obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
+            fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
+            type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention)
+
+        return ex_real, ex_imag
+
+    def get_loss_function(self):
+        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
+                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                           probe_pos_correction, this_ind_batch, tilt_ls):
+            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                                  probe_pos_correction, this_ind_batch, tilt_ls)
+            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
+
+            ds_level = self.common_vars['ds_level']
+            theta_downsample = self.common_vars['theta_downsample']
+            if theta_downsample is None: theta_downsample = 1
+
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
+            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            if ds_level > 1:
+                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+
+            if self.loss_function_type == 'lsq':
+                if self.raw_data_type == 'magnitude':
+                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
+                elif self.raw_data_type == 'intensity':
+                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
+            elif self.loss_function_type == 'poisson':
+                if self.raw_data_type == 'magnitude':
+                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
+                elif self.raw_data_type == 'intensity':
+                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            loss = loss + self.get_regularization_value(obj)
+            self.current_loss = float(w.to_numpy(loss))
+            return loss
+
         return calculate_loss
 
 
@@ -457,7 +545,7 @@ class SparseMultisliceModel(ForwardModel):
                     this_probe_real_ls = probe_real_ls[:, 0, :, :]
                     this_probe_imag_ls = probe_imag_ls[:, 0, :, :]
                 ex_real, ex_imag = sparse_multislice_propagate_batch(u, v,
-                                *w.split_channel(subobj_ls), this_probe_real_ls,
+                                subobj_ls, this_probe_real_ls,
                                 this_probe_imag_ls, energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
@@ -475,7 +563,7 @@ class SparseMultisliceModel(ForwardModel):
                         this_probe_real_ls = probe_real_ls[:, i_mode, :, :]
                         this_probe_imag_ls = probe_imag_ls[:, i_mode, :, :]
                     temp_real, temp_imag = sparse_multislice_propagate_batch(
-                                u, v, *w.split_channel(subobj_ls),
+                                u, v, subobj_ls,
                                 this_probe_real_ls, this_probe_imag_ls,
                                 energy_ev, psize_cm * ds_level, slice_pos_cm_ls, free_prop_cm=free_prop_cm,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
@@ -720,7 +808,7 @@ class MultiDistModel(ForwardModel):
                 ex_imag = []
                 for i_mode in range(n_probe_modes):
                     temp_real, temp_imag = multislice_propagate_batch(
-                        *w.split_channel(subobj_ls_ls[k]),
+                        subobj_ls_ls[k],
                         subprobe_real_ls_ls[k][:, i_mode, :, :], subprobe_imag_ls_ls[k][i_mode, :, :],
                         energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
                         obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
