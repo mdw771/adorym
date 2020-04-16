@@ -183,7 +183,7 @@ def multislice_propagate_batch(grid_delta_batch, grid_beta_batch, probe_real, pr
                 i_bin = 0
 
     if free_prop_cm not in [0, None]:
-        if free_prop_cm == 'inf':
+        if isinstance(free_prop_cm, str) and free_prop_cm == 'inf':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
             if sign_convention == 1:

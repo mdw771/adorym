@@ -377,6 +377,41 @@ def create_batches(arr, batch_size):
     return batches
 
 
+def rescale(arr, scale, device=None, override_backend=None):
+
+    arr_size = arr.shape[1:]
+    image_center = [floor(x / 2) for x in arr_size]
+    x, y = np.arange(arr_size[1]), np.arange(arr_size[0])
+    xx, yy = np.meshgrid(x, y)
+    xx = xx - image_center[1]
+    yy = yy - image_center[0]
+    xx = w.create_variable(xx, requires_grad=False, device=device, override_backend=override_backend)
+    yy = w.create_variable(yy, requires_grad=False, device=device, override_backend=override_backend)
+    coord_old_1 = w.reshape(yy / scale + image_center[0], [arr_size[0] * arr_size[1]], override_backend=override_backend)
+    coord_old_2 = w.reshape(xx / scale + image_center[1], [arr_size[0] * arr_size[1]], override_backend=override_backend)
+    coord_old_1 = w.clip(coord_old_1, 0, arr_size[0] - 1, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, arr_size[1] - 1, override_backend=override_backend)
+
+    coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+    coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+    coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
+    coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
+    integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
+    integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
+
+    fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+    fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+    fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+    fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+    vals_ff = arr[:, coord_old_floor_1, coord_old_floor_2]
+    vals_fc = arr[:, coord_old_floor_1, coord_old_ceil_2]
+    vals_cf = arr[:, coord_old_ceil_1, coord_old_floor_2]
+    vals_cc = arr[:, coord_old_ceil_1, coord_old_ceil_2]
+    vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
+    arr_zoomed = w.reshape(vals, arr.shape, override_backend=override_backend)
+    return arr_zoomed
+
+
 def get_cooridnates_stack_for_rotation(array_size, axis=0):
     image_center = [floor(x / 2) for x in array_size]
     coords_ls = []
@@ -1870,3 +1905,10 @@ def get_multiprocess_distribution_index(size, n_ranks):
         else:
             task_ls.append(None)
     return task_ls
+
+# if __name__ == '__main__':
+#     img1 = np.squeeze(dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/rad_avg_FF_corr_0_4.tif'))
+#     img2 = np.squeeze(dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/rad_avg_FF_corr_0_3.tif'))
+#     img = np.stack([img1, img2])
+#     img_new = rescale(img, 1.5, override_backend='autograd')
+#     dxchange.write_tiff(img_new, '/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/zoomed', dtype='float32', overwrite=True)

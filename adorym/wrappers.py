@@ -55,6 +55,9 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
                       'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool'},
                       }
 
+pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
+                                    tc.float64: 'float64'}
+
 # _____________
 # |Flow control|_____________________________________________________________
 
@@ -135,7 +138,7 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
         dx_ls = []
         for i, node in enumerate(kwargs_ls):
             if i in opt_args_ls: dx_ls.append(node)
-        grads = tag.grad(l, dx_ls, retain_graph=True, create_graph=False)
+        grads = tag.grad(l, dx_ls, retain_graph=True, create_graph=False, allow_unused=False)
         # grads = []
         # l.backward(retain_graph=True)
         # for n in dx_ls:
@@ -550,11 +553,13 @@ def sqrt(var):
 
 def mean(var, axis=None):
     args = {}
-    if axis is not None:
-        args['dim'] = axis
     if global_settings.backend == 'autograd':
+        if axis is not None:
+            args['axis'] = axis
         return anp.mean(var, **args)
     elif global_settings.backend == 'pytorch':
+        if axis is not None:
+            args['dim'] = axis
         return tc.mean(var, **args)
 
 
@@ -612,13 +617,17 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
     """
     bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
+    mode_dict = {'contant': {'autograd': 'contant', 'pytorch': 'contant'},
+                 'edge':    {'autograd': 'edge',    'pytorch': 'replicate'},
+                 'reflect': {'autograd': 'reflect', 'pytorch': 'reflect'},
+                 'wrap':    {'autograd': 'wrap',    'pytorch': 'circular'}}
     if mode == 'constant':
         args['constant_values'] = 0
     if bn == 'autograd':
-        return anp.pad(var, pad_len, mode=mode, **args)
+        return anp.pad(var, pad_len, mode=mode_dict[mode][bn], **args)
     elif bn == 'pytorch':
         pad_len = [x for y in pad_len[::-1] for x in y]
-        return tc.nn.functional.pad(var, pad_len, mode=mode, value=constant_values)
+        return tc.nn.functional.pad(var, pad_len, mode=mode_dict[mode][bn], value=constant_values)
     elif bn == 'numpy':
         return np.pad(var, pad_len, mode=mode, **args)
 
@@ -700,3 +709,22 @@ def matmul(a, b, override_backend=None):
         return anp.matmul(a, b)
     elif bn == 'pytorch':
         return tc.matmul(a, b)
+
+
+def affine_transform(arr, transform, override_backend=None):
+    """
+    :param arr: a stack of 2D images in [N, H, W].
+    :param transform: A [2, 3] matrix for affine transform.
+    """
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        raise NotImplementedError('Rescaling in Autograd is not yet implemented. Use Pytorch backend instead.')
+    elif bn == 'pytorch':
+        n = arr.shape[0]
+        arr_size = arr.shape[1:]
+        m = reshape(transform, [-1, 2, 3])
+        m = cast(tile(m, [n, 1, 1]), pytorch_dtype_query_mapping_dict[arr.dtype])
+        g = tc.nn.functional.affine_grid(m, [n, 1, *arr_size])
+        arr_new = tc.reshape(arr, [n, 1, *arr.shape[1:]])
+        arr_new = tc.nn.functional.grid_sample(arr_new, g, padding_mode='border')
+        return arr_new[:, 0, :, :]

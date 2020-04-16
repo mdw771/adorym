@@ -564,11 +564,11 @@ class MultiDistModel(ForwardModel):
         # ==========================================================================================
         self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width']
+                            'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width', 'prj_affine_ls']
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width):
+                probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls):
 
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']
@@ -754,20 +754,21 @@ class MultiDistModel(ForwardModel):
     def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width):
+                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls):
 
             beamstop = self.common_vars['beamstop']
             ds_level = self.common_vars['ds_level']
             optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
             optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
+            optimize_prj_affine = self.common_vars['optimize_prj_affine']
             device_obj = self.common_vars['device_obj']
             minibatch_size =self.common_vars['minibatch_size']
             theta_downsample = self.common_vars['theta_downsample']
             if theta_downsample is None: theta_downsample = 1
 
             ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width)
+                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                                  probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
             if self.common_vars['n_probe_modes'] == 1:
                 this_pred_batch = this_pred_batch[:, 0, :, :]
@@ -783,6 +784,14 @@ class MultiDistModel(ForwardModel):
             this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
                 this_prj_batch = this_prj_batch[:, :ds_level, ::ds_level]
+
+            if optimize_prj_affine:
+                scaled_prj_ls = []
+                for i in range(n_dists):
+                    this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
+                    this_prj_batch_idist = w.affine_transform(this_prj_batch_idist, prj_affine_ls[i])
+                    scaled_prj_ls.append(this_prj_batch_idist)
+                this_prj_batch = w.concatenate(scaled_prj_ls)
 
             if optimize_probe_pos_offset:
                 this_offset = probe_pos_offset[this_i_theta]

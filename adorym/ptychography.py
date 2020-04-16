@@ -87,6 +87,7 @@ def reconstruct_ptychography(
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
         optimize_free_prop=False, free_prop_learning_rate=1e-2,
+        optimize_prj_affine=False, prj_affine_learning_rate=1e-3,
         optimize_tilt=False, tilt_learning_rate=1e-3,
         # _________________________
         # |Alternative algorithms |_____________________________________________
@@ -520,6 +521,7 @@ def reconstruct_ptychography(
         else:
             probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
                                                      requires_grad=optimize_all_probe_pos, device=device_obj)
+            n_dists = 1
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
             optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
@@ -540,8 +542,8 @@ def reconstruct_ptychography(
                 opt_ls.append(opt_slice_pos)
 
         if is_multi_dist:
-            free_prop_cm = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
             if optimize_free_prop:
+                free_prop_cm = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
                 optimizer_options_free_prop = {'step_size': free_prop_learning_rate}
                 opt_free_prop = AdamOptimizer(free_prop_cm.shape, output_folder=output_folder, options_dict=optimizer_options_free_prop)
                 opt_free_prop.create_param_arrays(device=device_obj)
@@ -560,6 +562,18 @@ def reconstruct_ptychography(
             opt_tilt.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('tilt_ls'))
             opt_ls.append(opt_tilt)
+
+        prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
+        prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
+        if optimize_prj_affine:
+            prj_affine_ls = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=True)
+            optimizer_options_prj_scale = {'step_size': prj_affine_learning_rate}
+            opt_prj_affine = AdamOptimizer(prj_affine_ls.shape, output_folder=output_folder,
+                                          options_dict=optimizer_options_prj_scale)
+            opt_prj_affine.create_param_arrays(device=device_obj)
+            opt_prj_affine.set_index_in_grad_return(len(opt_args_ls))
+            opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
+            opt_ls.append(opt_prj_affine)
 
         # ================================================================================
         # Use ePIE?
@@ -866,7 +880,10 @@ def reconstruct_ptychography(
                         free_prop_grads = w.zeros_like(grads[opt_free_prop.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
                     if optimize_tilt:
-                        tilt_grads = w.zeros_like(grads[optimize_tilt.index_in_grad_returns], requires_grad=False,
+                        tilt_grads = w.zeros_like(grads[opt_tilt.index_in_grad_returns], requires_grad=False,
+                                                device=device_obj)
+                    if optimize_prj_affine:
+                        prj_affine_grads = w.zeros_like(grads[opt_prj_affine.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
                 if optimize_probe:
                     probe_grads += w.stack(grads[1:3], axis=-1)
@@ -881,7 +898,9 @@ def reconstruct_ptychography(
                 if optimize_free_prop:
                     free_prop_grads += grads[opt_free_prop.index_in_grad_returns]
                 if optimize_tilt:
-                    tilt_ls += grads[opt_tilt.index_in_grad_returns]
+                    tilt_grads += grads[opt_tilt.index_in_grad_returns]
+                if optimize_prj_affine:
+                    prj_affine_grads += grads[opt_prj_affine.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
@@ -1002,6 +1021,13 @@ def reconstruct_ptychography(
                                                                        **opt_free_prop.options_dict)
                     w.reattach(free_prop_cm)
 
+                if optimize_prj_affine:
+                    with w.no_grad():
+                        prj_affine_grads = comm.allreduce(prj_affine_grads)
+                        prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
+                                                                       **opt_prj_affine.options_dict)
+                    w.reattach(prj_affine_ls)
+
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
                 # rotate the gradient back, and use it to update the object at 0 deg. Then
@@ -1111,6 +1137,13 @@ def reconstruct_ptychography(
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'tilt',
                                                     'tilt_{}.txt'.format(i_epoch)),
                                        w.to_numpy(tilt_ls))
+
+                        if optimize_prj_affine:
+                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'prj_scale')):
+                                os.makedirs(os.path.join(output_folder, 'intermediate', 'prj_scale'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_scale',
+                                                    'prj_scale_{}.txt'.format(i_epoch)),
+                                       np.concatenate(w.to_numpy(prj_affine_ls), 0))
                 comm.Barrier()
 
                 # ================================================================================
