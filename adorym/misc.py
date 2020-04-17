@@ -95,6 +95,16 @@ SUMMARY_PRESET_FF = ['obj_size',
                      'n_ranks']
 
 
+def create_directory_multirank(path):
+
+    if not os.path.exists(path):
+        comm.Barrier()
+        if rank == 0:
+            os.makedirs(path)
+        comm.Barrier()
+    return
+
+
 def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=True):
 
     if preset == 'ptycho':
@@ -123,8 +133,7 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
 def save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=None, obj_array=None, optimizer=None):
 
     path = os.path.join(output_folder, 'checkpoint')
-    if not os.path.exists(path):
-        os.makedirs(path)
+    create_directory_multirank(path)
     np.savetxt(os.path.join(path, 'checkpoint.txt'),
                np.array([i_epoch, i_batch]), fmt='%d')
     if distribution_mode is None:
@@ -140,14 +149,15 @@ def save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=None, obj
 
 def restore_checkpoint(output_folder, distribution_mode=None, optimizer=None):
 
-    i_epoch, i_batch = [int(i) for i in np.loadtxt(os.path.join(output_folder, 'checkpoint.txt'))]
+    path = os.path.join(output_folder, 'checkpoint')
+    i_epoch, i_batch = [int(i) for i in np.loadtxt(os.path.join(path, 'checkpoint.txt'))]
     if distribution_mode is None:
-        obj = np.load(os.path.join(output_folder, 'obj_checkpoint.npy'))
+        obj = np.load(os.path.join(path, 'obj_checkpoint.npy'))
         optimizer.restore_param_arrays_from_checkpoint()
         return i_epoch, i_batch, obj
     elif distribution_mode == 'distributed_object':
-        obj = np.load(os.path.join(output_folder, 'obj_checkpoint_rank_{}.npy'.format(rank)))
+        obj = np.load(os.path.join(path, 'obj_checkpoint_rank_{}.npy'.format(rank)))
         optimizer.restore_distributed_param_arrays_from_checkpoint()
         return i_epoch, i_batch, obj
-    else:
+    elif distribution_mode == 'shared_file':
         return i_epoch, i_batch

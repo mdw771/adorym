@@ -25,6 +25,7 @@ from scipy.special import erf
 from adorym.constants import *
 import adorym.wrappers as w
 from adorym.propagate import *
+from adorym.misc import *
 import adorym.global_settings as global_settings
 
 
@@ -1784,6 +1785,7 @@ def write_subblocks_to_file_with_tilt(dset, this_pos_batch, obj_delta, obj_beta,
 def output_object(obj, distribution_mode, output_folder, unknown_type='delta_beta',
                   full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
 
+    create_directory_multirank(output_folder)
     if distribution_mode == 'shared_file':
         obj0 = obj.dset[:, :, :, 0]
         obj1 = obj.dset[:, :, :, 1]
@@ -1833,6 +1835,7 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
 def output_probe(probe_real, probe_imag, output_folder,
                   full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
 
+    create_directory_multirank(output_folder)
     probe_real = w.to_numpy(probe_real)
     probe_imag = w.to_numpy(probe_imag)
     if full_output:

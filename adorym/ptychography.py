@@ -69,7 +69,7 @@ def reconstruct_ptychography(
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
-        store_checkpoint=True, use_checkpoint=True,
+        store_checkpoint=True, use_checkpoint=True, n_batch_per_checkpoint=10,
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
@@ -345,6 +345,7 @@ def reconstruct_ptychography(
         elif use_checkpoint and (distribution_mode != 'shared_file'):
             try:
                 starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
+                print(starting_epoch, starting_batch)
             except:
                 needs_initialize = True
 
@@ -701,11 +702,12 @@ def reconstruct_ptychography(
                 # Initialize batch.
                 # ================================================================================
                 print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), 0, rank, **stdout_options)
+                starting_batch = 0
 
                 # ================================================================================
                 # Save checkpoint.
                 # ================================================================================
-                if store_checkpoint:
+                if store_checkpoint and i_batch % n_batch_per_checkpoint == 0:
                     if distribution_mode == 'shared_file':
                         obj.f.flush()
                         obj_arr = None
@@ -1127,12 +1129,13 @@ def reconstruct_ptychography(
                                          full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                          save_history=save_history)
                         if optimize_probe_pos_offset:
-                            f_offset = open(os.path.join(output_folder, 'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos_offset'))
+                            f_offset = open(os.path.join(output_folder, 'intermediate', 'probe_pos_offset',
+                                                         'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
                             f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
                             f_offset.close()
                         elif optimize_all_probe_pos:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'probe_pos')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'probe_pos'))
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos'))
                             for i_theta_pos in range(n_theta):
                                 if is_multi_dist:
                                     np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
@@ -1143,29 +1146,25 @@ def reconstruct_ptychography(
                                                             'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
                                                             w.to_numpy(probe_pos_correction[i_theta_pos]))
                         if optimize_slice_pos:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'slice_pos')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'slice_pos'))
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'slice_pos'))
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
                                                     'slice_pos_correction_{}.txt'.format(i_epoch)),
                                        w.to_numpy(slice_pos_cm_ls))
 
                         if optimize_free_prop:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'free_prop_cm')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'free_prop_cm'))
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'free_prop_cm'))
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'free_prop_cm',
                                                     'free_prop_correction_{}.txt'.format(i_epoch)),
                                        w.to_numpy(free_prop_cm))
 
                         if optimize_tilt:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'tilt')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'tilt'))
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'tilt'))
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'tilt',
                                                     'tilt_{}.txt'.format(i_epoch)),
                                        w.to_numpy(tilt_ls))
 
                         if optimize_prj_affine:
-                            if not os.path.exists(os.path.join(output_folder, 'intermediate', 'prj_affine')):
-                                os.makedirs(os.path.join(output_folder, 'intermediate', 'prj_affine'))
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'prj_affine'))
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_affine',
                                                     'prj_affine_{}.txt'.format(i_epoch)),
                                        np.concatenate(w.to_numpy(prj_affine_ls), 0))
