@@ -514,8 +514,8 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None
         coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
-    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
+    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 2, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 2, override_backend=override_backend)
 
     if interpolation == 'nearest':
         slicer = [slice(None), slice(None), slice(None)]
@@ -524,27 +524,20 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None
         obj_rot = w.reshape(obj[slicer], s, override_backend=override_backend)
     else:
         coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
-        coord_old_ceil_1 = w.ceil_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+        coord_old_ceil_1 = coord_old_floor_1 + 1
         coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
-        coord_old_ceil_2 = w.ceil_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
-        # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
-        # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
-        coord_old_floor_1 = w.clip(coord_old_floor_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
-        coord_old_floor_2 = w.clip(coord_old_floor_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
-        coord_old_ceil_1 = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
-        coord_old_ceil_2 = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
-        integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
-        integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
+        coord_old_ceil_2 = coord_old_floor_2 + 1
 
         obj_rot = []
-        fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-        fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
-        fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+        fac_ff = (coord_old_ceil_1 - coord_old_1) * (coord_old_ceil_2 - coord_old_2)
+        fac_fc = (coord_old_ceil_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+        fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 - coord_old_2)
         fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
         fac_ff = w.stack([fac_ff] * 2, axis=1, override_backend=override_backend)
         fac_fc = w.stack([fac_fc] * 2, axis=1, override_backend=override_backend)
         fac_cf = w.stack([fac_cf] * 2, axis=1, override_backend=override_backend)
         fac_cc = w.stack([fac_cc] * 2, axis=1, override_backend=override_backend)
+
         for i_slice in range(s[axis]):
             slicer_ff = [i_slice, i_slice, i_slice]
             slicer_ff[axes_rot[0]] = coord_old_floor_1
@@ -588,8 +581,8 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
             coord_old_2 = coord_old[:, 1]
 
         # Clip coords, so that edge values are used for out-of-array indices
-        coord_old_1 = np.clip(coord_old_1, 0, s[1] - 1)
-        coord_old_2 = np.clip(coord_old_2, 0, s[2] - 1)
+        coord_old_1 = np.clip(coord_old_1, 0, s[1] - 2)
+        coord_old_2 = np.clip(coord_old_2, 0, s[2] - 2)
 
     if precalculate_rotation_coords:
         if interpolation == 'nearest':
@@ -599,20 +592,16 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
                 dset_2[i_slice] = obj_rot
         else:
             coord_old_floor_1 = np.floor(coord_old_1).astype(int)
-            coord_old_ceil_1 = np.ceil(coord_old_1).astype(int)
+            coord_old_ceil_1 = coord_old_floor_1 + 1
             coord_old_floor_2 = np.floor(coord_old_2).astype(int)
-            coord_old_ceil_2 = np.ceil(coord_old_2).astype(int)
-            # integer_mask_1 = (abs(coord_old_ceil_1 - coord_old_1) < 1e-5).astype(int)
-            # integer_mask_2 = (abs(coord_old_ceil_2 - coord_old_2) < 1e-5).astype(int)
+            coord_old_ceil_2 = coord_old_floor_2 + 1
             coord_old_floor_1 = np.clip(coord_old_floor_1, 0, s[1] - 1)
             coord_old_floor_2 = np.clip(coord_old_floor_2, 0, s[2] - 1)
             coord_old_ceil_1 = np.clip(coord_old_ceil_1, 0, s[1] - 1)
             coord_old_ceil_2 = np.clip(coord_old_ceil_2, 0, s[2] - 1)
-            integer_mask_1 = abs(coord_old_ceil_1 - coord_old_floor_1) < 1e-5
-            integer_mask_2 = abs(coord_old_ceil_2 - coord_old_floor_2) < 1e-5
-            fac_ff = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
-            fac_fc = (coord_old_ceil_1 + integer_mask_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
-            fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 + integer_mask_2 - coord_old_2)
+            fac_ff = (coord_old_ceil_1 - coord_old_1) * (coord_old_ceil_2 - coord_old_2)
+            fac_fc = (coord_old_ceil_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+            fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 - coord_old_2)
             fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
             if not monochannel:
                 fac_ff = np.stack([fac_ff] * 2, axis=1)
@@ -1908,10 +1897,3 @@ def get_multiprocess_distribution_index(size, n_ranks):
         else:
             task_ls.append(None)
     return task_ls
-
-# if __name__ == '__main__':
-#     img1 = np.squeeze(dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/rad_avg_FF_corr_0_4.tif'))
-#     img2 = np.squeeze(dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/rad_avg_FF_corr_0_3.tif'))
-#     img = np.stack([img1, img2])
-#     img_new = rescale(img, 1.5, override_backend='autograd')
-#     dxchange.write_tiff(img_new, '/home/beams/B282788/Data/programs/adorym_tests/2bm_multidist_abs/raw/data_registered/zoomed', dtype='float32', overwrite=True)
