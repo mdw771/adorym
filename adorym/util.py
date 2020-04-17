@@ -850,7 +850,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
 
 def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks,
-                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split=3,
+                                                minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
                                                 dtype='float32'):
 
     s = obj.shape[1:]
@@ -880,6 +880,11 @@ def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, pro
                     continue
                 if (their_slice_range[0] - my_chunk_slice_range[1]) * (their_slice_range[1] - my_chunk_slice_range[0]) < 0:
                     my_chunk = obj[i_pos]
+                    # Trim top/bottom
+                    if my_pos[0] < their_slice_range[0]:
+                        my_chunk = my_chunk[their_slice_range[0] - my_pos[0]:]
+                    if my_pos[0] + probe_size[0] > their_slice_range[1]:
+                        my_chunk = my_chunk[:-(my_pos[0] + probe_size[0] - their_slice_range[1])]
                     for i_split in range(n_split):
                         step = s[2] // n_split
                         st = step * i_split
@@ -925,11 +930,7 @@ def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, pro
                     ind_pos += 1
                     line_st = 0
                     line_end = my_slab.shape[0]
-                    # Pad/trim top-bottom.
-                    if their_pos[0] < my_slice_range[0]:
-                        their_chunk = their_chunk[my_slice_range[0] - their_pos[0]:]
-                    if their_pos[0] + probe_size[0] > my_slice_range[1]:
-                        their_chunk = their_chunk[:-(their_pos[0] + probe_size[0] - my_slice_range[1])]
+                    # Calculate top/bottom insertion range.
                     if their_slice_range[0] > my_slice_range[0]:
                         line_st += their_slice_range[0] - my_slice_range[0]
                     if their_slice_range[1] < my_slice_range[1]:
@@ -1897,3 +1898,16 @@ def get_multiprocess_distribution_index(size, n_ranks):
         else:
             task_ls.append(None)
     return task_ls
+
+
+if __name__ == '__main__':
+    n_ranks = 128
+    rank = 28
+    this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks)], axis=1)
+    f = h5py.File('/home/beams/B282788/Data/programs/adorym_tests/charcoal/data_128.h5')
+    probe_pos = f['metadata/probe_pos_px']
+    obj = np.random.rand(1, 100, 104, 1664, 2)
+    my_slab = np.random.rand(7, 100, 1664, 2)
+    slice_catalog = get_multiprocess_distribution_index(800, n_ranks)
+    sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks, 1,
+                                                [100, 104], [800, 1664, 1664, 2])
