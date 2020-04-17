@@ -116,30 +116,33 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape, sign_convention=1):
 def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
-                               normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None):
+                               normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
+                               scale_ri_by_k=True):
 
-    minibatch_size = obj_batch_shape[0]
-    grid_shape = obj_batch_shape[1:]
+    minibatch_size = grid_batch.shape[0]
+    grid_shape = grid_batch.shape[1:-1]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
 
     lmbda_nm = 1240. / energy_ev
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
     size_nm = np.array(grid_shape) * voxel_nm
 
-    n_slices = obj_batch_shape[-1]
+    n_slices = grid_batch.shape[-2]
     delta_nm = voxel_nm[-1]
 
     if pure_projection:
-        k1 = 2. * PI * delta_nm * n_slices / lmbda_nm
+        k1 = 2. * PI * delta_nm * n_slices / lmbda_nm if scale_ri_by_k else 1.
         if type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-            delta_slice = w.sum(grid_batch, axis=-2)[:, :, :, 0]
-            beta_slice = w.sum(grid_batch, axis=-2)[:, :, :, 1]
+            p = w.sum(grid_batch, axis=-2)
+            delta_slice = p[:, :, :, 0]
+            beta_slice = p[:, :, :, 1]
             c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
-            delta_slice = w.prod(grid_batch, axis=-2)[:, :, :, 0]
-            beta_slice = w.prod(grid_batch, axis=-2)[:, :, :, 1]
+            p = w.prod(grid_batch, axis=-2)
+            delta_slice = p[:, :, :, 0]
+            beta_slice = p[:, :, :, 1]
             c_real, c_imag = delta_slice, beta_slice
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
@@ -158,7 +161,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
 
         i_bin = 0
         for i in range(n_slices):
-            k1 = 2. * PI * delta_nm / lmbda_nm
+            k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             # At the start of bin, initialize slice array.
             delta_slice = grid_batch[:, :, :, i, 0]
             beta_slice = grid_batch[:, :, :, i, 1]
@@ -204,10 +207,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
 
 def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                       slice_pos_cm_ls, free_prop_cm=None, obj_batch_shape=None, fresnel_approx=True,
-                                      device=None, type='delta_beta', normalize_fft=False, sign_convention=1):
+                                      device=None, type='delta_beta', normalize_fft=False, sign_convention=1, scale_ri_by_k=True):
 
-    minibatch_size = obj_batch_shape[0]
-    grid_shape = obj_batch_shape[1:]
+    minibatch_size = grid_batch.shape[0]
+    grid_shape = grid_batch.shape[1:-1]
     voxel_nm = np.array([psize_cm] * 3) * 1.e7
 
     lmbda_nm = 1240. / energy_ev
@@ -215,7 +218,7 @@ def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, 
     size_nm = np.array(grid_shape) * voxel_nm
     slice_pos_nm_ls = slice_pos_cm_ls * 1e7
 
-    n_slices = obj_batch_shape[-1]
+    n_slices = grid_batch.shape[-2]
     delta_nm = voxel_nm[-1]
 
     for i in range(n_slices):
@@ -223,7 +226,7 @@ def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, 
         delta_slice = grid_batch[:, :, :, i, 0]
         beta_slice = grid_batch[:, :, :, i, 1]
 
-        k1 = 2. * PI * delta_nm / lmbda_nm
+        k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
         if type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
