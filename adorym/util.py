@@ -498,6 +498,21 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None
     # PyTorch CPU doesn't support float16 computation.
     if global_settings.backend == 'pytorch' and device is None:
         coord_old = coord_old.astype('float64')
+    try:
+        obj_rot = w.grid_sample(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
+    except:
+        warnings.warn('PyTorch is not available, so I am applying rotation using apply_rotation_primitive which may '
+                      'lead to lower performance. Installing PyTorch is strongly recommnended even if you do not'
+                      'wish to use the PyTorch backend for AD.')
+        obj_rot = apply_rotation_primitive(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
+    return obj_rot
+
+
+def apply_rotation_primitive(obj, coord_old, interpolation='bilinear', axis=0, device=None, override_backend=None):
+
+    # PyTorch CPU doesn't support float16 computation.
+    if global_settings.backend == 'pytorch' and device is None:
+        coord_old = coord_old.astype('float64')
 
     s = obj.shape
     axes_rot = []
@@ -1899,15 +1914,3 @@ def get_multiprocess_distribution_index(size, n_ranks):
             task_ls.append(None)
     return task_ls
 
-
-if __name__ == '__main__':
-    n_ranks = 128
-    rank = 28
-    this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks)], axis=1)
-    f = h5py.File('/home/beams/B282788/Data/programs/adorym_tests/charcoal/data_128.h5')
-    probe_pos = f['metadata/probe_pos_px']
-    obj = np.random.rand(1, 100, 104, 1664, 2)
-    my_slab = np.random.rand(7, 100, 1664, 2)
-    slice_catalog = get_multiprocess_distribution_index(800, n_ranks)
-    sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks, 1,
-                                                [100, 104], [800, 1664, 1664, 2])

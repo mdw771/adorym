@@ -610,10 +610,11 @@ def imag(var, override_backend=None):
     return arr
 
 
-def tile(var, cp):
-    if global_settings.backend == 'autograd':
+def tile(var, cp, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
         return anp.tile(var, cp)
-    elif global_settings.backend == 'pytorch':
+    elif bn == 'pytorch':
         return var.repeat(*cp)
 
 
@@ -710,6 +711,54 @@ def swap_axes(arr, axes=(0, 1)):
         return tc.transpose(arr, axes[0], axes[1])
 
 
+def permute_axes(arr, axes_order, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        return anp.transpose(arr, axes_order)
+    elif bn == 'pytorch':
+        return arr.permute(axes_order)
+
+
+def grid_sample(arr, grid, interpolation='bilinear', axis=0, device=None):
+    """
+    :param arr: a stack of 2D images in [N, H, W, C].
+    :param grid: [N, 2].
+    """
+    assert flag_pytorch_avail, 'Wrapper function grid_sample requires Pytorch.'
+    flag_convert_arr = False
+    if not isinstance(arr, tc.Tensor):
+        flag_convert_arr = True
+        arr = tc.tensor(arr, requires_grad=False, device=device)
+    if not isinstance(grid, tc.Tensor):
+        grid = tc.tensor(grid, requires_grad=False, device=device)
+    # x coordinates comes first in torch.grid_sample.
+    grid = tc.flip(grid, (1,))
+
+    axis_arrangement = [0, 1, 2, 3]
+    # Move channel to the 2nd dimension.
+    axis_arrangement[1], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[1]
+    # Move invariant axis to front.
+    if axis != 0:
+        q = axis_arrangement.index(axis)
+        axis_arrangement[0], axis_arrangement[q] = axis_arrangement[q], axis_arrangement[0]
+    if axis_arrangement[2] > axis_arrangement[3]:
+        axis_arrangement[2], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[2]
+    arr = permute_axes(arr, axis_arrangement, override_backend='pytorch')
+
+    # Convert grid to [0, 1] scale.
+    arr_center = (tc.tensor(arr.shape[2:4], requires_grad=False, device=device) - 1) / 2
+    grid = (grid - arr_center) / (arr_center + 0.5)
+    grid = reshape(grid, [1, *arr.shape[2:4], 2], override_backend='pytorch')
+    grid = tile(grid, [arr.shape[0], 1, 1, 1], override_backend='pytorch')
+    grid = cast(grid, pytorch_dtype_query_mapping_dict[arr.dtype], override_backend='pytorch')
+    arr = tc.nn.functional.grid_sample(arr, grid, padding_mode='border', mode=interpolation)
+    arr = permute_axes(arr, [axis_arrangement.index(0), axis_arrangement.index(1),
+                             axis_arrangement.index(2), axis_arrangement.index(3)], override_backend='pytorch')
+    if flag_convert_arr:
+        arr = arr.data.numpy()
+    return arr
+
+
 def matmul(a, b, override_backend=None):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
@@ -750,26 +799,24 @@ def rotate(arr, theta, axis=0, override_backend=None):
 
         axis_arrangement = [0, 1, 2, 3]
         # Move channel to the 2nd dimension.
-        arr = swap_axes(arr, (1, 3))
         axis_arrangement[1], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[1]
         # Move invariant axis to front.
         if axis != 0:
             q = axis_arrangement.index(axis)
-            arr = swap_axes(arr, (0, q))
             axis_arrangement[0], axis_arrangement[q] = axis_arrangement[q], axis_arrangement[0]
-
         if axis_arrangement[2] < axis_arrangement[3]:
             theta = -theta
-        naught = cast(tc.tensor([0.]), pytorch_dtype_query_mapping_dict[theta.dtype])
+        arr = permute_axes(arr, axis_arrangement, override_backend='pytorch')
+        naught = cast(tc.tensor([0.]), pytorch_dtype_query_mapping_dict[theta.dtype], override_backend='pytorch')
         m0 = tc.cat([tc.cos(theta), -tc.sin(theta), naught])
         m1 = tc.cat([tc.sin(theta), tc.cos(theta), naught])
         m = tc.stack([m0, m1]).view(1, 2, 3)
-        m = cast(tile(m, [arr.shape[0], 1, 1]), pytorch_dtype_query_mapping_dict[arr.dtype])
+        m = cast(tile(m, [arr.shape[0], 1, 1], override_backend='pytorch'), pytorch_dtype_query_mapping_dict[arr.dtype], override_backend='pytorch')
         g = tc.nn.functional.affine_grid(m, arr.shape)
 
         arr = tc.nn.functional.grid_sample(arr, g, padding_mode='border')
-        if axis != 0:
-            arr = swap_axes(arr, (0, q))
-        arr = swap_axes(arr, (1, 3))
+        arr = permute_axes(arr, [axis_arrangement.index(0), axis_arrangement.index(1),
+                                 axis_arrangement.index(2), axis_arrangement.index(3)], override_backend='pytorch')
         return arr
+
 
