@@ -62,6 +62,7 @@ def reconstruct_ptychography(
         beamstop=None,
         normalize_fft=False, # Use False for simulated data generated without normalization. Normalize for Fraunhofer FFT only
         safe_zone_width=0,
+        scale_ri_by_k=True,
         # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
         # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
         sign_convention=1,
