@@ -778,8 +778,8 @@ def affine_transform(arr, transform, override_backend=None):
     elif bn == 'pytorch':
         n = arr.shape[0]
         arr_size = arr.shape[1:]
-        m = reshape(transform, [-1, 2, 3])
-        m = cast(tile(m, [n, 1, 1]), pytorch_dtype_query_mapping_dict[arr.dtype])
+        m = reshape(transform, [-1, 2, 3], override_backend=override_backend)
+        m = cast(tile(m, [n, 1, 1], override_backend=override_backend), pytorch_dtype_query_mapping_dict[arr.dtype], override_backend=override_backend)
         g = tc.nn.functional.affine_grid(m, [n, 1, *arr_size])
         arr_new = tc.reshape(arr, [n, 1, *arr.shape[1:]])
         arr_new = tc.nn.functional.grid_sample(arr_new, g, padding_mode='border')
