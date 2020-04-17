@@ -645,6 +645,7 @@ def reconstruct_ptychography(
             if not two_d_mode:
                 theta_ind_ls = np.arange(n_theta)
                 np.random.shuffle(theta_ind_ls)
+                comm.Bcast(theta_ind_ls, root=0)
             else:
                 temp = abs(theta_ls - theta_st) < 1e-5
                 i_theta = np.nonzero(temp)[0][0]
