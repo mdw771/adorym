@@ -709,7 +709,7 @@ def reconstruct_ptychography(
                         obj_arr = None
                     else:
                         obj_arr = w.to_numpy(obj.arr)
-                    if rank == 0:
+                    if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
                         save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
                                         obj_array=obj_arr, optimizer=opt)
 

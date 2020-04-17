@@ -1825,8 +1825,7 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
                 fname1 = 'obj_phase'
         if distribution_mode == 'distributed_object':
             fname0 += '_rank_{}'.format(rank)
-            if full_output:
-                fname1 += '_rank_{}'.format(rank)
+            fname1 += '_rank_{}'.format(rank)
         dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
         dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
