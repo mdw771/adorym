@@ -162,7 +162,7 @@ def reconstruct_ptychography(
     if two_d_mode:
         n_theta = 1
     prj_theta_ind = np.arange(n_theta, dtype=int)
-    theta_ls = -np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+    theta_ls = np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
         theta_ls = theta_ls[::theta_downsample]
         prj_theta_ind = prj_theta_ind[::theta_downsample]
@@ -743,7 +743,7 @@ def reconstruct_ptychography(
                     t_rot_0 = time.time()
                     if precalculate_rotation_coords:
                         coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                                      this_i_theta, reverse=False)
+                                                      theta_ls[this_i_theta], reverse=False)
                     else:
                         coord_ls = theta_ls[this_i_theta]
                     if distribution_mode == 'shared_file':
@@ -858,7 +858,7 @@ def reconstruct_ptychography(
                     if rotate_out_of_loop:
                         if precalculate_rotation_coords:
                             coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                                           this_i_theta, reverse=True)
+                                                           theta_ls[this_i_theta], reverse=True)
                         else:
                             coord_new = -theta_ls[this_i_theta]
                         gradient.rotate_array(coord_new, interpolation=interpolation,
@@ -1059,7 +1059,7 @@ def reconstruct_ptychography(
                 if distribution_mode and shared_file_update_flag:
                     if precalculate_rotation_coords:
                         coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                                       this_i_theta, reverse=True)
+                                                       theta_ls[this_i_theta], reverse=True)
                     else:
                         coord_new = -theta_ls[this_i_theta]
                     print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)

@@ -471,32 +471,32 @@ def save_rotation_lookup(array_size, theta_ls, dest_folder=None):
         coord_inv = calculate_original_coordinates_for_rotation(array_size, coord_new, -theta, override_backend='autograd')
         # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
         # voxel in the object at that angle.
-        np.save(os.path.join(dest_folder, '{:04}'.format(i_theta)), coord_old.astype('float16'))
-        np.save(os.path.join(dest_folder, '_{:04}'.format(i_theta)), coord_inv.astype('float16'))
+        np.save(os.path.join(dest_folder, '{:.5f}'.format(theta)), coord_old.astype('float16'))
+        np.save(os.path.join(dest_folder, '_{:.5f}'.format(theta)), coord_inv.astype('float16'))
     return None
 
 
-def read_origin_coords(src_folder, index, reverse=False):
+def read_origin_coords(src_folder, theta, reverse=False):
 
     if not reverse:
-        coords = np.load(os.path.join(src_folder, '{:04}.npy'.format(index)), allow_pickle=True)
+        coords = np.load(os.path.join(src_folder, '{:.5f}.npy'.format(theta)), allow_pickle=True)
     else:
-        coords = np.load(os.path.join(src_folder, '_{:04}.npy'.format(index)), allow_pickle=True)
+        coords = np.load(os.path.join(src_folder, '_{:.5f}.npy'.format(theta)), allow_pickle=True)
     return coords
 
 
-def read_all_origin_coords(src_folder, n_theta):
+def read_all_origin_coords(src_folder, theta_ls):
 
     coord_ls = []
-    for i in range(n_theta):
-        coord_ls.append(read_origin_coords(src_folder, i))
+    for theta in range(theta_ls):
+        coord_ls.append(read_origin_coords(src_folder, theta))
     return coord_ls
 
 
 def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None, override_backend=None):
 
     # PyTorch CPU doesn't support float16 computation.
-    if global_settings.backend == 'pytorch' and device is None:
+    if device is None or device == 'cpu':
         coord_old = coord_old.astype('float64')
     try:
         obj_rot = w.grid_sample(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
@@ -635,7 +635,7 @@ def apply_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='biline
     else:
         for i_slice in slice_ls:
             obj = dset[i_slice]
-            obj_rot = sp_rotate(obj, coord_old, axes=(1, 2), reshape=False, order=1, mode='nearest')
+            obj_rot = sp_rotate(obj, -coord_old, axes=(1, 2), reshape=False, order=1, mode='nearest')
             dset_2[i_slice] = obj_rot
 
     return None

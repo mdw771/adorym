@@ -83,9 +83,9 @@ class LargeArray(object):
                 self.arr_rot = apply_rotation(a, coords, interpolation=interpolation, device=d, override_backend=override_backend)
         else:
             if overwrite_arr:
-                self.arr = sp_rotate(a, coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+                self.arr = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
             else:
-                self.arr_rot = sp_rotate(a, coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+                self.arr_rot = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
         if dtype is not None:
             if overwrite_arr:
                 self.arr = w.cast(self.arr, dtype, override_backend=override_backend)

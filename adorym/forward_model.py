@@ -123,7 +123,7 @@ class PtychographyModel(ForwardModel):
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                          this_i_theta, reverse=False)
+                                          theta_ls[this_i_theta], reverse=False)
 
         # Allocate subbatches.
         probe_pos_batch_ls = []
@@ -356,7 +356,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                          this_i_theta, reverse=False)
+                                          theta_ls[this_i_theta], reverse=False)
 
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
@@ -460,7 +460,7 @@ class SparseMultisliceModel(ForwardModel):
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                          this_i_theta, reverse=False)
+                                          theta_ls[this_i_theta], reverse=False)
 
         # Allocate subbatches.
         probe_pos_batch_ls = []
@@ -695,7 +695,7 @@ class MultiDistModel(ForwardModel):
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
-                                          this_i_theta, reverse=False)
+                                          theta_ls[this_i_theta], reverse=False)
 
         n_dists = len(free_prop_cm)
         n_blocks = prj.shape[1] // n_dists

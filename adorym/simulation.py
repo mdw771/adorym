@@ -20,7 +20,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     If probe_type is 'gaussian', supply parameters 'probe_mag_sigma', 'probe_phase_sigma', 'probe_phase_max'.
     """
     def rotate_and_project(theta, obj, probe_pos, i_theta=None):
-        obj_rot = sp_rotate(obj, theta, reshape=False, axes=(1, 2))
+        obj_rot = sp_rotate(obj, -theta, reshape=False, axes=(1, 2))
 
         # Add probe_pos offset error if demanded
         if 'pos_offset_vec' in kwargs.keys() and kwargs['pos_offset_vec'] is not None:
@@ -71,7 +71,7 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
     obj[:, :, :, 1] = grid_beta
 
     # list of angles
-    theta_ls = -np.linspace(theta_st, theta_end, n_theta)
+    theta_ls = np.linspace(theta_st, theta_end, n_theta)
     theta_ls = np.rad2deg(theta_ls)
 
     # create data file
