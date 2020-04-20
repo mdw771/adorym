@@ -37,9 +37,10 @@ flist = np.array(glob.glob(os.path.join(src_dir, prefix + '*.tif*')))
 raw_img = np.squeeze(dxchange.read_tiff(flist[0]))
 raw_img_shape = raw_img.shape
 n_dists = len(dist_cm_ls)
-theta_ls = [int(re.findall(r'\d+', f)[-2]) for f in flist]
+theta_ls_full = [int(re.findall(r'\d+', f)[-2]) for f in flist]
+theta_ls = np.unique(theta_ls_full)
 n_theta = np.max(theta_ls) + 1
-flist = flist[np.argsort(theta_ls)]
+flist = flist[np.argsort(theta_ls_full)]
 
 energy_ev = float(args.energy_ev)
 lmbda_nm = 1240. / energy_ev

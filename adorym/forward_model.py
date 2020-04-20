@@ -63,15 +63,9 @@ class ForwardModel(object):
                                                self.regularizer_dict[name]['weight_l1'],
                                                device=self.device)
             elif name == 'tv':
-                if self.unknown_type == 'delta_beta':
-                    reg = reg + tv(obj,
-                              self.regularizer_dict[name]['gamma'],
-                              self.distribution_mode, device=self.device)
-                elif self.unknown_type == 'real_imag':
-                    slicer = [slice(None)] * (len(obj.shape) - 1)
-                    reg = reg + tv(w.arctan2(obj[slicer + [1]], obj[slicer + [0]]), None,
-                              self.regularizer_dict[name]['gamma'],
-                              self.distribution_mode, device=self.device)
+                reg = reg + tv(obj,
+                          self.regularizer_dict[name]['gamma'],
+                          self.distribution_mode, device=self.device)
         return reg
 
     def get_argument_index(self, arg):
@@ -126,6 +120,10 @@ class PtychographyModel(ForwardModel):
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
+
+        flag_pp_sqrt = True
+        if self.raw_data_type == 'magnitude':
+            flag_pp_sqrt = False
 
         # Allocate subbatches.
         probe_pos_batch_ls = []
@@ -233,7 +231,8 @@ class PtychographyModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
+                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
+                                pure_projection_return_sqrt=flag_pp_sqrt)
                 ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
@@ -253,7 +252,8 @@ class PtychographyModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
+                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
+                                pure_projection_return_sqrt=flag_pp_sqrt)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
@@ -283,7 +283,6 @@ class PtychographyModel(ForwardModel):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            t0 = time.time()
             ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls)
@@ -362,6 +361,10 @@ class SingleBatchFullfieldModel(PtychographyModel):
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
+        flag_pp_sqrt = True
+        if self.raw_data_type == 'magnitude':
+            flag_pp_sqrt = False
+
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
                 if precalculate_rotation_coords:
@@ -381,7 +384,8 @@ class SingleBatchFullfieldModel(PtychographyModel):
             obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-            scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
+            scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
+            pure_projection_return_sqrt=flag_pp_sqrt)
 
         return ex_real, ex_imag
 
@@ -954,11 +958,15 @@ def reweighted_l1_norm_term(obj, alpha_d, alpha_b, weight_l1, device=None):
         reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj[slicer + [1]]))
     return reg
 
-def tv(obj, gamma, distribution_mode, device=None):
+def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
     slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
-    if distribution_mode:
-        reg = reg + gamma * total_variation_3d(obj[slicer + [0]], axis_offset=1)
+    if unknown_type == 'delta_beta':
+        o = (obj[slicer + [0]] + obj[slicer + [1]]) / 2
     else:
-        reg = reg + gamma * total_variation_3d(obj[slicer + [0]], axis_offset=0)
+        o = w.arctan2(obj[slicer + [1]], obj[slicer + [0]])
+    if distribution_mode:
+        reg = reg + gamma * total_variation_3d(o, axis_offset=1)
+    else:
+        reg = reg + gamma * total_variation_3d(o, axis_offset=0)
     return reg

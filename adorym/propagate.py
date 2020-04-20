@@ -117,7 +117,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
-                               scale_ri_by_k=True, is_minus_logged=False):
+                               scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -138,8 +138,16 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             p = w.sum(grid_batch, axis=-2)
             delta_slice = p[:, :, :, 0]
             beta_slice = p[:, :, :, 1]
+            # In conventional tomography beta is interpreted as mu. If projection data is minus-logged,
+            # the line sum of beta (mu) directly equals image intensity. If raw_data_type is set to 'intensity',
+            # measured data will be taken square root at the loss calculation step. To match this, the summed
+            # beta must be square-rooted as well. Otherwise, set raw_data_type to 'magnitude' to avoid square-rooting
+            # the measured data, and skip sqrt to summed beta here accordingly.
             if is_minus_logged:
-                c_real, c_imag = w.sqrt(beta_slice + 1e-10), delta_slice * 0
+                if pure_projection_return_sqrt:
+                    c_real, c_imag = w.sqrt(beta_slice + 1e-10), delta_slice * 0
+                else:
+                    c_real, c_imag = beta_slice, delta_slice * 0
             else:
                 c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
@@ -148,7 +156,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             beta_slice = p[:, :, :, 1]
             c_real, c_imag = delta_slice, beta_slice
             if is_minus_logged:
-                c_real, c_imag = w.sqrt(-w.log(c_real ** 2 + c_imag ** 2) + 1e-10), 0
+                if pure_projection_return_sqrt:
+                    c_real, c_imag = w.sqrt(-w.log(c_real ** 2 + c_imag ** 2) + 1e-10), 0
+                else:
+                    c_real, c_imag = -w.log(c_real ** 2 + c_imag ** 2), 0
         else:
             raise ValueError('unknown_type must be real_imag or delta_beta.')
         probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
