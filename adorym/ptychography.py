@@ -27,6 +27,7 @@ def reconstruct_ptychography(
         fname, obj_size, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
         energy_ev=None, psize_cm=None, free_prop_cm=None,
         raw_data_type='magnitude', # Choose from 'magnitude' or 'intensity'
+        is_minus_logged=False, # Select True if raw data (usually conventional tomography) is minus-logged
         slice_pos_cm_ls=None,
         # ___________________________
         # |Reconstruction parameters|___________________________________________

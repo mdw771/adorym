@@ -25,6 +25,7 @@ class ForwardModel(object):
         self.sign_convention = common_vars_dict['sign_convention']
         self.rotate_out_of_loop = common_vars_dict['rotate_out_of_loop']
         self.scale_ri_by_k = common_vars_dict['scale_ri_by_k']
+        self.is_minus_logged = common_vars_dict['is_minus_logged']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -232,7 +233,7 @@ class PtychographyModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k)
+                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
                 ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
@@ -252,7 +253,7 @@ class PtychographyModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k)
+                                scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
@@ -380,7 +381,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
             obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-            scale_ri_by_k=self.scale_ri_by_k)
+            scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged)
 
         return ex_real, ex_imag
 
