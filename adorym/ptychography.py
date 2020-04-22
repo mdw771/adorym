@@ -363,13 +363,15 @@ def reconstruct_ptychography(
                 print_flush('Initializing object function in file...', 0, rank, **stdout_options)
                 obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
                                            not_first_level=not_first_level, initial_guess=initial_guess,
-                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=cache_dtype)
+                                           random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
+                                           dtype=cache_dtype, non_negativity=non_negativity)
         elif distribution_mode == 'distributed_object':
             if needs_initialize:
                 print_flush('Initializing object array...', 0, rank, **stdout_options)
                 obj.initialize_distributed_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess,
-                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=cache_dtype)
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
+                                     dtype=cache_dtype, non_negativity=non_negativity)
             else:
                 obj.arr = obj_arr
 
@@ -378,7 +380,8 @@ def reconstruct_ptychography(
                 print_flush('Initializing object array...', 0, rank, **stdout_options)
                 obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
-                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+                                     random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
+                                     non_negativity=non_negativity)
             else:
                 obj.arr = obj_arr
 

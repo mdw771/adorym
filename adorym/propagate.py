@@ -118,7 +118,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
-                               return_intensity_fourier=False):
+                               return_ctf=False):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -213,8 +213,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
         else:
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
-            crit_samp = lmbda_nm * dist_nm / l
-            if not return_intensity_fourier:
+            if not return_ctf:
                 if optimize_free_prop:
                         probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm,
                                                                            lmbda_nm, voxel_nm,
@@ -223,9 +222,19 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                     probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
                                                                device=device, sign_convention=sign_convention)
             else:
-                probe_real, probe_imag = fresnel_propagate_fourier_intensity(u_free, v_free, probe_real, probe_imag, dist_nm,
-                                                                             lmbda_nm, voxel_nm,
-                                                                             device=device, sign_convention=sign_convention)
+                probe_real, probe_imag = ctf(u_free, v_free, probe_real, probe_imag, dist_nm, lmbda_nm)
+    return probe_real, probe_imag
+
+
+def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm_ls, u_free=None, v_free=None):
+
+    lmbda_nm = 1240. / energy_ev
+    dist_nm_ls = free_prop_cm_ls * 1e7
+
+    p = w.sum(grid_batch, axis=-2)
+    delta_slice = p[:, :, :, 0]
+    beta_slice = p[:, :, :, 1]
+    probe_real, probe_imag = pure_phase_ctf(u_free, v_free, delta_slice, beta_slice, dist_nm_ls, lmbda_nm)
     return probe_real, probe_imag
 
 
@@ -313,7 +322,7 @@ def fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, v
     return probe_real, probe_imag
 
 
-def fresnel_propagate_fourier_intensity(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None,
+def ctf(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None,
                                          device=None, override_backend=None, sign_convention=1):
     """
     Calculate the Fourier transform of the wavefront intensity after Fresnel propagation using
@@ -330,3 +339,48 @@ def fresnel_propagate_fourier_intensity(u, v, probe_real, probe_imag, dist_nm, l
     a2_real, a2_imag = w.complex_mul(probe_real, probe_imag, h_real, -h_imag)
     probe_real, probe_imag = w.convolve_with_impulse_response(a1_real, a1_imag, a2_real, a2_imag, override_backend=override_backend, normalize=True)
     return probe_real, probe_imag
+
+
+def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm_ls, lmbda_nm, kappa=50., alpha=1e-10, override_backend=None):
+
+    probe_real, probe_imag = w.fft2(delta_slice, w.zeros_like(delta_slice, requires_grad=False), override_backend=override_backend, normalize=True)
+    # dc_arr = w.zeros_like(probe_real, requires_grad=False)
+    # dc_arr[:, 0, 0] = 1.
+    osc_ls = []
+    for i in range(len(dist_nm_ls)):
+        xi = PI * lmbda_nm * dist_nm_ls[i] * (u ** 2 + v ** 2)
+        osc_ls.append(2 * (w.sin(xi) + 1. / kappa * w.cos(xi)) ** 2)
+    osc = w.sum(w.stack(osc_ls), axis=0) + alpha
+    fi_real = osc * probe_real
+    fi_imag = osc * probe_imag
+    return fi_real, fi_imag
+
+
+if __name__ == '__main__':
+    import dxchange
+    import matplotlib.pyplot as plt
+    import adorym
+    u, v = gen_freq_mesh([1e3, 1e3], [512, 512])
+    delta_slice = dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/cameraman_affine/rec_nonoise_distopt1_transopt1/obj_mag_ds_1.tiff')
+    delta_slice = delta_slice.reshape([1, *delta_slice.shape[:2]]) * 10
+    print(delta_slice.mean())
+    beta_slice = delta_slice * 0.01
+    print(beta_slice.mean())
+    lmbda_nm = 1.24 / 17.5
+    dist_nm = 100e7
+
+    ctf_real, ctf_imag = pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=0.01)
+    i1 = np.fft.ifft2(ctf_real + 1j * ctf_imag, norm='ortho').real
+    i1 = np.squeeze(i1)
+
+    probe_real, probe_imag = adorym.mag_phase_to_real_imag(np.exp(-beta_slice), delta_slice)
+    phi_real, phi_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, [1e3, 1e3])
+    i2 = phi_real ** 2 + phi_imag ** 2
+    i2 = np.squeeze(i2)
+
+    fig = plt.figure(figsize=(10, 6))
+    fig.add_subplot(121)
+    plt.imshow(i1)
+    fig.add_subplot(122)
+    plt.imshow(i2)
+    plt.show()

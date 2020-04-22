@@ -46,7 +46,7 @@ def timeit(fun):
 def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta'):
+                             unknown_type='delta_beta', non_negativity=False):
 
     if rank == 0:
         if not_first_level == False:
@@ -88,7 +88,7 @@ def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='
                 obj_beta[...] = 0
 
         # Apply nonnegativity or convert to real/imag.
-        if unknown_type == 'delta_beta':
+        if unknown_type == 'delta_beta' and non_negativity:
             obj_delta[obj_delta < 0] = 0
             obj_beta[obj_beta < 0] = 0
         elif unknown_type == 'real_imag':
@@ -104,14 +104,14 @@ def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='
 def initialize_object_for_sf(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta', dtype='float32'):
+                             unknown_type='delta_beta', dtype='float32', non_negativity=False):
     if initial_guess is None:
         print_flush('Initializing with Gaussian random.', 0, rank, save_stdout=save_stdout,
                     output_folder=output_folder, timestamp=timestr)
         initialize_hdf5_with_gaussian(dset, rank, n_ranks,
                                       random_guess_means_sigmas[0], random_guess_means_sigmas[2],
                                       random_guess_means_sigmas[1], random_guess_means_sigmas[3],
-                                      unknown_type=unknown_type, dtype=dtype)
+                                      unknown_type=unknown_type, dtype=dtype, non_negativity=non_negativity)
     else:
         print_flush('Using supplied initial guess.', 0, rank, save_stdout=save_stdout, output_folder=output_folder,
                     timestamp=timestr)
@@ -126,7 +126,7 @@ def initialize_object_for_sf(this_obj_size, dset=None, ds_level=1, object_type='
 def initialize_object_for_do(this_obj_size, slice_catalog=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta', dtype='float32'):
+                             unknown_type='delta_beta', dtype='float32', non_negativity=False):
     if slice_catalog[rank] is None:
         return None
     else:
@@ -155,7 +155,7 @@ def initialize_object_for_do(this_obj_size, slice_catalog=None, ds_level=1, obje
             elif unknown_type == 'real_imag':
                 obj_beta[...] = 0
         # Apply nonnegativity or convert to real/imag.
-        if unknown_type == 'delta_beta':
+        if unknown_type == 'delta_beta' and non_negativity:
             obj_delta[obj_delta < 0] = 0
             obj_beta[obj_beta < 0] = 0
         elif unknown_type == 'real_imag':
@@ -710,7 +710,8 @@ def revert_rotation_to_hdf5(dset, coord_old, rank, n_ranks, interpolation='bilin
     return None
 
 
-def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma, unknown_type='delta_beta', dtype='float32'):
+def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, beta_mu, beta_sigma,
+                                  unknown_type='delta_beta', dtype='float32', non_negativity=False):
 
     s = dset.shape
     slice_ls = range(rank, s[0], n_ranks)
@@ -722,7 +723,8 @@ def initialize_hdf5_with_gaussian(dset, rank, n_ranks, delta_mu, delta_sigma, be
         if unknown_type == 'real_imag':
             slice_delta, slice_beta = mag_phase_to_real_imag(slice_delta, slice_beta)
         slice_data = np.stack([slice_delta, slice_beta], axis=-1)
-        slice_data[slice_data < 0] = 0
+        if non_negativity:
+            slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data.astype(dtype)
     return None
 

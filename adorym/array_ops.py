@@ -142,13 +142,13 @@ class ObjectFunction(LargeArray):
         self.dset_rot = self.f_rot.create_dataset('obj', shape=self.full_size, dtype='float64')
 
     def initialize_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None, device=None,
-                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta'):
+                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta', non_negativity=False):
         temp_delta, temp_beta = \
             initialize_object_for_dp(self.full_size[:-1], dset=None, ds_level=self.ds_level, object_type=self.object_type,
                               initial_guess=initial_guess, output_folder=self.output_folder,
                               save_stdout=save_stdout, timestr=timestr,
                               not_first_level=not_first_level,
-                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type)
+                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, non_negativity=non_negativity)
         self.arr = w.create_variable(np.stack([temp_delta, temp_beta], -1), device=device, requires_grad=True)
         del temp_delta
         del temp_beta
@@ -158,13 +158,14 @@ class ObjectFunction(LargeArray):
         self.arr = w.create_variable(np.stack([obj_delta, obj_beta], -1), device=device, requires_grad=True)
 
     def initialize_distributed_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
-                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta', dtype='float32'):
+                         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta', dtype='float32', non_negativity=False):
         delta, beta = \
             initialize_object_for_do(self.full_size[:-1], slice_catalog=self.slice_catalog, ds_level=self.ds_level, object_type=self.object_type,
                               initial_guess=initial_guess, output_folder=self.output_folder,
                               save_stdout=save_stdout, timestr=timestr,
                               not_first_level=not_first_level,
-                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=dtype)
+                              random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type, dtype=dtype,
+                              non_negativity=non_negativity)
         self.arr = np.stack([delta, beta], -1)
 
     def initialize_distributed_array_with_values(self, obj_delta, obj_beta, dtype='float32'):
@@ -181,12 +182,12 @@ class ObjectFunction(LargeArray):
 
     def initialize_file_object(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
                                random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta',
-                               dtype='float32'):
+                               dtype='float32', non_negativity=False):
         initialize_object_for_sf(self.full_size[:-1], dset=self.dset, ds_level=self.ds_level, object_type=self.object_type,
                           initial_guess=initial_guess, output_folder=self.output_folder,
                           save_stdout=save_stdout, timestr=timestr,
                           not_first_level=not_first_level, random_guess_means_sigmas=random_guess_means_sigmas,
-                          unknown_type=unknown_type, dtype=dtype)
+                          unknown_type=unknown_type, dtype=dtype, non_negativity=non_negativity)
 
     def apply_finite_support_mask_to_array(self, mask, unknown_type='delta_beta', device=None):
         assert isinstance(mask, Mask)

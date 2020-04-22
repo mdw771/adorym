@@ -819,32 +819,39 @@ class MultiDistModel(ForwardModel):
 
         ex_real_ls = []
         ex_imag_ls = []
-        for i_dist, this_dist in enumerate(free_prop_cm):
-            for k, pos_batch in enumerate(probe_pos_batch_ls):
-                ex_real = []
-                ex_imag = []
-                for i_mode in range(n_probe_modes):
-                    temp_real, temp_imag = multislice_propagate_batch(
-                        subobj_ls_ls[k],
-                        subprobe_real_ls_ls[k][:, i_mode, :, :], subprobe_imag_ls_ls[k][i_mode, :, :],
-                        energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
-                        obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
-                        fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
-                        type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
-                        u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, return_intensity_fourier=fourier_disparity)
-                    ex_real.append(temp_real)
-                    ex_imag.append(temp_imag)
-                ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
-                ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
-            ex_real_ls.append(ex_real)
-            ex_imag_ls.append(ex_imag)
-        # Output shape is [minibatch_size, n_probe_modes, y, x].
-        ex_real_ls = w.concatenate(ex_real_ls)
-        ex_imag_ls = w.concatenate(ex_imag_ls)
+        if not fourier_disparity:
+            for i_dist, this_dist in enumerate(free_prop_cm):
+                for k, pos_batch in enumerate(probe_pos_batch_ls):
+                    ex_real = []
+                    ex_imag = []
+                    for i_mode in range(n_probe_modes):
+                        temp_real, temp_imag = multislice_propagate_batch(
+                            subobj_ls_ls[k],
+                            subprobe_real_ls_ls[k][:, i_mode, :, :], subprobe_imag_ls_ls[k][i_mode, :, :],
+                            energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
+                            obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
+                            fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
+                            type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
+                            u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, return_ctf=fourier_disparity)
+                        ex_real.append(temp_real)
+                        ex_imag.append(temp_imag)
+                    ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
+                    ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
+                ex_real_ls.append(ex_real)
+                ex_imag_ls.append(ex_imag)
+            # Output shape is [minibatch_size, n_probe_modes, y, x].
+            ex_real_ls = w.concatenate(ex_real_ls)
+            ex_imag_ls = w.concatenate(ex_imag_ls)
+        else:
+            temp_real, temp_imag = modulate_and_get_ctf(subobj_ls_ls[k], energy_ev, free_prop_cm,
+                                                        u_free=u_free, v_free=v_free)
+            ex_real_ls = w.reshape(temp_real, [temp_real.shape[0], 1, *temp_real.shape[1:]])
+            ex_imag_ls = w.reshape(temp_imag, [temp_imag.shape[0], 1, *temp_imag.shape[1:]])
+
         if safe_zone_width > 0:
             ex_real_ls = ex_real_ls[:, :, safe_zone_width:safe_zone_width + subprobe_size[0],
                       safe_zone_width:safe_zone_width + subprobe_size[1]]
-            ex_real_ls = ex_real_ls[:, :, safe_zone_width:safe_zone_width + subprobe_size[0],
+            ex_imag_ls = ex_imag_ls[:, :, safe_zone_width:safe_zone_width + subprobe_size[0],
                       safe_zone_width:safe_zone_width + subprobe_size[1]]
 
         if rank == 0 and debug:
@@ -870,6 +877,10 @@ class MultiDistModel(ForwardModel):
             minibatch_size =self.common_vars['minibatch_size']
             theta_downsample = self.common_vars['theta_downsample']
             fourier_disparity = self.common_vars['fourier_disparity']
+            output_folder = self.common_vars['output_folder']
+            u_free = self.common_vars['u_free']
+            v_free = self.common_vars['v_free']
+            energy_ev = self.common_vars['energy_ev']
 
             if theta_downsample is None: theta_downsample = 1
 
@@ -933,8 +944,47 @@ class MultiDistModel(ForwardModel):
             #     this_pred_batch_ft_r, this_pred_batch_ft_i = w.fft2(this_pred_batch ** 2, w.zeros_like(this_pred_batch, requires_grad=False))
             #     loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2 + (this_pred_batch_ft_i - this_prj_batch_ft_i) ** 2)
             if fourier_disparity:
-                this_prj_batch_ft_r, this_prj_batch_ft_i = w.fft2(this_prj_batch, w.zeros_like(this_prj_batch, requires_grad=False), normalize=True)
-                loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2 + (this_pred_batch_ft_i - this_prj_batch_ft_i) ** 2)
+                this_prj_batch_ft_r, this_prj_batch_ft_i = w.fft2(this_prj_batch - 1, w.zeros_like(this_prj_batch, requires_grad=False), normalize=True)
+                dist_nm_ls = free_prop_cm * 1e7
+                prj_real_ls = []
+                prj_imag_ls = []
+                lmbda_nm = 1240. / energy_ev
+                kappa = 50.
+                for i in range(len(dist_nm_ls)):
+                    xi = PI * lmbda_nm * dist_nm_ls[i] * (u_free ** 2 + v_free ** 2)
+                    prj_real_ls.append((w.sin(xi) + 1. / kappa * w.cos(xi)) * this_prj_batch_ft_r[i])
+                    prj_imag_ls.append((w.sin(xi) + 1. / kappa * w.cos(xi)) * this_prj_batch_ft_i[i])
+                this_prj_batch_ft_r = w.sum(w.stack(prj_real_ls), axis=0)
+                this_prj_batch_ft_i = w.sum(w.stack(prj_imag_ls), axis=0)
+
+                osc_ls = []
+                for i in range(len(dist_nm_ls)):
+                    xi = PI * lmbda_nm * dist_nm_ls[i] * (u_free ** 2 + v_free ** 2)
+                    osc_ls.append(2 * (w.sin(xi) + 1. / kappa * w.cos(xi)) ** 2)
+                osc = w.sum(w.stack(osc_ls), axis=0) + 1e-10
+
+                a_real = this_prj_batch_ft_r / osc
+                a_imag = this_prj_batch_ft_i / osc
+                pr_real, pr_imag = w.ifft2(a_real, a_imag, normalize=True)
+                import matplotlib.pyplot as plt
+                plt.imshow(w.to_numpy(pr_real))
+                plt.show()
+
+                # print(this_pred_batch_ft_r[:, 0, 0], this_pred_batch_ft_i[:, 0, 0])
+                # print(this_prj_batch_ft_r[:, 0, 0], this_prj_batch_ft_i[:, 0, 0])
+                # print(w.sum(w.norm(this_pred_batch_ft_r[0], this_pred_batch_ft_i[0]) ** 2))
+                # print(w.sum(w.norm(this_prj_batch_ft_r[0], this_prj_batch_ft_i[0]) ** 2))
+                # dxchange.write_tiff(np.sqrt(this_prj_batch_ft_r ** 2 + this_prj_batch_ft_i ** 2)[:, np.newaxis, :, :],
+                #                     os.path.join(output_folder, 'intermediate', 'prj_mag'), dtype='float32',
+                #                     overwrite=True)
+                # a = w.to_numpy(this_pred_batch_ft_r)
+                # b = w.to_numpy(this_pred_batch_ft_i)
+                # a = np.fft.ifft2(a + 1j * b).real
+                # dxchange.write_tiff(a[:, np.newaxis, :, :],
+                #                     os.path.join(output_folder, 'intermediate', 'pred_intensity'), dtype='float32',
+                #                     overwrite=True)
+
+                loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2)
             else:
                 if self.loss_function_type == 'lsq':
                     if self.raw_data_type == 'magnitude':
