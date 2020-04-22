@@ -117,7 +117,8 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
-                               scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False):
+                               scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
+                               return_intensity_fourier=False):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -131,7 +132,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
     delta_nm = voxel_nm[-1]
 
     if pure_projection:
-        k1 = 2. * PI * delta_nm * n_slices / lmbda_nm if scale_ri_by_k else 1.
+        k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
         if type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -213,11 +214,18 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
             crit_samp = lmbda_nm * dist_nm / l
-            if optimize_free_prop:
-                probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
-                                                                   device=device, sign_convention=sign_convention)
+            if not return_intensity_fourier:
+                if optimize_free_prop:
+                        probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm,
+                                                                           lmbda_nm, voxel_nm,
+                                                                           device=device, sign_convention=sign_convention)
+                elif not optimize_free_prop:
+                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
+                                                               device=device, sign_convention=sign_convention)
             else:
-                probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+                probe_real, probe_imag = fresnel_propagate_fourier_intensity(u_free, v_free, probe_real, probe_imag, dist_nm,
+                                                                             lmbda_nm, voxel_nm,
+                                                                             device=device, sign_convention=sign_convention)
     return probe_real, probe_imag
 
 
@@ -304,3 +312,21 @@ def fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, v
                                                                override_backend=override_backend)
     return probe_real, probe_imag
 
+
+def fresnel_propagate_fourier_intensity(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None,
+                                         device=None, override_backend=None, sign_convention=1):
+    """
+    Calculate the Fourier transform of the wavefront intensity after Fresnel propagation using
+    F[I] = [Phi' H] * [Phi H'], where * denotes convolution and ' denotes complex conjugate.
+    """
+    if len(probe_real.shape) == 3:
+        grid_shape = probe_real.shape[1:]
+    else:
+        grid_shape = probe_real.shape
+    probe_real, probe_imag = w.fft2(probe_real, probe_imag, override_backend=override_backend, normalize=True)
+    if h is None:
+        h_real, h_imag = get_kernel_wrapped(u, v, dist_nm, lmbda_nm, voxel_nm, grid_shape, sign_convention=sign_convention, device=device)
+    a1_real, a1_imag = w.complex_mul(probe_real, -probe_imag, h_real, h_imag)
+    a2_real, a2_imag = w.complex_mul(probe_real, probe_imag, h_real, -h_imag)
+    probe_real, probe_imag = w.convolve_with_impulse_response(a1_real, a1_imag, a2_real, a2_imag, override_backend=override_backend, normalize=True)
+    return probe_real, probe_imag

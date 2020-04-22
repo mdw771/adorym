@@ -67,6 +67,7 @@ def reconstruct_ptychography(
         # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
         # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
         sign_convention=1,
+        fourier_disparity=False,
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
@@ -326,7 +327,8 @@ def reconstruct_ptychography(
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
-            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder, options_dict=optimizer_options_obj)
+            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+                              options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
         opt.create_container(use_checkpoint, device_obj)
@@ -346,7 +348,6 @@ def reconstruct_ptychography(
         elif use_checkpoint and (distribution_mode != 'shared_file'):
             try:
                 starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
-                print(starting_epoch, starting_batch)
             except:
                 needs_initialize = True
 
@@ -423,7 +424,6 @@ def reconstruct_ptychography(
         # create an instance of monochannel mask class. While finite_support_mask_path
         # has to point to a 3D tiff file, the mask will be written as an HDF5 if
         # share_file_mode is True.
-
         # ================================================================================
         mask = None
         if finite_support_mask_path is not None:
@@ -953,13 +953,13 @@ def reconstruct_ptychography(
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
-                    if distribution_mode is None:
+                    if distribution_mode is not 'shared_file':
                         if non_negativity and unknown_type != 'real_imag':
                             obj.arr = w.clip(obj.arr, 0, None)
                         if unknown_type == 'delta_beta':
                             if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
                             if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
-                        elif unknown_type == 'real_beta':
+                        elif unknown_type == 'real_imag':
                             if object_type == 'absorption_only':
                                 delta, beta = w.split_channel(obj.arr)
                                 delta = w.norm(delta, beta)
@@ -1044,12 +1044,13 @@ def reconstruct_ptychography(
                             prj_affine_grads = comm.allreduce(prj_affine_grads)
                             prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
                                                                            **opt_prj_affine.options_dict)
-                            # Normalize scaling
-                            prj_affine_ls[:, 0, 0] = prj_affine_ls[:, 0, 0] / prj_affine_ls[0, 0, 0]
-                            prj_affine_ls[:, 1, 1] = prj_affine_ls[:, 1, 1] / prj_affine_ls[0, 1, 1]
-                            # Normalize shifting
-                            prj_affine_ls[:, 0, 2] = prj_affine_ls[:, 0, 2] - w.mean(prj_affine_ls[:, 0, 2])
-                            prj_affine_ls[:, 1, 2] = prj_affine_ls[:, 1, 2] - w.mean(prj_affine_ls[:, 1, 2])
+                            # Regularize transformation of image 0.
+                            prj_affine_ls[0, 0, 0] = 1.
+                            prj_affine_ls[0, 0, 1] = 0.
+                            prj_affine_ls[0, 0, 2] = 0.
+                            prj_affine_ls[0, 1, 0] = 0.
+                            prj_affine_ls[0, 1, 1] = 1.
+                            prj_affine_ls[0, 1, 2] = 0.
                         w.reattach(prj_affine_ls)
                 else:
                     print_flush(

@@ -703,6 +703,7 @@ class MultiDistModel(ForwardModel):
         theta_ls = self.common_vars['theta_ls']
         u_free = self.common_vars['u_free']
         v_free = self.common_vars['v_free']
+        fourier_disparity = self.common_vars['fourier_disparity']
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -830,7 +831,7 @@ class MultiDistModel(ForwardModel):
                         obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                         fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                         type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
-                        u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k)
+                        u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, return_intensity_fourier=fourier_disparity)
                     ex_real.append(temp_real)
                     ex_imag.append(temp_imag)
                 ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
@@ -868,16 +869,22 @@ class MultiDistModel(ForwardModel):
             device_obj = self.common_vars['device_obj']
             minibatch_size =self.common_vars['minibatch_size']
             theta_downsample = self.common_vars['theta_downsample']
+            fourier_disparity = self.common_vars['fourier_disparity']
+
             if theta_downsample is None: theta_downsample = 1
 
             ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                                   probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                                   probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            if self.common_vars['n_probe_modes'] == 1:
-                this_pred_batch = this_pred_batch[:, 0, :, :]
+            if not fourier_disparity:
+                this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
+                if self.common_vars['n_probe_modes'] == 1:
+                    this_pred_batch = this_pred_batch[:, 0, :, :]
+                else:
+                    this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
             else:
-                this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
+                this_pred_batch_ft_r = ex_real_ls[:, 0, :, :]
+                this_pred_batch_ft_i = ex_imag_ls[:, 0, :, :]
 
             n_dists = len(free_prop_cm)
             n_blocks = prj.shape[1] // n_dists
@@ -921,16 +928,24 @@ class MultiDistModel(ForwardModel):
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0, rank)
 
-            if self.loss_function_type == 'lsq':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
-            elif self.loss_function_type == 'poisson':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            # if fourier_disparity:
+            #     this_prj_batch_ft_r, this_prj_batch_ft_i = w.fft2(this_prj_batch, w.zeros_like(this_prj_batch, requires_grad=False))
+            #     this_pred_batch_ft_r, this_pred_batch_ft_i = w.fft2(this_pred_batch ** 2, w.zeros_like(this_pred_batch, requires_grad=False))
+            #     loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2 + (this_pred_batch_ft_i - this_prj_batch_ft_i) ** 2)
+            if fourier_disparity:
+                this_prj_batch_ft_r, this_prj_batch_ft_i = w.fft2(this_prj_batch, w.zeros_like(this_prj_batch, requires_grad=False), normalize=True)
+                loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2 + (this_pred_batch_ft_i - this_prj_batch_ft_i) ** 2)
+            else:
+                if self.loss_function_type == 'lsq':
+                    if self.raw_data_type == 'magnitude':
+                        loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
+                    elif self.raw_data_type == 'intensity':
+                        loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
+                elif self.loss_function_type == 'poisson':
+                    if self.raw_data_type == 'magnitude':
+                        loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
+                    elif self.raw_data_type == 'intensity':
+                        loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
 

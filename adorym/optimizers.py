@@ -45,13 +45,7 @@ class Optimizer(object):
         elif self.distribution_mode == 'distributed_object':
             self.create_distributed_param_arrays()
         elif self.distribution_mode is None:
-            if use_checkpoint:
-                try:
-                    self.restore_param_arrays_from_checkpoint(device=device_obj)
-                except:
-                    self.create_param_arrays(device=device_obj)
-            else:
-                self.create_param_arrays(device=device_obj)
+            self.create_param_arrays(device=device_obj)
 
     def create_file_objects(self, use_checkpoint=False):
 
@@ -88,11 +82,12 @@ class Optimizer(object):
 
     def restore_param_arrays_from_checkpoint(self, device=None):
 
-        arr = np.load(os.path.join(self.output_folder, 'opt_params_checkpoint.npy'))
-        arr = w.create_variable(arr, device=device)
         if len(self.params_list) > 0:
-            for i, param_name in enumerate(self.params_list):
-                self.params_whole_array_dict[param_name] = arr[i]
+            arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint.npy'))
+            arr = w.create_variable(arr, device=device)
+            if len(self.params_list) > 0:
+                for i, param_name in enumerate(self.params_list):
+                    self.params_whole_array_dict[param_name] = arr[i]
         return
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None):

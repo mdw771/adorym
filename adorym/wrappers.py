@@ -453,12 +453,16 @@ def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, axes=(-2
     return ifft2(fh_real, fh_imag, override_backend=override_backend)
 
 
-def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None):
-    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend)
-    h_real, h_imag = fft2(h_real, h_imag, override_backend=override_backend)
+def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None, normalize=True):
+    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend, normalize=normalize)
+    h_real, h_imag = fft2(h_real, h_imag, override_backend=override_backend, normalize=normalize)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
-    return ifft2(fh_real, fh_imag, override_backend=override_backend)
+    return ifft2(fh_real, fh_imag, override_backend=override_backend, normalize=normalize)
+
+
+def complex_mul(a_real, a_imag, b_real, b_imag):
+    return (a_real * b_real - a_imag * b_imag, a_real * b_imag + a_imag * b_real)
 
 
 def fftshift(var, axes=(1, 2), override_backend=None):
