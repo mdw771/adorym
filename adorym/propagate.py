@@ -226,15 +226,15 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
     return probe_real, probe_imag
 
 
-def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm_ls, u_free=None, v_free=None):
+def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm, u_free=None, v_free=None, kappa=50.):
 
     lmbda_nm = 1240. / energy_ev
-    dist_nm_ls = free_prop_cm_ls * 1e7
+    dist_nm = free_prop_cm * 1e7
 
     p = w.sum(grid_batch, axis=-2)
     delta_slice = p[:, :, :, 0]
     beta_slice = p[:, :, :, 1]
-    probe_real, probe_imag = pure_phase_ctf(u_free, v_free, delta_slice, beta_slice, dist_nm_ls, lmbda_nm)
+    probe_real, probe_imag = pure_phase_ctf(u_free, v_free, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=kappa)
     return probe_real, probe_imag
 
 
@@ -341,19 +341,16 @@ def ctf(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None,
     return probe_real, probe_imag
 
 
-def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm_ls, lmbda_nm, kappa=50., alpha=1e-10, override_backend=None):
+def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=50., alpha=1e-10, override_backend=None):
 
-    probe_real, probe_imag = w.fft2(delta_slice, w.zeros_like(delta_slice, requires_grad=False), override_backend=override_backend, normalize=True)
-    # dc_arr = w.zeros_like(probe_real, requires_grad=False)
-    # dc_arr[:, 0, 0] = 1.
-    osc_ls = []
-    for i in range(len(dist_nm_ls)):
-        xi = PI * lmbda_nm * dist_nm_ls[i] * (u ** 2 + v ** 2)
-        osc_ls.append(2 * (w.sin(xi) + 1. / kappa * w.cos(xi)) ** 2)
-    osc = w.sum(w.stack(osc_ls), axis=0) + alpha
-    fi_real = osc * probe_real
-    fi_imag = osc * probe_imag
-    return fi_real, fi_imag
+    probe_real, probe_imag = w.fft2(delta_slice, w.zeros_like(delta_slice, requires_grad=False), override_backend=override_backend)
+    xi = PI * lmbda_nm * dist_nm * (u ** 2 + v ** 2)
+    osc = 2 * (w.sin(xi) + 1. / kappa * w.cos(xi))
+    probe_real = osc * probe_real
+    probe_imag = osc * probe_imag
+    probe_real, probe_imag = w.ifft2(probe_real, probe_imag, override_backend=override_backend)
+    probe_real = probe_real + 1
+    return probe_real, probe_imag
 
 
 if __name__ == '__main__':

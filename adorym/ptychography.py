@@ -53,7 +53,11 @@ def reconstruct_ptychography(
         non_negativity=True,
         # _______________
         # |Forward model|_______________________________________________________
-        forward_algorithm='fresnel', binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
+        forward_algorithm='fresnel', # Choose from 'fresnel' or 'ctf'
+        # ---- CTF parameters ----
+        ctf_lg_kappa=1.7, # This is the common log of kappa, i.e. kappa = 10 ** ctf_lg_kappa
+        # ------------------------
+        binning=1, fresnel_approx=True, pure_projection=False, two_d_mode=False,
         probe_type='gaussian', # Choose from 'gaussian', 'plane', 'ifft', 'aperture_defocus', 'supplied'
         probe_initial=None, # Give as [probe_mag, probe_phase]
         probe_extra_defocus_cm=None,
@@ -92,6 +96,7 @@ def reconstruct_ptychography(
         optimize_free_prop=False, free_prop_learning_rate=1e-2,
         optimize_prj_affine=False, prj_affine_learning_rate=1e-3,
         optimize_tilt=False, tilt_learning_rate=1e-3,
+        optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3,
         other_params_update_delay=0,
         # _________________________
         # |Alternative algorithms |_____________________________________________
@@ -586,6 +591,15 @@ def reconstruct_ptychography(
             opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
             opt_ls.append(opt_prj_affine)
 
+        if forward_algorithm == 'ctf' and optimize_ctf_lg_kappa:
+            ctf_lg_kappa = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
+            optimizer_options_ctf_lg_kappa = {'step_size': ctf_lg_kappa_learning_rate}
+            opt_ctf_lg_kappa = AdamOptimizer(ctf_lg_kappa.shape, output_folder=output_folder, options_dict=optimizer_options_ctf_lg_kappa)
+            opt_ctf_lg_kappa.create_param_arrays(device=device_obj)
+            opt_ctf_lg_kappa.set_index_in_grad_return(len(opt_args_ls))
+            opt_args_ls.append(forward_model.get_argument_index('ctf_lg_kappa'))
+            opt_ls.append(opt_ctf_lg_kappa)
+
         # ================================================================================
         # Use ePIE?
         # ================================================================================
@@ -898,6 +912,9 @@ def reconstruct_ptychography(
                     if optimize_prj_affine:
                         prj_affine_grads = w.zeros_like(grads[opt_prj_affine.index_in_grad_returns], requires_grad=False,
                                                 device=device_obj)
+                    if optimize_ctf_lg_kappa:
+                        ctf_lg_kappa_grads = w.zeros_like(grads[opt_ctf_lg_kappa.index_in_grad_returns], requires_grad=False,
+                                                device=device_obj)
                 if optimize_probe:
                     probe_grads += w.stack(grads[1:3], axis=-1)
                 if optimize_probe_defocusing:
@@ -914,6 +931,8 @@ def reconstruct_ptychography(
                     tilt_grads += grads[opt_tilt.index_in_grad_returns]
                 if optimize_prj_affine:
                     prj_affine_grads += grads[opt_prj_affine.index_in_grad_returns]
+                if optimize_ctf_lg_kappa:
+                    ctf_lg_kappa_grads += grads[opt_ctf_lg_kappa.index_in_grad_returns]
 
                 # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
@@ -1055,6 +1074,14 @@ def reconstruct_ptychography(
                             prj_affine_ls[0, 1, 1] = 1.
                             prj_affine_ls[0, 1, 2] = 0.
                         w.reattach(prj_affine_ls)
+
+                    if optimize_ctf_lg_kappa:
+                        with w.no_grad():
+                            ctf_lg_kappa_grads = comm.allreduce(ctf_lg_kappa_grads)
+                            ctf_lg_kappa = opt_ctf_lg_kappa.apply_gradient(ctf_lg_kappa, ctf_lg_kappa_grads, i_full_angle,
+                                                                           **opt_ctf_lg_kappa.options_dict)
+                        w.reattach(ctf_lg_kappa)
+
                 else:
                     print_flush(
                         'Params are not updated because current epoch is smaller than specified delay ({}).'.format(
@@ -1173,6 +1200,12 @@ def reconstruct_ptychography(
                             np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_affine',
                                                     'prj_affine_{}.txt'.format(i_epoch)),
                                        np.concatenate(w.to_numpy(prj_affine_ls), 0))
+
+                        if optimize_ctf_lg_kappa:
+                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'ctf_lg_kappa'))
+                            np.savetxt(os.path.join(output_folder, 'intermediate', 'ctf_lg_kappa',
+                                                    'ctf_lg_kappa_{}.txt'.format(i_epoch)),
+                                       w.to_numpy(ctf_lg_kappa))
                 comm.Barrier()
 
                 # ================================================================================

@@ -1,6 +1,9 @@
 import os
 import numpy as np
 from mpi4py import MPI
+import glob
+import dxchange
+import re
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -161,3 +164,22 @@ def restore_checkpoint(output_folder, distribution_mode=None, optimizer=None):
         return i_epoch, i_batch, obj
     elif distribution_mode == 'shared_file':
         return i_epoch, i_batch
+
+
+def parse_source_folder(src_dir, prefix):
+    flist = glob.glob(os.path.join(src_dir, prefix + '*.tif*'))
+    raw_img = np.squeeze(dxchange.read_tiff(flist[0]))
+    raw_img_shape = raw_img.shape
+    theta_full_ls = []
+    dist_ls = []
+    for f in flist:
+        i_theta = int(re.findall(r'\d+', f)[-2])
+        i_dist = int(re.findall(r'\d+', f)[-1])
+        theta_full_ls.append(i_theta)
+        dist_ls.append(i_dist)
+    theta_ls = np.unique(theta_full_ls)
+    n_theta = len(theta_ls)
+    n_dist = len(flist) // n_theta
+    ind_ls = np.array(theta_full_ls) * n_dist + np.array(dist_ls)
+    flist = np.array(flist)[np.argsort(ind_ls)]
+    return flist, n_theta, n_dist, raw_img_shape

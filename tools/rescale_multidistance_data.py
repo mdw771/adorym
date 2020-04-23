@@ -11,6 +11,7 @@ import os
 import glob
 import re
 import sys
+import adorym
 
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('dir', default='.', help='Directory containing raw TIFF files.')
@@ -73,13 +74,7 @@ def convert_cone_to_parallel(data, z_sd, z_od_ls, psize=None, crop=True):
             new_data.append(img)
     return new_data, z_eff_ls, mag_ls
 
-flist = glob.glob(os.path.join(src_dir, prefix + '*.tif*'))
-raw_img = np.squeeze(dxchange.read_tiff(flist[0]))
-raw_img_shape = raw_img.shape
-n_dists = len(z_od_ls)
-flist.sort()
-print(flist)
-n_theta = int(re.findall(r'\d+', flist[-1])[-2]) + 1
+flist, n_theta, n_dists, raw_img_shape = adorym.parse_source_folder(src_dir, prefix)
 
 new_folder = os.path.join(os.path.dirname(src_dir), os.path.basename(src_dir) + '_rescaled')
 try:
