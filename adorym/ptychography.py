@@ -20,7 +20,6 @@ from adorym.forward_model import *
 
 PI = 3.1415927
 
-
 def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
@@ -105,7 +104,12 @@ def reconstruct_ptychography(
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
         backend='autograd', # Choose from 'autograd' or 'pytorch
-        debug=False, **kwargs,):
+        debug=False,
+        # At the end of a batch, terminate the program with status 0 if total time exceeds the set value.
+        # Useful for working with supercomputers' job dependency system, where the dependent may start only
+        # if the parent job exits with status 0.
+        t_max_min=None,
+        **kwargs,):
         # ______________________________________________________________________
 
     """
@@ -123,6 +127,8 @@ def reconstruct_ptychography(
            angle in each synchronized batch. Doing this will cause all ranks to process the same data.
            To perform large fullfield reconstruction efficiently, divide the data into sub-chunks.
     """
+
+    t_zero = time.time()
 
     comm = MPI.COMM_WORLD
     n_ranks = comm.Get_size()
@@ -1220,6 +1226,10 @@ def reconstruct_ptychography(
                         w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), 0, rank, **stdout_options)
                 f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
                 f_conv.flush()
+
+                if t_max_min is not None and (time.time() - t_zero) / 60 >= t_max_min:
+                    print_flush('Terminating program because maximum time limit is reached.', 0, rank, **stdout_options)
+                    sys.exit()
 
                 # ================================================================================
                 # Update full-angle count.
