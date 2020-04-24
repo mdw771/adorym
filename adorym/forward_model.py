@@ -27,6 +27,7 @@ class ForwardModel(object):
         self.scale_ri_by_k = common_vars_dict['scale_ri_by_k']
         self.is_minus_logged = common_vars_dict['is_minus_logged']
         self.forward_algorithm = common_vars_dict['forward_algorithm']
+        self.stdout_options = common_vars_dict['stdout_options']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -67,6 +68,7 @@ class ForwardModel(object):
                 reg = reg + tv(obj,
                           self.regularizer_dict[name]['gamma'],
                           self.distribution_mode, device=self.device)
+        print_flush('  Reg term = {}.'.format(w.to_numpy(reg)), 0, rank, **self.stdout_options)
         return reg
 
     def get_argument_index(self, arg):
@@ -934,27 +936,6 @@ class MultiDistModel(ForwardModel):
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0, rank)
 
-            # if fourier_disparity:
-            #     this_prj_batch_ft_r, this_prj_batch_ft_i = w.fft2(this_prj_batch, w.zeros_like(this_prj_batch, requires_grad=False))
-            #     this_pred_batch_ft_r, this_pred_batch_ft_i = w.fft2(this_pred_batch ** 2, w.zeros_like(this_pred_batch, requires_grad=False))
-            #     loss = w.mean((this_pred_batch_ft_r - this_prj_batch_ft_r) ** 2 + (this_pred_batch_ft_i - this_prj_batch_ft_i) ** 2)
-
-
-                # print(this_pred_batch_ft_r[:, 0, 0], this_pred_batch_ft_i[:, 0, 0])
-                # print(this_prj_batch_ft_r[:, 0, 0], this_prj_batch_ft_i[:, 0, 0])
-                # print(w.sum(w.norm(this_pred_batch_ft_r[0], this_pred_batch_ft_i[0]) ** 2))
-                # print(w.sum(w.norm(this_prj_batch_ft_r[0], this_prj_batch_ft_i[0]) ** 2))
-                # dxchange.write_tiff(np.sqrt(this_prj_batch_ft_r ** 2 + this_prj_batch_ft_i ** 2)[:, np.newaxis, :, :],
-                #                     os.path.join(output_folder, 'intermediate', 'prj_mag'), dtype='float32',
-                #                     overwrite=True)
-                # a = w.to_numpy(this_pred_batch_ft_r)
-                # b = w.to_numpy(this_pred_batch_ft_i)
-                # a = np.fft.ifft2(a + 1j * b).real
-                # dxchange.write_tiff(a[:, np.newaxis, :, :],
-                #                     os.path.join(output_folder, 'intermediate', 'pred_intensity'), dtype='float32',
-                #                     overwrite=True)
-
-
             if self.loss_function_type == 'lsq':
                 if self.raw_data_type == 'magnitude':
                     loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
@@ -965,7 +946,8 @@ class MultiDistModel(ForwardModel):
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
                 elif self.raw_data_type == 'intensity':
                     loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
-            loss = loss + self.get_regularization_value(obj)
+            reg = self.get_regularization_value(obj)
+            loss = loss + reg
             self.current_loss = float(w.to_numpy(loss))
 
             del ex_real_ls, ex_imag_ls
@@ -998,9 +980,10 @@ def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
     if unknown_type == 'delta_beta':
         o = (obj[slicer + [0]] + obj[slicer + [1]]) / 2
     else:
-        o = w.arctan2(obj[slicer + [1]], obj[slicer + [0]])
-    if distribution_mode:
-        reg = reg + gamma * total_variation_3d(o, axis_offset=1)
-    else:
-        reg = reg + gamma * total_variation_3d(o, axis_offset=0)
+        o = obj[slicer + [0]]
+        o1 = obj[slicer + [1]]
+    axis_offset = 0 if distribution_mode is None else 1
+    reg = reg + gamma * total_variation_3d(o, axis_offset=axis_offset)
+    if unknown_type == 'real_imag':
+        reg = reg + gamma * total_variation_3d(o1, axis_offset=axis_offset)
     return reg

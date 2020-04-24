@@ -147,8 +147,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             if is_minus_logged:
                 if pure_projection_return_sqrt:
                     c_real, c_imag = w.sqrt(beta_slice + 1e-10), delta_slice * 0
+                    print(w.mean(c_real), 111)
                 else:
                     c_real, c_imag = beta_slice, delta_slice * 0
+                    print(w.mean(c_real))
             else:
                 c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
