@@ -345,6 +345,11 @@ def ctf(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm, h=None,
 
 def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=50., alpha=1e-10, override_backend=None):
 
+    # Beware: CTF forward model is very sensitive to discontinuity. Delta maps with non-vacuum boundaries can
+    # cause the result to blow up, which can't be solved even with edge-mode padding. Vignetting is the only
+    # way through. Otherwise, use the result of NON-PADDED CTF phase retrieval (which contains vignetting
+    # by itself) as the initial guess.
+    print(kappa)
     probe_real, probe_imag = w.fft2(delta_slice, w.zeros_like(delta_slice, requires_grad=False), override_backend=override_backend)
     xi = PI * lmbda_nm * dist_nm * (u ** 2 + v ** 2)
     osc = 2 * (w.sin(xi) + 1. / kappa * w.cos(xi))
@@ -352,34 +357,36 @@ def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=50., 
     probe_imag = osc * probe_imag
     probe_real, probe_imag = w.ifft2(probe_real, probe_imag, override_backend=override_backend)
     probe_real = probe_real + 1
+    probe_real = w.sqrt(w.clip(probe_real, 0, None))
+    probe_imag = probe_imag * 0
     return probe_real, probe_imag
 
 
-if __name__ == '__main__':
-    import dxchange
-    import matplotlib.pyplot as plt
-    import adorym
-    u, v = gen_freq_mesh([1e3, 1e3], [512, 512])
-    delta_slice = dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/cameraman_affine/rec_nonoise_distopt1_transopt1/obj_mag_ds_1.tiff')
-    delta_slice = delta_slice.reshape([1, *delta_slice.shape[:2]]) * 10
-    print(delta_slice.mean())
-    beta_slice = delta_slice * 0.01
-    print(beta_slice.mean())
-    lmbda_nm = 1.24 / 17.5
-    dist_nm = 100e7
-
-    ctf_real, ctf_imag = pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=0.01)
-    i1 = np.fft.ifft2(ctf_real + 1j * ctf_imag, norm='ortho').real
-    i1 = np.squeeze(i1)
-
-    probe_real, probe_imag = adorym.mag_phase_to_real_imag(np.exp(-beta_slice), delta_slice)
-    phi_real, phi_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, [1e3, 1e3])
-    i2 = phi_real ** 2 + phi_imag ** 2
-    i2 = np.squeeze(i2)
-
-    fig = plt.figure(figsize=(10, 6))
-    fig.add_subplot(121)
-    plt.imshow(i1)
-    fig.add_subplot(122)
-    plt.imshow(i2)
-    plt.show()
+# if __name__ == '__main__':
+#     import dxchange
+#     import matplotlib.pyplot as plt
+#     import adorym
+#     u, v = gen_freq_mesh([1e3, 1e3], [512, 512])
+#     delta_slice = dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/cameraman_affine/rec_nonoise_distopt1_transopt1/obj_mag_ds_1.tiff')
+#     delta_slice = delta_slice.reshape([1, *delta_slice.shape[:2]]) * 10
+#     print(delta_slice.mean())
+#     beta_slice = delta_slice * 0.01
+#     print(beta_slice.mean())
+#     lmbda_nm = 1.24 / 17.5
+#     dist_nm = 100e7
+#
+#     ctf_real, ctf_imag = pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=0.01)
+#     i1 = np.fft.ifft2(ctf_real + 1j * ctf_imag, norm='ortho').real
+#     i1 = np.squeeze(i1)
+#
+#     probe_real, probe_imag = adorym.mag_phase_to_real_imag(np.exp(-beta_slice), delta_slice)
+#     phi_real, phi_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, [1e3, 1e3])
+#     i2 = phi_real ** 2 + phi_imag ** 2
+#     i2 = np.squeeze(i2)
+#
+#     fig = plt.figure(figsize=(10, 6))
+#     fig.add_subplot(121)
+#     plt.imshow(i1)
+#     fig.add_subplot(122)
+#     plt.imshow(i2)
+#     plt.show()

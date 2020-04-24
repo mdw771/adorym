@@ -7,6 +7,7 @@ from scipy.ndimage import rotate as sp_rotate
 
 from adorym.util import *
 import adorym.wrappers as w
+import adorym.conventional as c
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
@@ -223,6 +224,20 @@ class ObjectFunction(LargeArray):
     def update_object(self, obj):
         self.arr.detach()
         self.arr = obj
+
+    def update_using_external_algorithm(self, algorithm, kwargs, device=None):
+        if algorithm == 'ctf':
+            this_prj_batch = kwargs['prj'][0]
+            energy_ev = kwargs['energy_ev']
+            psize_cm = kwargs['psize_cm']
+            free_prop_cm = kwargs['free_prop_cm']
+            ctf_lg_kappa = kwargs['ctf_lg_kappa']
+            prj_affine_ls = kwargs['prj_affine_ls']
+            # Safe zone width is default to 0 on purpose in order to produce self-vignetted result, so that
+            # the forward propagation in the next iteration won't blow up.
+            phase = c.multidistance_ctf_wrapped(this_prj_batch, free_prop_cm, energy_ev, psize_cm, 10 ** ctf_lg_kappa[0],
+                                                safe_zone_width=0, prj_affine_ls=prj_affine_ls, device=device)
+            self.arr[:, :, :, 0] = w.reshape(phase, [*phase.shape, 1])
 
 
 class Gradient(ObjectFunction):

@@ -39,10 +39,13 @@ def reconstruct_ptychography(
         update_scheme='immediate', # Choose from 'immediate' or 'per angle'
         unknown_type='delta_beta', # Choose from 'delta_beta' or 'real_imag'
         randomize_probe_pos = False,
+        fix_object=False, # Do not update the object, just update other parameters
         # __________________________
         # |Object optimizer options|____________________________________________
+        optimize_object=True,
         optimizer='adam', # Choose from 'gd' or 'adam'
         learning_rate=1e-5,
+        update_using_external_algorithm=None,
         # ___________________________
         # |Finite support constraint|___________________________________________
         finite_support_mask_path=None, shrink_cycle=None, shrink_threshold=1e-9,
@@ -587,8 +590,8 @@ def reconstruct_ptychography(
 
         prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
         prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
+        prj_affine_ls = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
         if optimize_prj_affine:
-            prj_affine_ls = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=True)
             optimizer_options_prj_scale = {'step_size': prj_affine_learning_rate}
             opt_prj_affine = AdamOptimizer(prj_affine_ls.shape, output_folder=output_folder,
                                           options_dict=optimizer_options_prj_scale)
@@ -971,7 +974,7 @@ def reconstruct_ptychography(
                 # just save the gradient chunk into the gradient file.
                 # ================================================================================
                 with w.no_grad():
-                    if distribution_mode is None:
+                    if distribution_mode is None and optimize_object:
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **opt.options_dict)
                 if distribution_mode is None:
                     w.reattach(obj.arr)
@@ -999,6 +1002,8 @@ def reconstruct_ptychography(
                                 delta = delta / obj_norm
                                 beta = beta / obj_norm
                                 obj.arr = w.stack([delta, beta], -1)
+                    if update_using_external_algorithm is not None:
+                        obj.update_using_external_algorithm(update_using_external_algorithm, locals(), device_obj)
                 if distribution_mode is None:
                     w.reattach(obj.arr)
 
@@ -1118,10 +1123,10 @@ def reconstruct_ptychography(
                     print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
-                    if distribution_mode == 'shared_file':
+                    if distribution_mode == 'shared_file' and optimize_object:
                         opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
-                    elif distribution_mode == 'distributed_object' and obj.arr is not None:
+                    elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
                         if rank == 0 and debug:
                             print_flush('  Average gradient is {} for rank 0.'.format(w.mean(gradient.arr)), 0, rank, **stdout_options)
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, **optimizer_options_obj)
@@ -1262,108 +1267,3 @@ def reconstruct_ptychography(
                              full_output=True, ds_level=ds_level)
             print_flush('Current iteration finished.', 0, rank, **stdout_options)
         comm.Barrier()
-
-
-def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_pos, probe_pos_correction,
-                            prj, device_obj=None, minibatch_size=1, alpha=1., n_epochs=100, **kwargs):
-    """
-    Reconstruct a 2D object and probe function using ePIE.
-    """
-    with w.no_grad():
-        probe_real = probe_real[0]
-        probe_imag = probe_imag[0]
-        probe_pos = probe_pos.astype(int)
-        energy_ev = kwargs['energy_ev']
-        psize_cm = kwargs['psize_cm']
-        output_folder = kwargs['output_folder']
-        raw_data_type = kwargs['raw_data_type']
-        this_obj_size = obj_real.shape
-        if len(probe_real) == 2:
-            probe_size = probe_real.shape
-        else:
-            probe_size = probe_imag.shape
-        obj_stack = w.stack([obj_real, obj_imag], axis=3)
-
-        # Pad if needed
-        obj_stack, pad_arr = pad_object(obj_stack, this_obj_size, probe_pos, probe_size, unknown_type='real_imag')
-
-        i_batch = 0
-        subobj_ls = []
-        probe_real_ls = []
-        probe_imag_ls = []
-        for i_epoch in range(n_epochs):
-            for j in range(len(probe_pos)):
-                print('Batch {}/{}; Epoch {}/{}.'.format(j, len(probe_pos), i_epoch, n_epochs))
-                pos = probe_pos[j]
-                pos[0] = pos[0] + pad_arr[0, 0]
-                pos[1] = pos[1] + pad_arr[1, 0]
-                subobj = obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
-                subobj_ls.append(subobj)
-                if len(w.nonzero(probe_pos_correction > 1e-3)) > 0:
-                    this_shift = probe_pos_correction[0, j]
-                    probe_real_shifted, probe_imag_shifted = realign_image_fourier(probe_real, probe_imag,
-                                                                                   this_shift, axes=(0, 1),
-                                                                                   device=device_obj)
-                else:
-                    probe_real_shifted = probe_real
-                    probe_imag_shifted = probe_imag
-                probe_real_ls.append(probe_real_shifted)
-                probe_imag_ls.append(probe_imag_shifted)
-                i_batch += 1
-                if i_batch < minibatch_size and i_batch < prj.shape[1]:
-                    continue
-                else:
-                    this_prj_batch = prj[0, j * minibatch_size:j * minibatch_size + i_batch, :, :]
-                    this_prj_batch = w.create_variable(this_prj_batch, requires_grad=False, device=device_obj)
-                    if raw_data_type == 'intensity':
-                        this_prj_batch = w.sqrt(this_prj_batch)
-                    subobj_ls = w.stack(subobj_ls)
-                    probe_real_ls = w.stack(probe_real_ls)
-                    probe_imag_ls = w.stack(probe_imag_ls)
-                    c_real, c_imag = subobj_ls[:, :, :, 0, 0], subobj_ls[:, :, :, 0, 1]
-                    ex_real_ls, ex_imag_ls = (probe_real_ls * c_real - probe_imag_ls * c_imag, probe_real_ls * c_imag + probe_imag_ls * c_real)
-                    dp_real_ls, dp_imag_ls = w.fft2_and_shift(ex_real_ls, ex_imag_ls)
-                    mag_replace_factor = this_prj_batch / w.sqrt(dp_real_ls ** 2 + dp_imag_ls ** 2)
-                    dp_real_ls = dp_real_ls * mag_replace_factor
-                    dp_imag_ls = dp_imag_ls * mag_replace_factor
-                    phi_real_ls, phi_imag_ls = w.ishift_and_ifft2(dp_real_ls, dp_imag_ls)
-                    d_real_ls = phi_real_ls - ex_real_ls
-                    d_imag_ls = phi_imag_ls - ex_imag_ls
-
-                    norm = w.max(probe_real_ls ** 2 + probe_imag_ls ** 2)
-                    o_up_real = (probe_real_ls * d_real_ls + probe_imag_ls * d_imag_ls) / norm
-                    o_up_imag = (probe_real_ls * d_imag_ls - probe_imag_ls * d_real_ls) / norm
-                    o_up = w.stack([o_up_real, o_up_imag], axis=-1)
-                    o_up = w.reshape(o_up, [i_batch, probe_size[0], probe_size[1], 1, 2])
-                    subobj_ls = subobj_ls + alpha * o_up
-
-                    norm = w.max(subobj_ls[:, :, :, 0, 0] ** 2 + subobj_ls[:, :, :, 0, 1] ** 2)
-                    p_up_real = (subobj_ls[:, :, :, 0, 0] * d_real_ls + subobj_ls[:, :, :, 0, 1] * d_imag_ls) / norm
-                    p_up_imag = (subobj_ls[:, :, :, 0, 0] * d_imag_ls - subobj_ls[:, :, :, 0, 1] * d_real_ls) / norm
-                    p_up = w.stack([p_up_real, p_up_imag], axis=-1)
-                    p_up = w.reshape(p_up, [i_batch, probe_size[0], probe_size[1], 1, 2])
-                    p_up = w.mean(p_up, axis=0)
-                    probe_real = probe_real + alpha * p_up
-                    probe_imag = probe_imag + alpha * p_up
-
-                    # Put back.
-                    for i, k in enumerate(range(j * minibatch_size, j * minibatch_size + i_batch)):
-                        pos = probe_pos[k]
-                        pos[0] = pos[0] + pad_arr[0, 0]
-                        pos[1] = pos[1] + pad_arr[1, 0]
-                        obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :] = subobj_ls[i]
-
-                    i_batch = 0
-                    subobj_ls = []
-                    probe_real_ls = []
-                    probe_imag_ls = []
-
-            fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
-            fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
-            obj0, obj1 = w.split_channel(obj_stack)
-            obj0 = w.to_numpy(obj0)
-            obj1 = w.to_numpy(obj1)
-            dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32',
-                                overwrite=True)
-            dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32',
-                                overwrite=True)
