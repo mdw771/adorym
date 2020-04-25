@@ -47,6 +47,12 @@ class Comm():
     def alltoall(self, a):
         return a
 
+    def allreduce(self, a):
+        return a
+
+    def Allreduce(self, a):
+        return a
+
 
 class MPI(object):
 
