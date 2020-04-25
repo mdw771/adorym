@@ -24,10 +24,31 @@ class Hvd(object):
         return op
 
 
-class Mpi(object):
+class Comm():
 
     def __init__(self):
         pass
 
+    def Get_rank(self):
+        return 0
+
+    def Get_size(self):
+        return 1
+
     def Barrier(self):
         pass
+
+    def bcast(self, a, root=0):
+        return a
+
+    def Bcast(self, a, root=0):
+        return a
+
+    def alltoall(self, a):
+        return a
+
+
+class MPI(object):
+
+    COMM_WORLD = Comm()
+

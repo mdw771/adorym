@@ -118,7 +118,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
-                               return_ctf=False):
+                               kappa=None):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -138,7 +138,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
             p = w.sum(grid_batch, axis=-2)
             delta_slice = p[:, :, :, 0]
-            beta_slice = p[:, :, :, 1]
+            if kappa is not None:
+                beta_slice = delta_slice * kappa
+            else:
+                beta_slice = p[:, :, :, 1]
             # In conventional tomography beta is interpreted as mu. If projection data is minus-logged,
             # the line sum of beta (mu) directly equals image intensity. If raw_data_type is set to 'intensity',
             # measured data will be taken square root at the loss calculation step. To match this, the summed
@@ -147,10 +150,8 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             if is_minus_logged:
                 if pure_projection_return_sqrt:
                     c_real, c_imag = w.sqrt(beta_slice + 1e-10), delta_slice * 0
-                    print(w.mean(c_real), 111)
                 else:
                     c_real, c_imag = beta_slice, delta_slice * 0
-                    print(w.mean(c_real))
             else:
                 c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
         elif type == 'real_imag':
@@ -183,7 +184,11 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             # At the start of bin, initialize slice array.
             delta_slice = grid_batch[:, :, :, i, 0]
-            beta_slice = grid_batch[:, :, :, i, 1]
+            if kappa is not None:
+                # In sign = +1 convention, phase (delta) should be positive, and kappa is positive too.
+                beta_slice = delta_slice * kappa
+            else:
+                beta_slice = grid_batch[:, :, :, i, 1]
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -215,16 +220,13 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
         else:
             dist_nm = free_prop_cm * 1e7
             l = np.prod(size_nm)**(1. / 3)
-            if not return_ctf:
-                if optimize_free_prop:
-                        probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm,
-                                                                           lmbda_nm, voxel_nm,
-                                                                           device=device, sign_convention=sign_convention)
-                elif not optimize_free_prop:
-                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
-                                                               device=device, sign_convention=sign_convention)
-            else:
-                probe_real, probe_imag = ctf(u_free, v_free, probe_real, probe_imag, dist_nm, lmbda_nm)
+            if optimize_free_prop:
+                    probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm,
+                                                                       lmbda_nm, voxel_nm,
+                                                                       device=device, sign_convention=sign_convention)
+            elif not optimize_free_prop:
+                probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
+                                                           device=device, sign_convention=sign_convention)
     return probe_real, probe_imag
 
 

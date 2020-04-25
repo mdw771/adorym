@@ -1,9 +1,12 @@
 import numpy as np
 import os
 import h5py
-from mpi4py import MPI
 import gc
 from scipy.ndimage import rotate as sp_rotate
+try:
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 from adorym.util import *
 import adorym.wrappers as w

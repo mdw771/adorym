@@ -4,12 +4,15 @@ import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 import warnings
-from mpi4py import MPI
 import datetime
 from math import ceil, floor
 from scipy.ndimage import rotate as sp_rotate
 import time
 import re
+try:
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 try:
     import sys

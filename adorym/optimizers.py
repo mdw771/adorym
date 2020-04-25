@@ -1,7 +1,10 @@
 import numpy as np
 import os
 import h5py
-from mpi4py import MPI
+try:
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 from adorym.util import *
 from adorym.array_ops import ObjectFunction, Gradient

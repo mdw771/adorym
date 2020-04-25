@@ -706,7 +706,9 @@ class MultiDistModel(ForwardModel):
         theta_ls = self.common_vars['theta_ls']
         u_free = self.common_vars['u_free']
         v_free = self.common_vars['v_free']
+        optimize_ctf_lg_kappa = self.common_vars['optimize_ctf_lg_kappa']
 
+        kappa = 10 ** ctf_lg_kappa[0] if optimize_ctf_lg_kappa else None
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
@@ -834,7 +836,7 @@ class MultiDistModel(ForwardModel):
                             obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                             type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
-                            u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k)
+                            u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, kappa=kappa)
 
                     elif self.forward_algorithm == 'ctf':
                         temp_real, temp_imag = modulate_and_get_ctf(subobj_ls_ls[k], energy_ev, this_dist, u_free, v_free, kappa=10 ** ctf_lg_kappa[0])

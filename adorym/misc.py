@@ -1,9 +1,12 @@
 import os
 import numpy as np
-from mpi4py import MPI
 import glob
 import dxchange
 import re
+try:
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()

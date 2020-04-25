@@ -1,5 +1,4 @@
 import numpy as np
-from mpi4py import MPI
 import dxchange
 import time
 import datetime
@@ -7,6 +6,10 @@ import os
 import h5py
 import gc
 import warnings
+try:
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 from adorym.util import *
 from adorym.misc import *
@@ -17,6 +20,7 @@ from adorym.differentiator import *
 import adorym.wrappers as w
 import adorym.global_settings
 from adorym.forward_model import *
+from adorym.conventional import *
 
 PI = 3.1415927
 
@@ -600,7 +604,7 @@ def reconstruct_ptychography(
             opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
             opt_ls.append(opt_prj_affine)
 
-        if forward_algorithm == 'ctf' and optimize_ctf_lg_kappa:
+        if optimize_ctf_lg_kappa:
             ctf_lg_kappa = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
             optimizer_options_ctf_lg_kappa = {'step_size': ctf_lg_kappa_learning_rate}
             opt_ctf_lg_kappa = AdamOptimizer(ctf_lg_kappa.shape, output_folder=output_folder, options_dict=optimizer_options_ctf_lg_kappa)
