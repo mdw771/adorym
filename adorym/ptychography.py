@@ -70,6 +70,9 @@ def reconstruct_ptychography(
         n_probe_modes=1,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
+        # Intensity scaling factor in Poisson loss function. If intensity data is normalized, this should be the
+        # average number of incident photons per pixel.
+        poisson_multiplier = 1.,
         beamstop=None,
         normalize_fft=False, # Use False for simulated data generated without normalization. Normalize for Fraunhofer FFT only
         safe_zone_width=0,
@@ -899,6 +902,9 @@ def reconstruct_ptychography(
                         gradient.rotate_array(coord_new, interpolation=interpolation,
                                               precalculate_rotation_coords=precalculate_rotation_coords,
                                               override_device=device_obj, overwrite_arr=True)
+                if rank == 0 and debug:
+                    print_flush('  Average gradient is {} for rank 0.'.format(w.mean(grads[0])), 0, rank,
+                                **stdout_options)
 
                 # Initialize gradients for non-object variables if necessary.
                 if initialize_gradients:
@@ -1131,10 +1137,9 @@ def reconstruct_ptychography(
                         opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
-                        if rank == 0 and debug:
-                            print_flush('  Average gradient is {} for rank 0.'.format(w.mean(gradient.arr)), 0, rank, **stdout_options)
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, **optimizer_options_obj)
                         gradient.arr[...] = 0
+
                     comm.Barrier()
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)
 

@@ -28,6 +28,7 @@ class ForwardModel(object):
         self.is_minus_logged = common_vars_dict['is_minus_logged']
         self.forward_algorithm = common_vars_dict['forward_algorithm']
         self.stdout_options = common_vars_dict['stdout_options']
+        self.poisson_multiplier = common_vars_dict['poisson_multiplier']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -76,6 +77,24 @@ class ForwardModel(object):
             if a == arg:
                 return i
         raise ValueError('{} is not in the argument list.'.format(arg))
+
+    def get_mismatch_loss(self, this_pred_batch, this_prj_batch):
+
+        if self.loss_function_type == 'lsq':
+            if self.raw_data_type == 'magnitude':
+                loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
+            elif self.raw_data_type == 'intensity':
+                loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
+        elif self.loss_function_type == 'poisson':
+            if self.raw_data_type == 'magnitude':
+                loss = w.mean(this_pred_batch ** 2 * self.poisson_multiplier -
+                              w.abs(this_prj_batch) ** 2 * self.poisson_multiplier * w.log(
+                    this_pred_batch ** 2 * self.poisson_multiplier))
+            elif self.raw_data_type == 'intensity':
+                loss = w.mean(this_pred_batch ** 2 * self.poisson_multiplier -
+                              w.abs(this_prj_batch) * self.poisson_multiplier * w.log(
+                    this_pred_batch ** 2 * self.poisson_multiplier))
+        return loss
 
 
 class PtychographyModel(ForwardModel):
@@ -315,16 +334,7 @@ class PtychographyModel(ForwardModel):
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
                             rank)
-            if self.loss_function_type == 'lsq':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
-            elif self.loss_function_type == 'poisson':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
             del ex_real_ls, ex_imag_ls
@@ -410,16 +420,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
             if ds_level > 1:
                 this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
 
-            if self.loss_function_type == 'lsq':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
-            elif self.loss_function_type == 'poisson':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
             return loss
@@ -644,16 +645,7 @@ class SparseMultisliceModel(ForwardModel):
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
                             rank)
 
-            if self.loss_function_type == 'lsq':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
-            elif self.loss_function_type == 'poisson':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
             del ex_real_ls, ex_imag_ls
@@ -938,16 +930,7 @@ class MultiDistModel(ForwardModel):
                 this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
                 print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0, rank)
 
-            if self.loss_function_type == 'lsq':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean((this_pred_batch - w.sqrt(w.abs(this_prj_batch))) ** 2)
-            elif self.loss_function_type == 'poisson':
-                if self.raw_data_type == 'magnitude':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) ** 2 * w.log(this_pred_batch ** 2))
-                elif self.raw_data_type == 'intensity':
-                    loss = w.mean(this_pred_batch ** 2 - w.abs(this_prj_batch) * w.log(this_pred_batch ** 2))
+            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
             reg = self.get_regularization_value(obj)
             loss = loss + reg
             self.current_loss = float(w.to_numpy(loss))
