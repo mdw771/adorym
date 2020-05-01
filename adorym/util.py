@@ -243,9 +243,9 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
             # The direct return of FFT function has a total power that is n_pixels times of the input.
             # This should be removed.
             if sign_convention == 1:
-                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / probe_real.size
+                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) / np.prod(probe_real.shape[-2:])
             else:
-                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) * probe_real.size
+                intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1))) * np.prod(probe_real.shape[-2:])
         else:
             intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)

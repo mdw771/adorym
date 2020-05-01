@@ -494,24 +494,32 @@ def reconstruct_ptychography(
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options,
                                                       sign_convention=sign_convention, **probe_init_kwargs)
             if n_probe_modes == 1:
-                probe_real = np.stack([probe_real_init])
-                probe_imag = np.stack([probe_imag_init])
+                probe_real = np.stack([np.squeeze(probe_real_init)])
+                probe_imag = np.stack([np.squeeze(probe_imag_init)])
             else:
-                probe_real = []
-                probe_imag = []
-                i_cum_factor = 0
-                for i_mode in range(n_probe_modes):
-                    probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
-                    probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
-                    # if i_mode < n_probe_modes - 1:
-                    #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
-                    #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
-                    #     i_cum_factor += (1 - i_cum_factor) * 0.85
-                    # else:
-                    #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
-                    #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
-                probe_real = np.stack(probe_real)
-                probe_imag = np.stack(probe_imag)
+                if len(probe_real.shape) == 3 and len(probe_real) == n_pos:
+                    probe_real = probe_real_init
+                    probe_imag = probe_imag_init
+                elif len(probe_real.shape) == 2 or len(probe_real) == 1:
+                    probe_real = []
+                    probe_imag = []
+                    probe_real_init = np.squeeze(probe_real_init)
+                    probe_imag_init = np.squeeze(probe_imag_init)
+                    i_cum_factor = 0
+                    for i_mode in range(n_probe_modes):
+                        probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
+                        probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                        # if i_mode < n_probe_modes - 1:
+                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        #     i_cum_factor += (1 - i_cum_factor) * 0.85
+                        # else:
+                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
+                        #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
+                    probe_real = np.stack(probe_real)
+                    probe_imag = np.stack(probe_imag)
+                else:
+                    raise RuntimeError('Length of supplied supplied probe does not match number of probe modes.')
         else:
             probe_real = None
             probe_imag = None
