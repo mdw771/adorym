@@ -351,13 +351,13 @@ def reconstruct_ptychography(
         # ================================================================================
         if optimizer == 'adam':
             optimizer_options_obj = {'step_size': learning_rate}
-            opt = AdamOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = AdamOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
                                 options_dict=optimizer_options_obj)
         elif optimizer == 'gd':
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
-            opt = GDOptimizer([*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = GDOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
@@ -521,38 +521,17 @@ def reconstruct_ptychography(
         probe_imag = w.create_variable(probe_imag, device=device_obj)
 
         # ================================================================================
-        # Create other optimizers (probe, probe defocus, probe positions, etc.).
+        # Create variables and optimizers for other parameters (probe, probe defocus,
+        # probe positions, etc.).
         # ================================================================================
         opt_args_ls = [0]
-        if optimize_probe:
-            optimizer_options_probe = {'step_size': probe_learning_rate}
-            opt_probe = AdamOptimizer([n_probe_modes, *probe_size, 2], output_folder=output_folder, options_dict=optimizer_options_probe)
-            opt_probe.create_param_arrays(device=device_obj)
-            opt_probe.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'), forward_model.get_argument_index('probe_imag')]
-            opt_ls.append(opt_probe)
+        optimizable_params = {}
 
-        probe_defocus_mm = w.create_variable(0.0)
-        if optimize_probe_defocusing:
-            optimizer_options_probe_defocus = {'step_size': probe_defocusing_learning_rate,
-                                               'dynamic_rate': True,
-                                               'first_downrate_iteration': 4 * max([ceil(n_pos / (minibatch_size * n_ranks)), 1])}
-            opt_probe_defocus = GDOptimizer([1], output_folder=output_folder, options_dict=optimizer_options_probe_defocus)
-            opt_probe_defocus.create_param_arrays(device=device_obj)
-            opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('probe_defocus_mm'))
-            opt_ls.append(opt_probe_defocus)
+        optimizable_params['probe_real'] = probe_real
+        optimizable_params['probe_imag'] = probe_imag
 
-        probe_pos_offset = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
-        if optimize_probe_pos_offset:
-            assert optimize_all_probe_pos == False
-            optimizer_options_probe_pos_offset = {'step_size': probe_pos_offset_learning_rate,
-                                                  'dynamic_rate': False}
-            opt_probe_pos_offset = GDOptimizer(probe_pos_offset.shape, output_folder=output_folder, options_dict=optimizer_options_probe_pos_offset)
-            opt_probe_pos_offset.create_param_arrays(device=device_obj)
-            opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
-            opt_ls.append(opt_probe_pos_offset)
+        optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
+        optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
 
         if common_probe_pos:
             probe_pos_int = np.round(probe_pos).astype(int)
@@ -560,80 +539,41 @@ def reconstruct_ptychography(
             probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
         if is_multi_dist:
             n_dists = len(free_prop_cm)
-            probe_pos_correction = w.create_variable(np.zeros([n_dists, 2]),
-                                                     requires_grad=optimize_all_probe_pos, device=device_obj)
+            optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),
+                                                         requires_grad=optimize_all_probe_pos, device=device_obj)
         else:
             if common_probe_pos:
-                probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                optimizable_params['probe_pos_correction'] = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
                                                          requires_grad=optimize_all_probe_pos, device=device_obj)
             else:
                 n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
                 probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
                 for j, probe_pos, probe_pos_int in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
                     probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
-                probe_pos_correction = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
+                optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
             n_dists = 1
-        if optimize_all_probe_pos:
-            assert optimize_probe_pos_offset == False
-            optimizer_options_probe_pos = {'step_size': all_probe_pos_learning_rate}
-            opt_probe_pos = AdamOptimizer(probe_pos_correction.shape, output_folder=output_folder, options_dict=optimizer_options_probe_pos)
-            opt_probe_pos.create_param_arrays(device=device_obj)
-            opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
-            opt_ls.append(opt_probe_pos)
 
         if is_sparse_multislice:
-            slice_pos_cm_ls = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
-            if optimize_slice_pos:
-                optimizer_options_slice_pos = {'step_size': slice_pos_learning_rate}
-                opt_slice_pos = AdamOptimizer(slice_pos_cm_ls.shape, output_folder=output_folder, options_dict=optimizer_options_slice_pos)
-                opt_slice_pos.create_param_arrays(device=device_obj)
-                opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
-                opt_args_ls.append(forward_model.get_argument_index('slice_pos_cm_ls'))
-                opt_ls.append(opt_slice_pos)
+            optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
 
         if is_multi_dist:
             if optimize_free_prop:
-                free_prop_cm = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
-                optimizer_options_free_prop = {'step_size': free_prop_learning_rate}
-                opt_free_prop = AdamOptimizer(free_prop_cm.shape, output_folder=output_folder, options_dict=optimizer_options_free_prop)
-                opt_free_prop.create_param_arrays(device=device_obj)
-                opt_free_prop.set_index_in_grad_return(len(opt_args_ls))
-                opt_args_ls.append(forward_model.get_argument_index('free_prop_cm'))
-                opt_ls.append(opt_free_prop)
+                optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
 
         tilt_ls = np.zeros([3, n_theta])
         tilt_ls[0] = theta_ls
         if optimize_tilt:
-            tilt_ls = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
-            optimizer_options_tilt = {'step_size': free_prop_learning_rate}
-            opt_tilt = AdamOptimizer(tilt_ls.shape, output_folder=output_folder,
-                                     options_dict=optimizer_options_tilt)
-            opt_tilt.create_param_arrays(device=device_obj)
-            opt_tilt.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('tilt_ls'))
-            opt_ls.append(opt_tilt)
+            optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
 
         prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
         prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
-        prj_affine_ls = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
-        if optimize_prj_affine:
-            optimizer_options_prj_scale = {'step_size': prj_affine_learning_rate}
-            opt_prj_affine = AdamOptimizer(prj_affine_ls.shape, output_folder=output_folder,
-                                          options_dict=optimizer_options_prj_scale)
-            opt_prj_affine.create_param_arrays(device=device_obj)
-            opt_prj_affine.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
-            opt_ls.append(opt_prj_affine)
+        optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
 
         if optimize_ctf_lg_kappa:
-            ctf_lg_kappa = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
-            optimizer_options_ctf_lg_kappa = {'step_size': ctf_lg_kappa_learning_rate}
-            opt_ctf_lg_kappa = AdamOptimizer(ctf_lg_kappa.shape, output_folder=output_folder, options_dict=optimizer_options_ctf_lg_kappa)
-            opt_ctf_lg_kappa.create_param_arrays(device=device_obj)
-            opt_ctf_lg_kappa.set_index_in_grad_return(len(opt_args_ls))
-            opt_args_ls.append(forward_model.get_argument_index('ctf_lg_kappa'))
-            opt_ls.append(opt_ctf_lg_kappa)
+            optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
+
+        opt_ls, opt_args_ls = create_and_initialize_parameter_optimizers(optimizable_params, locals())
+
 
         # ================================================================================
         # Use ePIE?
@@ -643,7 +583,7 @@ def reconstruct_ptychography(
             warnings.warn('use_epie is True. I will reconstruct using ePIE instead of AD!')
             time.sleep(0.5)
             alt_reconstruction_epie(obj.delta, obj.beta, probe_real, probe_imag, probe_pos,
-                                    probe_pos_correction, prj, device_obj=device_obj,
+                                    optimizable_params['probe_pos_correction'], prj, device_obj=device_obj,
                                     minibatch_size=minibatch_size, alpha=epie_alpha, n_epochs=n_epochs, energy_ev=energy_ev,
                                     psize_cm=psize_cm, output_folder=output_folder,
                                     raw_data_type=raw_data_type)
@@ -880,7 +820,10 @@ def reconstruct_ptychography(
                         obj_arr = obj.chunks
                     if arg == 'obj': grad_func_args[arg] = obj_arr
                     else:
-                        grad_func_args[arg] = locals()[arg]
+                        try:
+                            grad_func_args[arg] = optimizable_params[arg]
+                        except:
+                            grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
                 comm.Barrier()
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
@@ -927,49 +870,9 @@ def reconstruct_ptychography(
                 # Initialize gradients for non-object variables if necessary.
                 if initialize_gradients:
                     initialize_gradients = False
-                    if optimize_probe:
-                        probe_grads = w.zeros([*grads[1].shape, 2], requires_grad=False, device=device_obj)
-                    if optimize_probe_defocusing:
-                        pd_grads = w.zeros_like(grads[opt_probe_defocus.index_in_grad_returns], requires_grad=False, device=device_obj)
-                    if optimize_probe_pos_offset:
-                        pos_offset_grads = w.zeros_like(grads[opt_probe_pos_offset.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_all_probe_pos:
-                        all_pos_grads = w.zeros_like(grads[opt_probe_pos.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_slice_pos:
-                        slice_pos_grads = w.zeros_like(grads[opt_slice_pos.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_free_prop:
-                        free_prop_grads = w.zeros_like(grads[opt_free_prop.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_tilt:
-                        tilt_grads = w.zeros_like(grads[opt_tilt.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_prj_affine:
-                        prj_affine_grads = w.zeros_like(grads[opt_prj_affine.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                    if optimize_ctf_lg_kappa:
-                        ctf_lg_kappa_grads = w.zeros_like(grads[opt_ctf_lg_kappa.index_in_grad_returns], requires_grad=False,
-                                                device=device_obj)
-                if optimize_probe:
-                    probe_grads += w.stack(grads[1:3], axis=-1)
-                if optimize_probe_defocusing:
-                    pd_grads += grads[opt_probe_defocus.index_in_grad_returns]
-                if optimize_probe_pos_offset:
-                    pos_offset_grads += grads[opt_probe_pos_offset.index_in_grad_returns]
-                if optimize_all_probe_pos:
-                    all_pos_grads += grads[opt_probe_pos.index_in_grad_returns]
-                if optimize_slice_pos:
-                    slice_pos_grads += grads[opt_slice_pos.index_in_grad_returns]
-                if optimize_free_prop:
-                    free_prop_grads += grads[opt_free_prop.index_in_grad_returns]
-                if optimize_tilt:
-                    tilt_grads += grads[opt_tilt.index_in_grad_returns]
-                if optimize_prj_affine:
-                    prj_affine_grads += grads[opt_prj_affine.index_in_grad_returns]
-                if optimize_ctf_lg_kappa:
-                    ctf_lg_kappa_grads += grads[opt_ctf_lg_kappa.index_in_grad_returns]
+                    initialize_parameter_gradients(opt_ls, device_obj)
+
+                opt_ls = update_parameter_gradients(opt_ls, grads)
 
                 # if ((update_scheme == 'per angle' or distribution_mode) and not is_last_batch_of_this_theta):
                 #     continue
@@ -1038,93 +941,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Optimize probe and other parameters if necessary.
                 # ================================================================================
-                if optimize_probe:
-                    if i_epoch >= probe_update_delay:
-                        with w.no_grad():
-                            probe_grads = comm.allreduce(probe_grads)
-                            probe_temp = opt_probe.apply_gradient(w.stack([probe_real, probe_imag], axis=-1), probe_grads, i_full_angle, **opt_probe.options_dict)
-                            probe_real, probe_imag = w.split_channel(probe_temp)
-                            del probe_grads, probe_temp
-                        w.reattach(probe_real)
-                        w.reattach(probe_imag)
-                    else:
-                        print_flush('Probe is not updated because current epoch is smaller than specified delay ({}).'.format(probe_update_delay), 0, rank, **stdout_options)
-
-                if i_epoch >= other_params_update_delay:
-                    if optimize_probe_defocusing:
-                        with w.no_grad():
-                            pd_grads = comm.allreduce(pd_grads)
-                            probe_defocus_mm = opt_probe_defocus.apply_gradient(probe_defocus_mm, pd_grads, i_full_angle,
-                                                                                **opt_probe_defocus.options_dict)
-                            print_flush('  Probe defocus is {} mm.'.format(probe_defocus_mm), 0, rank,
-                                        **stdout_options)
-                        w.reattach(probe_defocus_mm)
-
-                    if optimize_probe_pos_offset:
-                        with w.no_grad():
-                            pos_offset_grads = comm.allreduce(pos_offset_grads)
-                            probe_pos_offset = opt_probe_pos_offset.apply_gradient(probe_pos_offset, pos_offset_grads, i_full_angle,
-                                                                                **opt_probe_pos_offset.options_dict)
-                        w.reattach(probe_pos_offset)
-
-                    if optimize_all_probe_pos:
-                        with w.no_grad():
-                            all_pos_grads = comm.allreduce(all_pos_grads)
-                            probe_pos_correction = opt_probe_pos.apply_gradient(probe_pos_correction, all_pos_grads, i_full_angle,
-                                                                                **opt_probe_pos.options_dict)
-                            # Prevent position drifting
-                            slicer = tuple(range(len(probe_pos_correction.shape) - 1))
-                            probe_pos_correction = probe_pos_correction - w.mean(probe_pos_correction, axis=slicer)
-                        w.reattach(probe_pos_correction)
-
-                    if optimize_slice_pos:
-                        with w.no_grad():
-                            all_pos_grads = comm.allreduce(slice_pos_grads)
-                            slice_pos_cm_ls = opt_slice_pos.apply_gradient(slice_pos_cm_ls, slice_pos_grads, i_full_angle,
-                                                                           **opt_slice_pos.options_dict)
-                            # Prevent position drifting
-                            slice_pos_cm_ls = slice_pos_cm_ls - slice_pos_cm_ls[0]
-                        w.reattach(slice_pos_cm_ls)
-
-                    if optimize_tilt:
-                        with w.no_grad():
-                            tilt_grads = comm.allreduce(tilt_grads)
-                            tilt_ls = opt_tilt.apply_gradient(tilt_ls, tilt_grads, i_full_angle,
-                                                                           **opt_tilt.options_dict)
-                        w.reattach(tilt_ls)
-
-                    if optimize_free_prop:
-                        with w.no_grad():
-                            free_prop_grads = comm.allreduce(free_prop_grads)
-                            free_prop_cm = opt_free_prop.apply_gradient(free_prop_cm, free_prop_grads, i_full_angle,
-                                                                           **opt_free_prop.options_dict)
-                        w.reattach(free_prop_cm)
-
-                    if optimize_prj_affine:
-                        with w.no_grad():
-                            prj_affine_grads = comm.allreduce(prj_affine_grads)
-                            prj_affine_ls = opt_prj_affine.apply_gradient(prj_affine_ls, prj_affine_grads, i_full_angle,
-                                                                           **opt_prj_affine.options_dict)
-                            # Regularize transformation of image 0.
-                            prj_affine_ls[0, 0, 0] = 1.
-                            prj_affine_ls[0, 0, 1] = 0.
-                            prj_affine_ls[0, 0, 2] = 0.
-                            prj_affine_ls[0, 1, 0] = 0.
-                            prj_affine_ls[0, 1, 1] = 1.
-                            prj_affine_ls[0, 1, 2] = 0.
-                        w.reattach(prj_affine_ls)
-
-                    if optimize_ctf_lg_kappa:
-                        with w.no_grad():
-                            ctf_lg_kappa_grads = comm.allreduce(ctf_lg_kappa_grads)
-                            ctf_lg_kappa = opt_ctf_lg_kappa.apply_gradient(ctf_lg_kappa, ctf_lg_kappa_grads, i_full_angle,
-                                                                           **opt_ctf_lg_kappa.options_dict)
-                        w.reattach(ctf_lg_kappa)
-
-                else:
-                    print_flush(
-                        'Params are not updated because current epoch is smaller than specified delay ({}).'.format(
-                            other_params_update_delay), 0, rank, **stdout_options)
+                optimizable_params = update_parameters(opt_ls, optimizable_params, locals())
 
                 # ================================================================================
                 # For shared-file-mode, if finishing or above to move to a different angle,
@@ -1196,56 +1013,7 @@ def reconstruct_ptychography(
                                           unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                           save_history=save_history)
                     if rank == 0:
-                        if optimize_probe:
-                            output_probe(probe_real, probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
-                                         full_output=False, i_epoch=i_epoch, i_batch=i_batch,
-                                         save_history=save_history)
-                        if optimize_probe_pos_offset:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos_offset'))
-                            f_offset = open(os.path.join(output_folder, 'intermediate', 'probe_pos_offset',
-                                                         'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
-                            f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(probe_pos_offset).flatten())))
-                            f_offset.close()
-                        elif optimize_all_probe_pos:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos'))
-                            for i_theta_pos in range(n_theta):
-                                if is_multi_dist:
-                                    np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
-                                                            'probe_pos_correction_{}_{}.txt'.format(i_epoch, i_batch)),
-                                               w.to_numpy(probe_pos_correction))
-                                else:
-                                    np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
-                                                            'probe_pos_correction_{}_{}_{}.txt'.format(i_epoch, i_batch, i_theta_pos)),
-                                                            w.to_numpy(probe_pos_correction[i_theta_pos]))
-                        if optimize_slice_pos:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'slice_pos'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'slice_pos',
-                                                    'slice_pos_correction_{}.txt'.format(i_epoch)),
-                                       w.to_numpy(slice_pos_cm_ls))
-
-                        if optimize_free_prop:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'free_prop_cm'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'free_prop_cm',
-                                                    'free_prop_correction_{}.txt'.format(i_epoch)),
-                                       w.to_numpy(free_prop_cm))
-
-                        if optimize_tilt:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'tilt'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'tilt',
-                                                    'tilt_{}.txt'.format(i_epoch)),
-                                       w.to_numpy(tilt_ls))
-
-                        if optimize_prj_affine:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'prj_affine'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_affine',
-                                                    'prj_affine_{}.txt'.format(i_epoch)),
-                                       np.concatenate(w.to_numpy(prj_affine_ls), 0))
-
-                        if optimize_ctf_lg_kappa:
-                            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'ctf_lg_kappa'))
-                            np.savetxt(os.path.join(output_folder, 'intermediate', 'ctf_lg_kappa',
-                                                    'ctf_lg_kappa_{}.txt'.format(i_epoch)),
-                                       w.to_numpy(ctf_lg_kappa))
+                        output_intermediate_parameters(opt_ls, optimizable_params, locals())
                 comm.Barrier()
 
                 # ================================================================================
