@@ -29,6 +29,7 @@ class ForwardModel(object):
         self.forward_algorithm = common_vars_dict['forward_algorithm']
         self.stdout_options = common_vars_dict['stdout_options']
         self.poisson_multiplier = common_vars_dict['poisson_multiplier']
+        self.common_probe_pos = common_vars_dict['common_probe_pos']
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict

@@ -37,16 +37,19 @@ def reconstruct_ptychography(
         n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
         gamma=1e-6, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
         initial_guess=None,
-        # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+        # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
         n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
         update_scheme='immediate', # Choose from 'immediate' or 'per angle'
         unknown_type='delta_beta', # Choose from 'delta_beta' or 'real_imag'
-        randomize_probe_pos = False,
+        randomize_probe_pos=False,
+        common_probe_pos=True, # Set to False if the values/number of probe positions vary with projection angle
         fix_object=False, # Do not update the object, just update other parameters
         # __________________________
         # |Object optimizer options|____________________________________________
         optimize_object=True,
+        # Keep True in most cases. Setting to False forbids the object from being updated using gradients, which
+        # might be desirable when you just want to refine parameters for other reconstruction algorithms.
         optimizer='adam', # Choose from 'gd' or 'adam'
         learning_rate=1e-5,
         update_using_external_algorithm=None,
@@ -70,16 +73,16 @@ def reconstruct_ptychography(
         n_probe_modes=1,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
+        poisson_multiplier = 1.,
         # Intensity scaling factor in Poisson loss function. If intensity data is normalized, this should be the
         # average number of incident photons per pixel.
-        poisson_multiplier = 1.,
         beamstop=None,
         normalize_fft=False, # Use False for simulated data generated without normalization. Normalize for Fraunhofer FFT only
         safe_zone_width=0,
         scale_ri_by_k=True,
+        sign_convention=1,
         # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
         # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-        sign_convention=1,
         fourier_disparity=False,
         # _____
         # |I/O|_________________________________________________________________
@@ -115,10 +118,10 @@ def reconstruct_ptychography(
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
         backend='autograd', # Choose from 'autograd' or 'pytorch
         debug=False,
+        t_max_min=None,
         # At the end of a batch, terminate the program with status 0 if total time exceeds the set value.
         # Useful for working with supercomputers' job dependency system, where the dependent may start only
         # if the parent job exits with status 0.
-        t_max_min=None,
         **kwargs,):
         # ______________________________________________________________________
 
@@ -196,7 +199,15 @@ def reconstruct_ptychography(
 
     # Probe position.
     if probe_pos is None:
-        probe_pos = f['metadata/probe_pos_px']
+        if common_probe_pos:
+            probe_pos = f['metadata/probe_pos_px']
+            probe_pos = np.array(probe_pos).astype(float)
+        else:
+            probe_pos_ls = []
+            n_pos_ls = []
+            for i in n_theta:
+                probe_pos_ls.append(f['metadata/probe_pos_px_{}'.format(i)])
+                n_pos_ls.append(len(f['metadata/probe_pos_px_{}'.format(i)]))
 
     # Energy.
     if energy_ev is None:
@@ -251,8 +262,6 @@ def reconstruct_ptychography(
     comm.Barrier()
 
     not_first_level = False
-    n_pos = len(probe_pos)
-    probe_pos = np.array(probe_pos).astype(float)
 
     # ================================================================================
     # Remove kwargs that may cause issue (removing args that were required in
@@ -265,12 +274,12 @@ def reconstruct_ptychography(
     # ================================================================================
     # Batching check.
     # ================================================================================
-    if minibatch_size > 1 and n_pos == 1:
+    if minibatch_size > 1 and common_probe_pos and len(probe_pos) == 1:
         warnings.warn('It seems that you are processing undivided fullfield data with'
                       'minibatch > 1. A rank can only process data from the same rotation'
                       'angle at a time. I am setting minibatch_size to 1.')
         minibatch_size = 1
-    if distribution_mode is not None and n_pos == 1:
+    if distribution_mode is not None and common_probe_pos and len(probe_pos) == 1:
         warnings.warn('It seems that you are processing undivided fullfield data with'
                       'distribution_mode not None. In shared-file mode and distributed '
                       'object mode, all ranks must'
@@ -419,7 +428,7 @@ def reconstruct_ptychography(
             forward_model = MultiDistModel(**forwardmodel_args)
         elif is_sparse_multislice:
             forward_model = SparseMultisliceModel(**forwardmodel_args)
-        elif minibatch_size == 1 and  n_pos == 1 and np.allclose(probe_pos[0], 0):
+        elif common_probe_pos and minibatch_size == 1 and len(probe_pos) == 1 and np.allclose(probe_pos[0], 0):
             forward_model = SingleBatchFullfieldModel(**forwardmodel_args)
         else:
             forward_model = PtychographyModel(**forwardmodel_args)
@@ -545,14 +554,24 @@ def reconstruct_ptychography(
             opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
             opt_ls.append(opt_probe_pos_offset)
 
-        probe_pos_int = np.round(probe_pos).astype(int)
+        if common_probe_pos:
+            probe_pos_int = np.round(probe_pos).astype(int)
+        else:
+            probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
         if is_multi_dist:
             n_dists = len(free_prop_cm)
             probe_pos_correction = w.create_variable(np.zeros([n_dists, 2]),
                                                      requires_grad=optimize_all_probe_pos, device=device_obj)
         else:
-            probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
-                                                     requires_grad=optimize_all_probe_pos, device=device_obj)
+            if common_probe_pos:
+                probe_pos_correction = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                                                         requires_grad=optimize_all_probe_pos, device=device_obj)
+            else:
+                n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
+                probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
+                for j, probe_pos, probe_pos_int in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
+                    probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
+                probe_pos_correction = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
             n_dists = 1
         if optimize_all_probe_pos:
             assert optimize_probe_pos_offset == False
@@ -663,13 +682,9 @@ def reconstruct_ptychography(
         i_epoch = starting_epoch
         i_full_angle = 0
         while cont:
-            # for o in opt_ls:
-            #     o.i_batch = 0
-            n_spots = n_theta * n_pos
-            n_tot_per_batch = minibatch_size * n_ranks
-            n_batch = int(np.ceil(float(n_spots) / n_tot_per_batch))
-
             t0 = time.time()
+
+            n_tot_per_batch = minibatch_size * n_ranks
             ind_list_rand = []
 
             t00 = time.time()
@@ -690,7 +705,9 @@ def reconstruct_ptychography(
             # Put diffraction spots from all angles together, and divide into minibatches.
             # ================================================================================
             for i, i_theta in enumerate(theta_ind_ls):
+                n_pos = len(probe_pos) if common_probe_pos else n_pos_ls[i_theta]
                 spots_ls = range(n_pos)
+                probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[i_theta]
                 if randomize_probe_pos:
                     spots_ls = np.random.choice(spots_ls, len(spots_ls), replace=False)
                 # ================================================================================
@@ -720,6 +737,7 @@ def reconstruct_ptychography(
                     ind_list_rand = np.concatenate(
                         [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
+            n_batch = len(ind_list_rand)
 
             print_flush('Allocation done in {} s.'.format(time.time() - t00), 0, rank, **stdout_options)
 

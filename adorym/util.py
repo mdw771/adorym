@@ -235,7 +235,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
     #     probe_real, probe_imag = np.real(wavefront), np.imag(wavefront)
     if rescale_intensity:
         n_probe_modes = kwargs['n_probe_modes']
-        f = h5py.File(fname, 'r')
+        f = h5py.File(os.path.join(save_path, fname), 'r')
         dat = f['exchange/data'][...]
         if kwargs['raw_data_type'] == 'magnitude':
             dat = dat ** 2
@@ -254,6 +254,7 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         probe_real = probe_real * s
         probe_imag = probe_imag * s
         print_flush('Probe magnitude scaling factor is {}.'.format(s), 0, rank, **kwargs['stdout_options'])
+        f.close()
     return probe_real, probe_imag
 
 
@@ -303,6 +304,7 @@ def create_probe_initial_guess_ptycho(data_fname, noise=False, raw_data_type='in
         wavefront_mean = np.mean(wavefront)
         wavefront += np.random.normal(size=wavefront.shape, loc=wavefront_mean, scale=wavefront_mean * 0.2)
         wavefront = np.clip(wavefront, 0, None)
+    f.close()
     return wavefront
 
 

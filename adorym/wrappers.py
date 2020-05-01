@@ -629,7 +629,7 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
     """
     bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
-    mode_dict = {'contant': {'autograd': 'contant', 'pytorch': 'contant'},
+    mode_dict = {'constant': {'autograd': 'constant', 'pytorch': 'constant'},
                  'edge':    {'autograd': 'edge',    'pytorch': 'replicate'},
                  'reflect': {'autograd': 'reflect', 'pytorch': 'reflect'},
                  'wrap':    {'autograd': 'wrap',    'pytorch': 'circular'}}
