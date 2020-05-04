@@ -430,6 +430,8 @@ def reconstruct_ptychography(
             forward_model = SparseMultisliceModel(**forwardmodel_args)
         elif common_probe_pos and minibatch_size == 1 and len(probe_pos) == 1 and np.allclose(probe_pos[0], 0):
             forward_model = SingleBatchFullfieldModel(**forwardmodel_args)
+        elif common_probe_pos and minibatch_size == 1 and len(probe_pos) > 1 and n_probe_modes == 1:
+            forward_model = SingleBatchPtychographyModel(**forwardmodel_args)
         else:
             forward_model = PtychographyModel(**forwardmodel_args)
         print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), 0, rank, **stdout_options)
@@ -497,10 +499,10 @@ def reconstruct_ptychography(
                 probe_real = np.stack([np.squeeze(probe_real_init)])
                 probe_imag = np.stack([np.squeeze(probe_imag_init)])
             else:
-                if len(probe_real.shape) == 3 and len(probe_real) == n_pos:
+                if len(probe_real_init.shape) == 3 and len(probe_real_init) == n_pos:
                     probe_real = probe_real_init
                     probe_imag = probe_imag_init
-                elif len(probe_real.shape) == 2 or len(probe_real) == 1:
+                elif len(probe_real_init.shape) == 2 or len(probe_real_init) == 1:
                     probe_real = []
                     probe_imag = []
                     probe_real_init = np.squeeze(probe_real_init)
@@ -1066,7 +1068,7 @@ def reconstruct_ptychography(
             if rank == 0:
                 output_object(obj, distribution_mode, output_folder, unknown_type,
                               full_output=True, ds_level=ds_level)
-                output_probe(probe_real, probe_imag, output_folder,
+                output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], output_folder,
                              full_output=True, ds_level=ds_level)
             print_flush('Current iteration finished.', 0, rank, **stdout_options)
         comm.Barrier()

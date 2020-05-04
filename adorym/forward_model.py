@@ -345,6 +345,7 @@ class PtychographyModel(ForwardModel):
 
 
 class SingleBatchFullfieldModel(PtychographyModel):
+    # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
                  raw_data_type='magnitude'):
@@ -387,9 +388,11 @@ class SingleBatchFullfieldModel(PtychographyModel):
                     obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
             else:
                 obj_rot = obj
-            obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
         else:
             obj_rot = obj
+
+        if self.distribution_mode is None:
+            obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
 
         ex_real, ex_imag = multislice_propagate_batch(
             obj_rot,
@@ -411,6 +414,105 @@ class SingleBatchFullfieldModel(PtychographyModel):
                                                   probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                                   probe_pos_correction, this_ind_batch, tilt_ls)
             this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
+
+            ds_level = self.common_vars['ds_level']
+            theta_downsample = self.common_vars['theta_downsample']
+            if theta_downsample is None: theta_downsample = 1
+
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
+            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            if ds_level > 1:
+                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+
+            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
+            loss = loss + self.get_regularization_value(obj)
+            self.current_loss = float(w.to_numpy(loss))
+            return loss
+
+        return calculate_loss
+
+
+class SingleBatchPtychographyModel(PtychographyModel):
+    # Created to avoid unnecessary stacking and concatenation.
+
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude'):
+        super(SingleBatchPtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
+                                                raw_data_type)
+
+    def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
+                probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                probe_pos_correction, this_ind_batch, tilt_ls):
+
+        device_obj = self.common_vars['device_obj']
+        probe_size = self.common_vars['probe_size']
+        fresnel_approx = self.common_vars['fresnel_approx']
+        two_d_mode = self.common_vars['two_d_mode']
+        ds_level = self.common_vars['ds_level']
+        this_obj_size = self.common_vars['this_obj_size']
+        energy_ev = self.common_vars['energy_ev']
+        psize_cm = self.common_vars['psize_cm']
+        h = self.common_vars['h']
+        pure_projection = self.common_vars['pure_projection']
+        free_prop_cm = self.common_vars['free_prop_cm']
+        unknown_type = self.common_vars['unknown_type']
+        n_theta = self.common_vars['n_theta']
+        precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
+        theta_ls = self.common_vars['theta_ls']
+
+        if precalculate_rotation_coords:
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                                          theta_ls[this_i_theta], reverse=False)
+
+        flag_pp_sqrt = True
+        if self.raw_data_type == 'magnitude':
+            flag_pp_sqrt = False
+
+        if not two_d_mode and not self.distribution_mode:
+            if not self.rotate_out_of_loop:
+                if precalculate_rotation_coords:
+                    obj_rot = apply_rotation(obj, coord_ls, device=device_obj)
+                else:
+                    obj_rot = rotate_no_grad(obj, theta_ls[this_i_theta], axis=0, device=device_obj)
+            else:
+                obj_rot = obj
+        else:
+            obj_rot = obj
+
+        if self.distribution_mode is None:
+            obj_rot, pad_arr = pad_object(obj_rot, this_obj_size, this_pos_batch, probe_size, unknown_type=unknown_type)
+        else:
+            pad_arr = np.array([[0, 0], [0, 0]])
+
+        if self.distribution_mode is None:
+            pos = this_pos_batch[0]
+            pos_y = pos[0] + pad_arr[0, 0]
+            pos_x = pos[1] + pad_arr[1, 0]
+            obj_rot = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :, :]
+            obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
+
+        ex_real, ex_imag = multislice_propagate_batch(
+            obj_rot,
+            probe_real, probe_imag,
+            energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+            obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
+            fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
+            type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
+            scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
+            pure_projection_return_sqrt=flag_pp_sqrt)
+
+        return ex_real, ex_imag
+
+    def get_loss_function(self):
+        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
+                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                           probe_pos_correction, this_ind_batch, tilt_ls):
+            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                                  probe_pos_correction, this_ind_batch, tilt_ls)
+            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
+            if len(this_pred_batch) == 3:
+                this_pred_batch = this_pred_batch[0]
 
             ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
