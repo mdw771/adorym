@@ -113,7 +113,7 @@ try:
 except: pass
 
 try:
-    params_cone_marc = {'fname': 'data_cone_256_foam_1nm.h5',
+    params_cone_marc = {'fname': 'data_cone_256_foam_1nm_new.h5',
                         'theta_st': 0,
                         'theta_end': 2 * np.pi,
                         'n_theta': 500,
@@ -188,6 +188,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 # params = params_adhesin_2_noisy_pos
 # params = params_cameraman_noisy_pos
 # params = params_cone_ff
-params = params_adhesin_2
+# params = params_adhesin_2
+params = params_cone_marc
 
 create_ptychography_data_batch_numpy(**params)

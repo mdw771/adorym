@@ -45,7 +45,8 @@ def create_ptychography_data_batch_numpy(energy_ev, psize_cm, n_theta, phantom_p
                 grid_beta_ls.append(subobj[:, :, :, 1])
             grid_delta_ls = np.array(grid_delta_ls)
             grid_beta_ls = np.array(grid_beta_ls)
-            e_real, e_imag = multislice_propagate_batch(grid_delta_ls, grid_beta_ls, probe_real, probe_imag, energy_ev,
+            grid_batch = np.stack([grid_delta_ls, grid_beta_ls], -1)
+            e_real, e_imag = multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev,
                                                  psize_cm, free_prop_cm=free_prop_cm,
                                                  obj_batch_shape=[len(pos_batch), probe_size[0], probe_size[1], grid_delta.shape[-1]],
                                                  fresnel_approx=fresnel_approx, normalize_fft=normalize_fft)

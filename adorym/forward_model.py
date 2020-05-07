@@ -43,14 +43,14 @@ class ForwardModel(object):
         d = {'alpha_d': alpha_d,
              'alpha_b': alpha_b,
              'weight_l1': weight_l1}
-        self.add_regularizer('reweighted_l1', d)
+        self.add_regularizer('reweighted_l1_norm', d)
 
     def add_tv(self, gamma):
         d = {'gamma': gamma}
         self.add_regularizer('tv', d)
 
     def update_l1_weight(self, weight_l1):
-        self.regularizer_dict['reweighted_l1']['weight_l1'] = weight_l1
+        self.regularizer_dict['reweighted_l1_norm']['weight_l1'] = weight_l1
 
     def get_regularization_value(self, obj):
         reg = w.create_variable(0., device=self.device)
@@ -59,17 +59,19 @@ class ForwardModel(object):
                 reg = reg + l1_norm_term(obj,
                                     self.regularizer_dict[name]['alpha_d'],
                                     self.regularizer_dict[name]['alpha_b'],
-                                    device=self.device)
+                                    device=self.device,
+                                    unknown_type=self.unknown_type)
             elif name == 'reweighted_l1_norm':
                 reg = reg + reweighted_l1_norm_term(obj,
                                                self.regularizer_dict[name]['alpha_d'],
                                                self.regularizer_dict[name]['alpha_b'],
                                                self.regularizer_dict[name]['weight_l1'],
-                                               device=self.device)
+                                               device=self.device, unknown_type=self.unknown_type)
             elif name == 'tv':
                 reg = reg + tv(obj,
                           self.regularizer_dict[name]['gamma'],
-                          self.distribution_mode, device=self.device)
+                          self.distribution_mode, device=self.device,
+                          unknown_type=self.unknown_type)
         print_flush('  Reg term = {}.'.format(w.to_numpy(reg)), 0, rank, **self.stdout_options)
         return reg
 
@@ -1044,22 +1046,43 @@ class MultiDistModel(ForwardModel):
         return calculate_loss
 
 
-def l1_norm_term(obj, alpha_d, alpha_b, device=None):
+def l1_norm_term(obj, alpha_d, alpha_b, device=None, unknown_type='delta_beta'):
     slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
-    if alpha_d not in [None, 0]:
-        reg = reg + alpha_d * w.mean(w.abs(obj[slicer + [0]]))
-    if alpha_b not in [None, 0]:
-        reg = reg + alpha_b * w.mean(w.abs(obj[slicer + [1]]))
+    if unknown_type == 'delta_beta':
+        if alpha_d not in [None, 0]:
+            reg = reg + alpha_d * w.mean(w.abs(obj[slicer + [0]]))
+        if alpha_b not in [None, 0]:
+            reg = reg + alpha_b * w.mean(w.abs(obj[slicer + [1]]))
+    elif unknown_type == 'real_imag':
+        r = obj[slicer + [0]]
+        i = obj[slicer + [1]]
+        if alpha_d not in [None, 0]:
+            om = w.sqrt(r ** 2 + i ** 2)
+            reg = reg + alpha_d * w.mean(w.abs(om - w.mean(om)))
+        if alpha_b not in [None, 0]:
+            reg = reg + alpha_b * w.mean(w.abs(w.arctan2(i, r)))
     return reg
 
-def reweighted_l1_norm_term(obj, alpha_d, alpha_b, weight_l1, device=None):
+def reweighted_l1_norm_term(obj, alpha_d, alpha_b, weight_l1, device=None, unknown_type='delta_beta'):
     slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
-    if alpha_d not in [None, 0]:
-        reg = reg + alpha_d * w.mean(weight_l1 * w.abs(obj[slicer + [0]]))
-    if alpha_b not in [None, 0]:
-        reg = reg + alpha_b * w.mean(weight_l1 * w.abs(obj[slicer + [1]]))
+    if unknown_type == 'delta_beta':
+        if alpha_d not in [None, 0]:
+            reg = reg + alpha_d * w.mean(weight_l1[slicer + [0]] * w.abs(obj[slicer + [0]]))
+        if alpha_b not in [None, 0]:
+            reg = reg + alpha_b * w.mean(weight_l1[slicer + [1]] * w.abs(obj[slicer + [1]]))
+    elif unknown_type == 'real_imag':
+        r = obj[slicer + [0]]
+        i = obj[slicer + [1]]
+        wr = weight_l1[slicer + [0]]
+        wi = weight_l1[slicer + [1]]
+        wm = wr ** 2 + wi ** 2
+        if alpha_d not in [None, 0]:
+            om = w.sqrt(r ** 2 + i ** 2)
+            reg = reg + alpha_d * w.mean(wm * w.abs(om - w.mean(om)))
+        if alpha_b not in [None, 0]:
+            reg = reg + alpha_b * w.mean(wm * w.abs(w.arctan2(i, r)))
     return reg
 
 def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
@@ -1067,11 +1090,12 @@ def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
     reg = w.create_variable(0., device=device)
     if unknown_type == 'delta_beta':
         o = (obj[slicer + [0]] + obj[slicer + [1]]) / 2
-    else:
-        o = obj[slicer + [0]]
-        o1 = obj[slicer + [1]]
-    axis_offset = 0 if distribution_mode is None else 1
-    reg = reg + gamma * total_variation_3d(o, axis_offset=axis_offset)
-    if unknown_type == 'real_imag':
-        reg = reg + gamma * total_variation_3d(o1, axis_offset=axis_offset)
+        axis_offset = 0 if distribution_mode is None else 1
+        reg = reg + gamma * total_variation_3d(o, axis_offset=axis_offset)
+    elif unknown_type == 'real_imag':
+        r = obj[slicer + [0]]
+        i = obj[slicer + [1]]
+        axis_offset = 0 if distribution_mode is None else 1
+        reg = reg + gamma * total_variation_3d(r ** 2 + i ** 2, axis_offset=axis_offset)
+        reg = reg + gamma * total_variation_3d(w.arctan2(i, r), axis_offset=axis_offset)
     return reg

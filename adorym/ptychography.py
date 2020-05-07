@@ -804,13 +804,12 @@ def reconstruct_ptychography(
                 # Update weight for reweighted l1 if necessary
                 # ================================================================================
                 if reweighted_l1:
-                    if distribution_mode:
-                        arr, _ = w.split_channel(obj.chunks)
-                        weight_l1 = w.max(arr) / (w.abs(arr) + 1e-8)
-                    else:
-                        arr, _ = w.split_channel(obj.arr)
-                        if i_batch % 10 == 0: weight_l1 = w.max(arr) / (w.abs(arr) + 1e-8)
-                    forward_model.update_l1_weight(weight_l1)
+                    with w.no_grad():
+                        if distribution_mode:
+                            weight_l1 = w.max(obj.chunks) / (w.abs(obj.chunks) + 1e-4 * w.mean(obj.chunks))
+                        else:
+                            if i_batch % 10 == 0: weight_l1 = w.max(obj.arr) / (w.abs(obj.arr) + 1e-4 * w.mean(obj.arr))
+                        forward_model.update_l1_weight(weight_l1)
 
                 # ================================================================================
                 # Calculate object gradients.
