@@ -662,7 +662,6 @@ def reconstruct_ptychography(
             for i, i_theta in enumerate(theta_ind_ls):
                 n_pos = len(probe_pos) if common_probe_pos else n_pos_ls[i_theta]
                 spots_ls = range(n_pos)
-                probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[i_theta]
                 if randomize_probe_pos:
                     spots_ls = np.random.choice(spots_ls, len(spots_ls), replace=False)
                 # ================================================================================
@@ -735,6 +734,7 @@ def reconstruct_ptychography(
                 this_ind_batch_allranks = ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
                 this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+                probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
                 print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
 
                 this_pos_batch = probe_pos_int[this_ind_batch]

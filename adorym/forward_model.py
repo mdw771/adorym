@@ -166,7 +166,7 @@ class PtychographyModel(ForwardModel):
 
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
-            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
+            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(1, 2), device=device_obj)
 
         if not two_d_mode and not self.distribution_mode:
             if not optimize_tilt:
