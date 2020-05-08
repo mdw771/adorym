@@ -102,7 +102,7 @@ def reconstruct_ptychography(
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
-        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1,
+        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
         optimize_free_prop=False, free_prop_learning_rate=1e-2,
@@ -189,7 +189,12 @@ def reconstruct_ptychography(
     if two_d_mode:
         n_theta = 1
     prj_theta_ind = np.arange(n_theta, dtype=int)
-    theta_ls = np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+
+    try:
+        theta_ls = f['metadata/theta'][...]
+        print_flush('Theta list read from HDF5.', 0, rank, **stdout_options)
+    except:
+        theta_ls = np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
         theta_ls = theta_ls[::theta_downsample]
         prj_theta_ind = prj_theta_ind[::theta_downsample]
@@ -205,7 +210,7 @@ def reconstruct_ptychography(
         else:
             probe_pos_ls = []
             n_pos_ls = []
-            for i in n_theta:
+            for i in range(n_theta):
                 probe_pos_ls.append(f['metadata/probe_pos_px_{}'.format(i)])
                 n_pos_ls.append(len(f['metadata/probe_pos_px_{}'.format(i)]))
 
@@ -499,7 +504,7 @@ def reconstruct_ptychography(
                 probe_real = np.stack([np.squeeze(probe_real_init)])
                 probe_imag = np.stack([np.squeeze(probe_imag_init)])
             else:
-                if len(probe_real_init.shape) == 3 and len(probe_real_init) == n_pos:
+                if len(probe_real_init.shape) == 3 and len(probe_real_init) == n_probe_modes:
                     probe_real = probe_real_init
                     probe_imag = probe_imag_init
                 elif len(probe_real_init.shape) == 2 or len(probe_real_init) == 1:
@@ -558,7 +563,7 @@ def reconstruct_ptychography(
             else:
                 n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
                 probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
-                for j, probe_pos, probe_pos_int in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
+                for j, (probe_pos, probe_pos_int) in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
                     probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
                 optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
             n_dists = 1

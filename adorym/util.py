@@ -1403,7 +1403,7 @@ def upsample_2x(arr):
 
 def print_flush(a, designate_rank=None, this_rank=None, save_stdout=True, output_folder='', timestamp='', **kwargs):
 
-    a = '[{}][{}] '.format(str(datetime.datetime.today()), this_rank) + a
+    a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
     if designate_rank is not None:
         if this_rank == designate_rank:
             print(a)

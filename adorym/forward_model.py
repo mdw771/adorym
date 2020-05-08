@@ -1089,9 +1089,11 @@ def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
     slicer = [slice(None)] * (len(obj.shape) - 1)
     reg = w.create_variable(0., device=device)
     if unknown_type == 'delta_beta':
-        o = (obj[slicer + [0]] + obj[slicer + [1]]) / 2
+        o1 = obj[slicer + [0]]
+        o2 = obj[slicer + [1]]
         axis_offset = 0 if distribution_mode is None else 1
-        reg = reg + gamma * total_variation_3d(o, axis_offset=axis_offset)
+        reg = reg + gamma * total_variation_3d(o1, axis_offset=axis_offset)
+        reg = reg + gamma * total_variation_3d(o2, axis_offset=axis_offset)
     elif unknown_type == 'real_imag':
         r = obj[slicer + [0]]
         i = obj[slicer + [1]]
