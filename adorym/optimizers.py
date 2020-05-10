@@ -423,6 +423,7 @@ def update_parameter_gradients(opt_ls, grads):
 def update_parameters(opt_ls, optimizable_params, kwargs):
 
     i_epoch = kwargs['i_epoch']
+    i_batch = kwargs['i_batch']
     other_params_update_delay = kwargs['other_params_update_delay']
     probe_update_delay = kwargs['probe_update_delay']
     i_full_angle = kwargs['i_full_angle']
@@ -432,7 +433,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
         if opt.name == 'obj':
             continue
         elif opt.name == 'probe':
-            if i_epoch >= probe_update_delay:
+            if i_batch >= probe_update_delay:
                 with w.no_grad():
                     opt.grads = comm.allreduce(opt.grads)
                     probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
@@ -445,7 +446,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 print_flush('Probe is not updated because current epoch is smaller than specified delay ({}).'.format(
                     probe_update_delay), 0, rank, **stdout_options)
 
-        elif i_epoch >= other_params_update_delay:
+        elif i_batch >= other_params_update_delay:
 
             if opt.name == 'probe_pos_correction':
                 with w.no_grad():

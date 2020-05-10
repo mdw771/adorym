@@ -59,7 +59,7 @@ def reconstruct_ptychography(
         # ___________________
         # |Object contraints|___________________________________________________
         object_type='normal', # Choose from 'normal', 'phase_only', or 'absorption_only
-        non_negativity=True,
+        non_negativity=False,
         # _______________
         # |Forward model|_______________________________________________________
         forward_algorithm='fresnel', # Choose from 'fresnel' or 'ctf'
@@ -213,6 +213,8 @@ def reconstruct_ptychography(
             for i in range(n_theta):
                 probe_pos_ls.append(f['metadata/probe_pos_px_{}'.format(i)])
                 n_pos_ls.append(len(f['metadata/probe_pos_px_{}'.format(i)]))
+    else:
+        probe_pos = np.array(probe_pos).astype(float)
 
     # Energy.
     if energy_ev is None:
@@ -735,7 +737,7 @@ def reconstruct_ptychography(
                 this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
                 this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
                 probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
-                print_flush('Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
+                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
 
                 this_pos_batch = probe_pos_int[this_ind_batch]
 
