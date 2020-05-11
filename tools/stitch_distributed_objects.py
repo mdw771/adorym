@@ -29,7 +29,7 @@ stack = []
 for f in flist1:
     img = dxchange.read_tiff(f)
     stack.append(img)
-stack = np.stack(stack, 0)
+stack = np.concatenate(stack, 0)
 dxchange.write_tiff(stack, '{}_stack'.format(name_part1), overwrite=True, dtype='float32')
 
 if len(flist2) > 0:
@@ -41,5 +41,5 @@ stack = []
 for f in flist2:
     img = dxchange.read_tiff(f)
     stack.append(img)
-stack = np.stack(stack, 0)
+stack = np.concatenate(stack, 0)
 dxchange.write_tiff(stack, '{}_stack'.format(name_part2), overwrite=True, dtype='float32')
