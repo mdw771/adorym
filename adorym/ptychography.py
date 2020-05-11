@@ -97,7 +97,12 @@ def reconstruct_ptychography(
         dist_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
         precalculate_rotation_coords=True,
         cache_dtype='float32',
-        rotate_out_of_loop=False, # Applies to simple data parallelism mode only. Recommended to be False when using GPU.
+        rotate_out_of_loop=False,
+        # Applies to simple data parallelism mode only. If True, DP will do rotation outside the loss function
+        # and the rotated object function is sent for differentiation. May reduce the number
+        # of rotation operations if minibatch_size < n_tiles_per_angle, but object can be updated once only after
+        # all tiles on an angle are processed. Also this will save the object-sized gradient array in GPU memory
+        # or RAM depending on current device setting.
         # _________________________
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
@@ -750,7 +755,8 @@ def reconstruct_ptychography(
                 # If moving to a new angle, rotate the HDF5 object and saved
                 # the rotated object into the temporary file object.
                 # ================================================================================
-                if this_i_theta != current_i_theta or shared_file_update_flag:
+                if (not (distribution_mode is None and not rotate_out_of_loop)) and \
+                        (this_i_theta != current_i_theta or shared_file_update_flag):
                     current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', 0, rank, **stdout_options)
                     t_rot_0 = time.time()
