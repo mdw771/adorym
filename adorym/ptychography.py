@@ -174,13 +174,14 @@ def reconstruct_ptychography(
 
     stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder,
                       'timestamp': timestr}
-    print_flush('Output folder is {}'.format(output_folder), 0, rank, **stdout_options)
+    sto_rank = 0 if not debug else rank
+    print_flush('Output folder is {}'.format(output_folder), sto_rank, rank, **stdout_options)
 
     # ================================================================================
     # Create pointer for raw data.
     # ================================================================================
     t0 = time.time()
-    print_flush('Reading data...', 0, rank, **stdout_options)
+    print_flush('Reading data...', sto_rank, rank, **stdout_options)
     f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
 
@@ -197,7 +198,7 @@ def reconstruct_ptychography(
 
     try:
         theta_ls = f['metadata/theta'][...]
-        print_flush('Theta list read from HDF5.', 0, rank, **stdout_options)
+        print_flush('Theta list read from HDF5.', sto_rank, rank, **stdout_options)
     except:
         theta_ls = np.linspace(theta_st, theta_end, n_theta, dtype='float32')
     if theta_downsample is not None:
@@ -269,8 +270,8 @@ def reconstruct_ptychography(
         u_free = w.create_variable(u_free, requires_grad=False, device=device_obj)
         v_free = w.create_variable(v_free, requires_grad=False, device=device_obj)
 
-    print_flush('Data reading: {} s'.format(time.time() - t0), 0, rank, **stdout_options)
-    print_flush('Data shape: {}'.format(original_shape), 0, rank, **stdout_options)
+    print_flush('Data reading: {} s'.format(time.time() - t0), sto_rank, rank, **stdout_options)
+    print_flush('Data shape: {}'.format(original_shape), sto_rank, rank, **stdout_options)
     comm.Barrier()
 
     not_first_level = False
@@ -304,7 +305,7 @@ def reconstruct_ptychography(
         # Set metadata.
         # ================================================================================
         ds_level = 2 ** ds_level
-        print_flush('Multiscale downsampling level: {}'.format(ds_level), 0, rank, **stdout_options)
+        print_flush('Multiscale downsampling level: {}'.format(ds_level), sto_rank, rank, **stdout_options)
         comm.Barrier()
 
         prj_shape = original_shape
@@ -326,7 +327,7 @@ def reconstruct_ptychography(
             try:
                 os.makedirs(os.path.join(output_folder))
             except:
-                print_flush('Target folder {} exists.'.format(output_folder), 0, rank, **stdout_options)
+                print_flush('Target folder {} exists.'.format(output_folder), sto_rank, rank, **stdout_options)
         comm.Barrier()
 
         # ================================================================================
@@ -346,7 +347,7 @@ def reconstruct_ptychography(
                 if rank == 0:
                     os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
                 comm.Barrier()
-                print_flush('Saving rotation coordinates...', 0, rank, **stdout_options)
+                print_flush('Saving rotation coordinates...', sto_rank, rank, **stdout_options)
                 save_rotation_lookup(this_obj_size, theta_ls)
         comm.Barrier()
 
@@ -402,14 +403,14 @@ def reconstruct_ptychography(
             obj.create_file_object(use_checkpoint)
             obj.create_temporary_file_object()
             if needs_initialize:
-                print_flush('Initializing object function in file...', 0, rank, **stdout_options)
+                print_flush('Initializing object function in file...', sto_rank, rank, **stdout_options)
                 obj.initialize_file_object(save_stdout=save_stdout, timestr=timestr,
                                            not_first_level=not_first_level, initial_guess=initial_guess,
                                            random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
                                            dtype=cache_dtype, non_negativity=non_negativity)
         elif distribution_mode == 'distributed_object':
             if needs_initialize:
-                print_flush('Initializing object array...', 0, rank, **stdout_options)
+                print_flush('Initializing object array...', sto_rank, rank, **stdout_options)
                 obj.initialize_distributed_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess,
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
@@ -419,7 +420,7 @@ def reconstruct_ptychography(
 
         elif distribution_mode is None:
             if needs_initialize:
-                print_flush('Initializing object array...', 0, rank, **stdout_options)
+                print_flush('Initializing object array...', sto_rank, rank, **stdout_options)
                 obj.initialize_array(save_stdout=save_stdout, timestr=timestr,
                                      not_first_level=not_first_level, initial_guess=initial_guess, device=device_obj,
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
@@ -446,7 +447,7 @@ def reconstruct_ptychography(
             forward_model = SingleBatchPtychographyModel(**forwardmodel_args)
         else:
             forward_model = PtychographyModel(**forwardmodel_args)
-        print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), 0, rank, **stdout_options)
+        print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
 
         if reweighted_l1:
             forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
@@ -495,7 +496,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # Initialize probe functions.
         # ================================================================================
-        print_flush('Initialzing probe...', 0, rank, **stdout_options)
+        print_flush('Initialzing probe...', sto_rank, rank, **stdout_options)
         if rank == 0:
             probe_init_kwargs = kwargs
             probe_init_kwargs['lmbda_nm'] = lmbda_nm
@@ -601,7 +602,7 @@ def reconstruct_ptychography(
         # Use ePIE?
         # ================================================================================
         if use_epie:
-            print_flush('WARNING: Reconstructing using ePIE!', 0, rank, **stdout_options)
+            print_flush('WARNING: Reconstructing using ePIE!', sto_rank, rank, **stdout_options)
             warnings.warn('use_epie is True. I will reconstruct using ePIE instead of AD!')
             time.sleep(0.5)
             alt_reconstruction_epie(obj.delta, obj.beta, probe_real, probe_imag, probe_pos,
@@ -633,7 +634,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create parameter summary file.
         # ================================================================================
-        print_flush('Optimizer started.', 0, rank, **stdout_options)
+        print_flush('Optimizer started.', sto_rank, rank, **stdout_options)
         if rank == 0:
             create_summary(output_folder, locals(), preset='ptycho')
 
@@ -650,7 +651,7 @@ def reconstruct_ptychography(
             ind_list_rand = []
 
             t00 = time.time()
-            print_flush('Allocating jobs over threads...', 0, rank, **stdout_options)
+            print_flush('Allocating jobs over threads...', sto_rank, rank, **stdout_options)
             # Make a list of all thetas and spot positions'
             np.random.seed(i_epoch)
             comm.Barrier()
@@ -700,7 +701,7 @@ def reconstruct_ptychography(
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             n_batch = len(ind_list_rand)
 
-            print_flush('Allocation done in {} s.'.format(time.time() - t00), 0, rank, **stdout_options)
+            print_flush('Allocation done in {} s.'.format(time.time() - t00), sto_rank, rank, **stdout_options)
 
             # ================================================================================
             # Initialize runtime indices and flags.
@@ -714,7 +715,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Initialize batch.
                 # ================================================================================
-                print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), 0, rank, **stdout_options)
+                print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), sto_rank, rank, **stdout_options)
                 starting_batch = 0
 
                 # ================================================================================
@@ -742,14 +743,14 @@ def reconstruct_ptychography(
                 this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
                 this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
                 probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
-                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), 0, rank, **stdout_options)
+                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), sto_rank, rank, **stdout_options)
 
                 this_pos_batch = probe_pos_int[this_ind_batch]
 
                 t_prj_0 = time.time()
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 comm.Barrier()
-                print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), 0, rank, **stdout_options)
+                print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # If moving to a new angle, rotate the HDF5 object and saved
@@ -758,7 +759,7 @@ def reconstruct_ptychography(
                 if (not (distribution_mode is None and not rotate_out_of_loop)) and \
                         (this_i_theta != current_i_theta or shared_file_update_flag):
                     current_i_theta = this_i_theta
-                    print_flush('  Rotating dataset...', 0, rank, **stdout_options)
+                    print_flush('  Rotating dataset...', sto_rank, rank, **stdout_options)
                     t_rot_0 = time.time()
                     if precalculate_rotation_coords:
                         coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -779,7 +780,7 @@ def reconstruct_ptychography(
                                          apply_to_arr_rot=False, override_device=device_obj)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
-                    print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
+                    print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
 
                 comm.Barrier()
 
@@ -809,7 +810,7 @@ def reconstruct_ptychography(
                                                                               unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                               dtype=cache_dtype)
                     comm.Barrier()
-                    print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), 0, rank, **stdout_options)
+                    print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), sto_rank, rank, **stdout_options)
                     obj.chunks = obj_rot
                     opt.get_params_from_file(this_pos_batch, probe_size)
 
@@ -848,7 +849,7 @@ def reconstruct_ptychography(
                             grad_func_args[arg] = locals()[arg]
                 grads = diff.get_gradients(**grad_func_args)
                 comm.Barrier()
-                print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), 0, rank, **stdout_options)
+                print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), sto_rank, rank, **stdout_options)
                 grads = list(grads)
 
                 # ================================================================================
@@ -976,7 +977,7 @@ def reconstruct_ptychography(
                                                        theta_ls[this_i_theta], reverse=True)
                     else:
                         coord_new = -theta_ls[this_i_theta]
-                    print_flush('  Rotating gradient dataset back...', 0, rank, **stdout_options)
+                    print_flush('  Rotating gradient dataset back...', sto_rank, rank, **stdout_options)
                     t_rot_0 = time.time()
                     if distribution_mode == 'shared_file':
                         gradient.rotate_data_in_file(coord_new, interpolation=interpolation,
@@ -987,7 +988,7 @@ def reconstruct_ptychography(
                                               apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd',
                                               dtype=cache_dtype, override_device='cpu')
                     comm.Barrier()
-                    print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), 0, rank, **stdout_options)
+                    print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
                     if distribution_mode == 'shared_file' and optimize_object:
@@ -998,7 +999,7 @@ def reconstruct_ptychography(
                         gradient.arr[...] = 0
 
                     comm.Barrier()
-                    print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), 0, rank, **stdout_options)
+                    print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # Apply finite support mask if specified.
@@ -1008,7 +1009,7 @@ def reconstruct_ptychography(
                         obj.apply_finite_support_mask_to_array(mask, unknown_type=unknown_type, device=device_obj)
                     elif distribution_mode == 'shared_file':
                         obj.apply_finite_support_mask_to_file(mask, unknown_type=unknown_type, device=device_obj)
-                    print_flush('  Mask applied.', 0, rank, **stdout_options)
+                    print_flush('  Mask applied.', sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # Update finite support mask if necessary.
@@ -1019,7 +1020,7 @@ def reconstruct_ptychography(
                             mask.update_mask_file(obj, shrink_threshold)
                         else:
                             mask.update_mask_array(obj, shrink_threshold)
-                        print_flush('  Mask updated.', 0, rank, **stdout_options)
+                        print_flush('  Mask updated.', sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # Save intermediate object.
@@ -1042,17 +1043,17 @@ def reconstruct_ptychography(
                 # Finishing a batch.
                 # ================================================================================
                 current_loss = forward_model.current_loss
-                print_flush('Minibatch/angle done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), 0, rank, **stdout_options)
+                print_flush('Minibatch/angle done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), sto_rank, rank, **stdout_options)
 
                 gc.collect()
                 if not cpu_only:
                     print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
-                        w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), 0, rank, **stdout_options)
+                        w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), sto_rank, rank, **stdout_options)
                 f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
                 f_conv.flush()
 
                 if t_max_min is not None and (time.time() - t_zero) / 60 >= t_max_min:
-                    print_flush('Terminating program because maximum time limit is reached.', 0, rank, **stdout_options)
+                    print_flush('Terminating program because maximum time limit is reached.', sto_rank, rank, **stdout_options)
                     sys.exit()
 
                 # ================================================================================
@@ -1071,7 +1072,7 @@ def reconstruct_ptychography(
             print_flush(
                 'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                     time.time() - t0, time.time() - t_zero),
-                0, rank, **stdout_options)
+                sto_rank, rank, **stdout_options)
             i_epoch = i_epoch + 1
 
             # ================================================================================
@@ -1082,5 +1083,5 @@ def reconstruct_ptychography(
                               full_output=True, ds_level=ds_level)
                 output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], output_folder,
                              full_output=True, ds_level=ds_level)
-            print_flush('Current iteration finished.', 0, rank, **stdout_options)
+            print_flush('Current iteration finished.', sto_rank, rank, **stdout_options)
         comm.Barrier()
