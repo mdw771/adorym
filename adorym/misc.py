@@ -102,6 +102,9 @@ SUMMARY_PRESET_FF = ['obj_size',
 
 
 def create_directory_multirank(path):
+    """
+    Due to the presence of comm.Barrier(), always use this function collectively!
+    """
 
     if not os.path.exists(path):
         comm.Barrier()
@@ -139,7 +142,6 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
 def save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=None, obj_array=None, optimizer=None):
 
     path = os.path.join(output_folder, 'checkpoint')
-    create_directory_multirank(path)
     np.savetxt(os.path.join(path, 'checkpoint.txt'),
                np.array([i_epoch, i_batch]), fmt='%d')
     if distribution_mode is None:

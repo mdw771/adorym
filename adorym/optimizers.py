@@ -497,6 +497,28 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
     return optimizable_params
 
 
+def create_parameter_output_folders(opt_ls, output_folder):
+
+    for opt in opt_ls:
+        if opt.name == 'obj':
+            continue
+
+        elif opt.name == 'probe':
+            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe'))
+
+        elif opt.name == 'probe_pos_offset':
+            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos_offset'))
+
+        elif opt.name == 'probe_pos_correction':
+            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos'))
+
+        elif opt.name == 'prj_affine_ls':
+            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'prj_affine'))
+
+        else:
+            create_directory_multirank(os.path.join(output_folder, 'intermediate', opt.name))
+
+
 def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
 
     output_folder = kwargs['output_folder']
@@ -516,14 +538,12 @@ def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
                          save_history=save_history)
 
         elif opt.name == 'probe_pos_offset':
-            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos_offset'))
             f_offset = open(os.path.join(output_folder, 'intermediate', 'probe_pos_offset',
                                          'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
             f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(optimizable_params['probe_pos_offset']).flatten())))
             f_offset.close()
 
         elif opt.name == 'probe_pos_correction':
-            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos'))
             for i_theta_pos in range(n_theta):
                 if is_multi_dist:
                     np.savetxt(os.path.join(output_folder, 'intermediate', 'probe_pos',
@@ -535,13 +555,11 @@ def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
                                w.to_numpy(optimizable_params['probe_pos_correction'][i_theta_pos]))
 
         elif opt.name == 'prj_affine_ls':
-            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'prj_affine'))
             np.savetxt(os.path.join(output_folder, 'intermediate', 'prj_affine',
                                     'prj_affine_{}.txt'.format(i_epoch)),
                        np.concatenate(w.to_numpy(optimizable_params['prj_affine_ls']), 0))
 
         else:
-            create_directory_multirank(os.path.join(output_folder, 'intermediate', opt.name))
             np.savetxt(os.path.join(output_folder, 'intermediate', opt.name,
                                     '{}_{}.txt'.format(opt.name, i_epoch)),
                        w.to_numpy(optimizable_params[opt.name]))

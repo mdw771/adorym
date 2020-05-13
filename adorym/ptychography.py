@@ -727,9 +727,12 @@ def reconstruct_ptychography(
                         obj_arr = None
                     else:
                         obj_arr = w.to_numpy(obj.arr)
+                    cp_path = os.path.join(output_folder, 'checkpoint')
+                    create_directory_multirank(cp_path)
                     if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
                         save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
                                         obj_array=obj_arr, optimizer=opt)
+                comm.Barrier()
 
                 # ================================================================================
                 # Get scan position, rotation angle indices, and raw data for current batch.
@@ -777,8 +780,6 @@ def reconstruct_ptychography(
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
-
-                comm.Barrier()
 
                 if distribution_mode:
                     # ================================================================================
@@ -1023,17 +1024,13 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save intermediate object.
                 # ================================================================================
-                if save_intermediate and is_last_batch_of_this_theta:
-                    if distribution_mode == 'distributed_object':
+                if save_intermediate:
+                    create_directory_multirank(os.path.join(output_folder, 'intermediate', 'object'))
+                    create_parameter_output_folders(opt_ls, output_folder)
+                    if rank == 0 and is_last_batch_of_this_theta:
                         output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
                                       unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                       save_history=save_history)
-                    else:
-                        if rank == 0:
-                            output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
-                                          unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
-                                          save_history=save_history)
-                    if rank == 0:
                         output_intermediate_parameters(opt_ls, optimizable_params, locals())
                 comm.Barrier()
 
