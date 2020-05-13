@@ -679,11 +679,11 @@ def reconstruct_ptychography(
                 # same angle at a time.
                 # ================================================================================
                 if (distribution_mode is None and update_scheme == 'immediate') and n_pos % minibatch_size != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % minibatch_size],
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
                 elif (distribution_mode is not None or update_scheme == 'per angle') and n_pos % n_tot_per_batch != 0:
-                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls,
+                    spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % n_tot_per_batch],
                                                                     n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                                     replace=False))
                 # ================================================================================
