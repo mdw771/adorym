@@ -743,14 +743,10 @@ def reconstruct_ptychography(
                 this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
                 this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
                 probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
-                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), sto_rank, rank, **stdout_options)
-
                 this_pos_batch = probe_pos_int[this_ind_batch]
-
-                t_prj_0 = time.time()
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 comm.Barrier()
-                print_flush('  Raw data reading done in {} s.'.format(time.time() - t_prj_0), sto_rank, rank, **stdout_options)
+                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # If moving to a new angle, rotate the HDF5 object and saved
@@ -847,6 +843,8 @@ def reconstruct_ptychography(
                             grad_func_args[arg] = optimizable_params[arg]
                         except:
                             grad_func_args[arg] = locals()[arg]
+                comm.Barrier()
+                print_flush('  Entering differentiation loop...', sto_rank, rank, **stdout_options)
                 grads = diff.get_gradients(**grad_func_args)
                 comm.Barrier()
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), sto_rank, rank, **stdout_options)
