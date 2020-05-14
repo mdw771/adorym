@@ -6,6 +6,7 @@ import os
 import h5py
 import gc
 import warnings
+import pickle
 try:
     from mpi4py import MPI
 except:
@@ -382,17 +383,24 @@ def reconstruct_ptychography(
         # ================================================================================
         starting_epoch, starting_batch = (0, 0)
         needs_initialize = False if use_checkpoint else True
-        if use_checkpoint and distribution_mode == 'shared_file':
+        if use_checkpoint:
             try:
-                starting_epoch, starting_batch = restore_checkpoint(output_folder, distribution_mode)
+                optimizable_params = pickle.load(os.path.join(output_folder, 'checkpoint', 'params_{}'.format(rank)))
             except:
-                needs_initialize = True
+                optimizable_params = None
+            if distribution_mode == 'shared_file':
+                try:
+                    starting_epoch, starting_batch = restore_checkpoint(output_folder, distribution_mode)
+                except:
+                    needs_initialize = True
 
-        elif use_checkpoint and (distribution_mode != 'shared_file'):
-            try:
-                starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
-            except:
-                needs_initialize = True
+            elif distribution_mode != 'shared_file':
+                try:
+                    starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
+                except:
+                    needs_initialize = True
+        else:
+            optimizable_params = None
 
         # ================================================================================
         # Create object class.
@@ -548,52 +556,53 @@ def reconstruct_ptychography(
         # probe positions, etc.).
         # ================================================================================
         opt_args_ls = [0]
-        optimizable_params = {}
+        if optimizable_params is None:
+            optimizable_params = {}
 
-        optimizable_params['probe_real'] = probe_real
-        optimizable_params['probe_imag'] = probe_imag
+            optimizable_params['probe_real'] = probe_real
+            optimizable_params['probe_imag'] = probe_imag
 
-        optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
-        optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
+            optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
+            optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
 
-        if common_probe_pos:
-            probe_pos_int = np.round(probe_pos).astype(int)
-        else:
-            probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
-        if is_multi_dist:
-            n_dists = len(free_prop_cm)
-            optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),
-                                                         requires_grad=optimize_all_probe_pos, device=device_obj)
-        else:
             if common_probe_pos:
-                optimizable_params['probe_pos_correction'] = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
-                                                         requires_grad=optimize_all_probe_pos, device=device_obj)
+                probe_pos_int = np.round(probe_pos).astype(int)
             else:
-                n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
-                probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
-                for j, (probe_pos, probe_pos_int) in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
-                    probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
-                optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
-            n_dists = 1
+                probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
+            if is_multi_dist:
+                n_dists = len(free_prop_cm)
+                optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),
+                                                             requires_grad=optimize_all_probe_pos, device=device_obj)
+            else:
+                if common_probe_pos:
+                    optimizable_params['probe_pos_correction'] = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                                                             requires_grad=optimize_all_probe_pos, device=device_obj)
+                else:
+                    n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
+                    probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
+                    for j, (probe_pos, probe_pos_int) in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
+                        probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
+                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
+                n_dists = 1
 
-        if is_sparse_multislice:
-            optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
+            if is_sparse_multislice:
+                optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
 
-        if is_multi_dist:
-            if optimize_free_prop:
-                optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
+            if is_multi_dist:
+                if optimize_free_prop:
+                    optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
 
-        tilt_ls = np.zeros([3, n_theta])
-        tilt_ls[0] = theta_ls
-        if optimize_tilt:
-            optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
+            tilt_ls = np.zeros([3, n_theta])
+            tilt_ls[0] = theta_ls
+            if optimize_tilt:
+                optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
 
-        prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
-        prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
-        optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
+            prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
+            prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
+            optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
 
-        if optimize_ctf_lg_kappa:
-            optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
+            if optimize_ctf_lg_kappa:
+                optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
 
         opt_ls, opt_args_ls = create_and_initialize_parameter_optimizers(optimizable_params, locals())
 
@@ -732,6 +741,7 @@ def reconstruct_ptychography(
                     if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
                         save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
                                         obj_array=obj_arr, optimizer=opt)
+                    pickle.dump(optimizable_params, os.path.join(cp_path, 'params_{}'.format(rank)))
                 comm.Barrier()
 
                 # ================================================================================
