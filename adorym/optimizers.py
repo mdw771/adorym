@@ -1,6 +1,7 @@
 import numpy as np
 import os
 import h5py
+import pickle
 try:
     from mpi4py import MPI
 except:
@@ -296,6 +297,20 @@ def apply_gradient_gd(x, g, step_size=0.001, dynamic_rate=True, i_batch=0, first
     x = x - step_size * g
 
     return x
+
+
+def load_params_checkpoint(path):
+    f_pcp = open(path, 'rb')
+    a = pickle.load(f_pcp)
+    f_pcp.close()
+    return a
+
+
+def save_params_checkpoint(path, params):
+    f_pcp = open(path, 'wb')
+    pickle.dump(params, f_pcp)
+    f_pcp.close()
+    return
 
 
 def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):

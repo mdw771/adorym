@@ -385,7 +385,7 @@ def reconstruct_ptychography(
         needs_initialize = False if use_checkpoint else True
         if use_checkpoint:
             try:
-                optimizable_params = pickle.load(os.path.join(output_folder, 'checkpoint', 'params_{}'.format(rank)))
+                optimizable_params = load_params_checkpoint(os.path.join(output_folder, 'checkpoint', 'params_{}'.format(rank)))
             except:
                 optimizable_params = None
             if distribution_mode == 'shared_file':
@@ -434,7 +434,7 @@ def reconstruct_ptychography(
                                      random_guess_means_sigmas=random_guess_means_sigmas, unknown_type=unknown_type,
                                      non_negativity=non_negativity)
             else:
-                obj.arr = obj_arr
+                obj.arr = w.create_variable(obj_arr, device=device_obj)
 
 
         # ================================================================================
@@ -556,6 +556,27 @@ def reconstruct_ptychography(
         # probe positions, etc.).
         # ================================================================================
         opt_args_ls = [0]
+
+        # Common variables to be created regardless if they are optimizable or not.
+        if common_probe_pos:
+            probe_pos_int = np.round(probe_pos).astype(int)
+        else:
+            probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
+        tilt_ls = np.zeros([3, n_theta])
+        tilt_ls[0] = theta_ls
+        if is_multi_dist:
+            n_dists = len(free_prop_cm)
+        else:
+            if not common_probe_pos:
+                n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
+                probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
+                for j, (probe_pos, probe_pos_int) in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
+                    probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
+            n_dists = 1
+        prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
+        prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
+
+        # If optimizable parameters are not checkpointed, create them.
         if optimizable_params is None:
             optimizable_params = {}
 
@@ -565,12 +586,7 @@ def reconstruct_ptychography(
             optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
             optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
 
-            if common_probe_pos:
-                probe_pos_int = np.round(probe_pos).astype(int)
-            else:
-                probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
             if is_multi_dist:
-                n_dists = len(free_prop_cm)
                 optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
             else:
@@ -578,12 +594,7 @@ def reconstruct_ptychography(
                     optimizable_params['probe_pos_correction'] = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
                 else:
-                    n_pos_max = np.max([len(poses) for poses in probe_pos_ls])
-                    probe_pos_correction = np.zeros([n_theta, n_pos_max, 2])
-                    for j, (probe_pos, probe_pos_int) in enumerate(zip(probe_pos_ls, probe_pos_int_ls)):
-                        probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
                     optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
-                n_dists = 1
 
             if is_sparse_multislice:
                 optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
@@ -592,13 +603,9 @@ def reconstruct_ptychography(
                 if optimize_free_prop:
                     optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
 
-            tilt_ls = np.zeros([3, n_theta])
-            tilt_ls[0] = theta_ls
             if optimize_tilt:
                 optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
 
-            prj_affine_ls = np.array([[1., 0, 0], [0, 1., 0]]).reshape([1, 2, 3])
-            prj_affine_ls = np.tile(prj_affine_ls, [n_dists, 1, 1])
             optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
 
             if optimize_ctf_lg_kappa:
@@ -741,7 +748,7 @@ def reconstruct_ptychography(
                     if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
                         save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
                                         obj_array=obj_arr, optimizer=opt)
-                    pickle.dump(optimizable_params, os.path.join(cp_path, 'params_{}'.format(rank)))
+                    save_params_checkpoint(os.path.join(cp_path, 'params_{}'.format(rank)), optimizable_params)
                 comm.Barrier()
 
                 # ================================================================================
@@ -840,14 +847,14 @@ def reconstruct_ptychography(
                 # ================================================================================
                 t_grad_0 = time.time()
                 grad_func_args = {}
-                for arg in forward_model.argument_ls:
-                    if distribution_mode is None:
-                        if rotate_out_of_loop:
-                            obj_arr = obj.arr_rot
-                        else:
-                            obj_arr = obj.arr
+                if distribution_mode is None:
+                    if rotate_out_of_loop:
+                        obj_arr = obj.arr_rot
                     else:
-                        obj_arr = obj.chunks
+                        obj_arr = obj.arr
+                else:
+                    obj_arr = obj.chunks
+                for arg in forward_model.argument_ls:
                     if arg == 'obj': grad_func_args[arg] = obj_arr
                     else:
                         try:
