@@ -157,13 +157,17 @@ def reconstruct_ptychography(
     device_obj = None if cpu_only else 0
     device_obj = w.get_device(device_obj)
 
-    timestr = str(datetime.datetime.today())
-    timestr = timestr[:timestr.find('.')]
-    for i in [':', '-', ' ']:
-        if i == ' ':
-            timestr = timestr.replace(i, '_')
-        else:
-            timestr = timestr.replace(i, '')
+    if rank == 0:
+        timestr = str(datetime.datetime.today())
+        timestr = timestr[:timestr.find('.')]
+        for i in [':', '-', ' ']:
+            if i == ' ':
+                timestr = timestr.replace(i, '_')
+            else:
+                timestr = timestr.replace(i, '')
+    else:
+        timestr = None
+    timestr = comm.bcast(timestr, root=0)
 
     # ================================================================================
     # Set output folder name if not specified.
