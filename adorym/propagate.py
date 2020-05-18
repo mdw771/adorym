@@ -4,6 +4,7 @@ import h5py
 import matplotlib.pyplot as plt
 import matplotlib
 import warnings
+import time
 import datetime
 from math import ceil, floor
 
@@ -113,16 +114,19 @@ def get_kernel_ir(dist_nm, lmbda_nm, voxel_nm, grid_shape, sign_convention=1):
     return H
 
 
-def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
+def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, psize_cm, delta_cm=None,
                                free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
-                               kappa=None):
+                               kappa=None, repeating_slice=None, return_fft_time=False):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
-    voxel_nm = np.array([psize_cm] * 3) * 1.e7
+    if delta_cm is not None:
+        voxel_nm = np.array([psize_cm, psize_cm, delta_cm]) * 1.e7
+    else:
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7
 
     lmbda_nm = 1240. / energy_ev
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
@@ -130,6 +134,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
 
     n_slices = grid_batch.shape[-2]
     delta_nm = voxel_nm[-1]
+
+    if repeating_slice is not None:
+        n_slices = repeating_slice
 
     if pure_projection:
         k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
@@ -180,15 +187,23 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
         h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
 
         i_bin = 0
+        t_tot = 0
         for i in range(n_slices):
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             # At the start of bin, initialize slice array.
-            delta_slice = grid_batch[:, :, :, i, 0]
+            if repeating_slice is None:
+                delta_slice = grid_batch[:, :, :, i, 0]
+            else:
+                delta_slice = grid_batch[:, :, :, 0, 0]
             if kappa is not None:
                 # In sign = +1 convention, phase (delta) should be positive, and kappa is positive too.
                 beta_slice = delta_slice * kappa
             else:
-                beta_slice = grid_batch[:, :, :, i, 1]
+                if repeating_slice is None:
+                    beta_slice = grid_batch[:, :, :, i, 1]
+                else:
+                    beta_slice = grid_batch[:, :, :, 0, 1]
+            t0 = time.time()
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -208,6 +223,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                     else:
                         probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
                 i_bin = 0
+            t_tot += (time.time() - t0)
 
     if free_prop_cm not in [0, None]:
         if isinstance(free_prop_cm, str) and free_prop_cm == 'inf':
@@ -227,7 +243,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             elif not optimize_free_prop:
                 probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
                                                            device=device, sign_convention=sign_convention)
-    return probe_real, probe_imag
+    if return_fft_time:
+        return probe_real, probe_imag, t_tot
+    else:
+        return probe_real, probe_imag
 
 
 def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm, u_free=None, v_free=None, kappa=50.):
@@ -363,32 +382,3 @@ def pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=50., 
     probe_imag = probe_imag * 0
     return probe_real, probe_imag
 
-
-# if __name__ == '__main__':
-#     import dxchange
-#     import matplotlib.pyplot as plt
-#     import adorym
-#     u, v = gen_freq_mesh([1e3, 1e3], [512, 512])
-#     delta_slice = dxchange.read_tiff('/home/beams/B282788/Data/programs/adorym_tests/cameraman_affine/rec_nonoise_distopt1_transopt1/obj_mag_ds_1.tiff')
-#     delta_slice = delta_slice.reshape([1, *delta_slice.shape[:2]]) * 10
-#     print(delta_slice.mean())
-#     beta_slice = delta_slice * 0.01
-#     print(beta_slice.mean())
-#     lmbda_nm = 1.24 / 17.5
-#     dist_nm = 100e7
-#
-#     ctf_real, ctf_imag = pure_phase_ctf(u, v, delta_slice, beta_slice, dist_nm, lmbda_nm, kappa=0.01)
-#     i1 = np.fft.ifft2(ctf_real + 1j * ctf_imag, norm='ortho').real
-#     i1 = np.squeeze(i1)
-#
-#     probe_real, probe_imag = adorym.mag_phase_to_real_imag(np.exp(-beta_slice), delta_slice)
-#     phi_real, phi_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, dist_nm, lmbda_nm, [1e3, 1e3])
-#     i2 = phi_real ** 2 + phi_imag ** 2
-#     i2 = np.squeeze(i2)
-#
-#     fig = plt.figure(figsize=(10, 6))
-#     fig.add_subplot(121)
-#     plt.imshow(i1)
-#     fig.add_subplot(122)
-#     plt.imshow(i2)
-#     plt.show()
