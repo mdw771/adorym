@@ -1048,11 +1048,17 @@ def reconstruct_ptychography(
                 if save_intermediate:
                     create_directory_multirank(os.path.join(output_folder, 'intermediate', 'object'))
                     create_parameter_output_folders(opt_ls, output_folder)
-                    if rank == 0 and is_last_batch_of_this_theta:
+                    if distribution_mode != 'distributed_object' and rank == 0 and is_last_batch_of_this_theta:
                         output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
                                       unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                       save_history=save_history)
                         output_intermediate_parameters(opt_ls, optimizable_params, locals())
+                    elif distribution_mode == 'distributed_object' and is_last_batch_of_this_theta:
+                        output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                                      unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
+                                      save_history=save_history)
+                        if rank == 0:
+                            output_intermediate_parameters(opt_ls, optimizable_params, locals())
                 comm.Barrier()
 
                 # ================================================================================
