@@ -72,6 +72,8 @@ class LargeArray(object):
 
     def rotate_array(self, coords, interpolation='bilinear', precalculate_rotation_coords=True, apply_to_arr_rot=False,
                      overwrite_arr=False, override_backend=None, dtype=None, override_device=None):
+        if self.arr is None:
+            return
         a = self.arr if not apply_to_arr_rot else self.arr_rot
         if override_device is not None:
             if override_device == 'cpu':
@@ -163,7 +165,7 @@ class ObjectFunction(LargeArray):
 
     def initialize_distributed_array(self, save_stdout=None, timestr=None, not_first_level=False, initial_guess=None,
                          random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8), unknown_type='delta_beta', dtype='float32', non_negativity=False):
-	if self.slice_catalog[rank] is not None:
+        if self.slice_catalog[rank] is not None:
             delta, beta = \
                 initialize_object_for_do(self.full_size[:-1], slice_catalog=self.slice_catalog, ds_level=self.ds_level, object_type=self.object_type,
                                   initial_guess=initial_guess, output_folder=self.output_folder,

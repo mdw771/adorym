@@ -764,8 +764,6 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
                                               probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
                                               n_split='auto', dtype='float32'):
 
-    s = obj.shape
-
     if n_split == 'auto':
         chunk_thickness = ceil(whole_object_size[0] / n_ranks)
         chunk_width = probe_size[1]
@@ -780,6 +778,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
     my_pos_batch = probe_pos[my_ind_batch]
 
     if my_slice_range is not None:
+        s = obj.shape
         for i_rank in range(n_ranks):
             their_ind_batch = np.sort(this_ind_batch_allranks[i_rank * minibatch_size:(i_rank + 1) * minibatch_size, 1])
             their_pos_batch = probe_pos[their_ind_batch]
@@ -850,7 +849,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
         if len(my_chunk) > 0:
             my_chunk = np.concatenate(my_chunk, axis=0)
             # Pad left-right.
-            pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(obj.shape) - 2)
+            pad_arr = [[0, 0], [0, 0]] + [[0, 0]] * (len(my_chunk.shape) - 2)
             flag_pad = False
             if my_pos[1] < 0:
                 pad_arr[1][0] = -my_pos[1]
@@ -1809,46 +1808,48 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
         obj0 = obj.dset[:, :, :, 0]
         obj1 = obj.dset[:, :, :, 1]
     elif distribution_mode == 'distributed_object':
-        obj0 = np.take(obj.arr, 0, -1)
-        obj1 = np.take(obj.arr, 1, -1)
+        if obj.arr is not None:
+            obj0 = np.take(obj.arr, 0, -1)
+            obj1 = np.take(obj.arr, 1, -1)
     else:
         obj0, obj1 = w.split_channel(obj.arr)
         obj0 = w.to_numpy(obj0)
         obj1 = w.to_numpy(obj1)
 
-    if unknown_type == 'delta_beta':
-        if full_output:
-            fname0 = 'delta_ds_{}'.format(ds_level)
-            fname1 = 'beta_ds_{}'.format(ds_level)
-        else:
-            if save_history:
-                fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
-                fname1 = 'beta{}_{}'.format(i_epoch, i_batch)
+    if obj.arr is not None:
+        if unknown_type == 'delta_beta':
+            if full_output:
+                fname0 = 'delta_ds_{}'.format(ds_level)
+                fname1 = 'beta_ds_{}'.format(ds_level)
             else:
-                fname0 = 'delta'
-                fname1 = 'beta'
-        if distribution_mode == 'distributed_object':
-            fname0 += '_rank_{}'.format(rank)
-            fname1 += '_rank_{}'.format(rank)
-        dxchange.write_tiff(obj0, os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
-        dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+                if save_history:
+                    fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
+                    fname1 = 'beta{}_{}'.format(i_epoch, i_batch)
+                else:
+                    fname0 = 'delta'
+                    fname1 = 'beta'
+            if distribution_mode == 'distributed_object':
+                fname0 += '_rank_{}'.format(rank)
+                fname1 += '_rank_{}'.format(rank)
+            dxchange.write_tiff(obj0, os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
+            dxchange.write_tiff(obj1, os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
-    elif unknown_type == 'real_imag':
-        if full_output:
-            fname0 = 'obj_mag_ds_{}'.format(ds_level)
-            fname1 = 'obj_phase_ds_{}'.format(ds_level)
-        else:
-            if save_history:
-                fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
-                fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
+        elif unknown_type == 'real_imag':
+            if full_output:
+                fname0 = 'obj_mag_ds_{}'.format(ds_level)
+                fname1 = 'obj_phase_ds_{}'.format(ds_level)
             else:
-                fname0 = 'obj_mag'
-                fname1 = 'obj_phase'
-        if distribution_mode == 'distributed_object':
-            fname0 += '_rank_{}'.format(rank)
-            fname1 += '_rank_{}'.format(rank)
-        dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
-        dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
+                if save_history:
+                    fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
+                    fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
+                else:
+                    fname0 = 'obj_mag'
+                    fname1 = 'obj_phase'
+            if distribution_mode == 'distributed_object':
+                fname0 += '_rank_{}'.format(rank)
+                fname1 += '_rank_{}'.format(rank)
+            dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
+            dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
 
 def output_probe(probe_real, probe_imag, output_folder,

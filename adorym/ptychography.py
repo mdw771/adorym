@@ -406,6 +406,8 @@ def reconstruct_ptychography(
                     needs_initialize = True
         else:
             optimizable_params = None
+        
+        needs_initialize = comm.bcast(needs_initialize, root=0)
 
         # ================================================================================
         # Create object class.
@@ -747,13 +749,17 @@ def reconstruct_ptychography(
                         obj.f.flush()
                         obj_arr = None
                     else:
-                        obj_arr = w.to_numpy(obj.arr)
+                        if obj.arr is not None:
+                            obj_arr = w.to_numpy(obj.arr)
+                else:
+                    obj_arr = None
                     cp_path = os.path.join(output_folder, 'checkpoint')
                     create_directory_multirank(cp_path)
                     if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
-                        save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
-                                        obj_array=obj_arr, optimizer=opt)
-                    save_params_checkpoint(os.path.join(cp_path, 'params_{}'.format(rank)), optimizable_params)
+                        if obj_arr is not None:
+                            save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
+                                            obj_array=obj_arr, optimizer=opt)
+                        save_params_checkpoint(os.path.join(cp_path, 'params_{}'.format(rank)), optimizable_params)
                 comm.Barrier()
 
                 # ================================================================================
@@ -959,7 +965,7 @@ def reconstruct_ptychography(
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
-                    if distribution_mode is not 'shared_file':
+                    if distribution_mode is not 'shared_file' and obj.arr is not None:
                         if non_negativity and unknown_type != 'real_imag':
                             obj.arr = w.clip(obj.arr, 0, None)
                         if unknown_type == 'delta_beta':
