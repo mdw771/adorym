@@ -106,7 +106,8 @@ def reconstruct_ptychography(
         # or RAM depending on current device setting.
         # _________________________
         # |Other optimizer options|_____________________________________________
-        optimize_probe=False, probe_learning_rate=1e-5, probe_update_delay=0,
+        optimize_probe=False, probe_learning_rate=1e-5,
+        probe_update_delay=0, probe_update_limit=None,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,

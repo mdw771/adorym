@@ -441,14 +441,18 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
     i_batch = kwargs['i_batch']
     other_params_update_delay = kwargs['other_params_update_delay']
     probe_update_delay = kwargs['probe_update_delay']
+    probe_update_limit = kwargs['probe_update_limit']
     i_full_angle = kwargs['i_full_angle']
     stdout_options = kwargs['stdout_options']
+
+    if probe_update_limit is None:
+        probe_update_limit = np.inf
 
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
         elif opt.name == 'probe':
-            if i_batch >= probe_update_delay:
+            if i_batch >= probe_update_delay and i_batch < probe_update_limit:
                 with w.no_grad():
                     opt.grads = comm.allreduce(opt.grads)
                     probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
@@ -458,8 +462,8 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 w.reattach(optimizable_params['probe_real'])
                 w.reattach(optimizable_params['probe_imag'])
             else:
-                print_flush('Probe is not updated because current epoch is smaller than specified delay ({}).'.format(
-                    probe_update_delay), 0, rank, **stdout_options)
+                print_flush('Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
+                    probe_update_delay, probe_update_limit), 0, rank, **stdout_options)
 
         elif i_batch >= other_params_update_delay:
 
