@@ -439,6 +439,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
 
     i_epoch = kwargs['i_epoch']
     i_batch = kwargs['i_batch']
+    n_batch = kwargs['n_batch']
     other_params_update_delay = kwargs['other_params_update_delay']
     probe_update_delay = kwargs['probe_update_delay']
     probe_update_limit = kwargs['probe_update_limit']
@@ -452,7 +453,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
         if opt.name == 'obj':
             continue
         elif opt.name == 'probe':
-            if i_batch >= probe_update_delay and i_batch < probe_update_limit:
+            if i_batch + i_epoch * n_batch >= probe_update_delay and i_batch + i_epoch * n_batch < probe_update_limit:
                 with w.no_grad():
                     opt.grads = comm.allreduce(opt.grads)
                     probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
@@ -465,7 +466,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 print_flush('Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
                     probe_update_delay, probe_update_limit), 0, rank, **stdout_options)
 
-        elif i_batch >= other_params_update_delay:
+        elif i_batch + i_epoch * n_batch >= other_params_update_delay:
 
             if opt.name == 'probe_pos_correction':
                 with w.no_grad():
