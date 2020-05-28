@@ -187,8 +187,9 @@ class PtychographyModel(ForwardModel):
                 raise NotImplementedError('Tilt optimization is not impemented for distributed mode or when two_d_mode is on.')
             obj_rot = obj
 
-        ex_real_ls = []
-        ex_imag_ls = []
+        #ex_real_ls = []
+        #ex_imag_ls = []
+        ex_mag_ls = []
 
         # Pad if needed
         if self.distribution_mode is None:
@@ -258,11 +259,12 @@ class PtychographyModel(ForwardModel):
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt)
-                ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
-                ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
+                ex_mag = w.norm([ex_real, ex_imag])
+                #ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
+                #ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
-                ex_real = []
-                ex_imag = []
+                #ex_real = []
+                #ex_imag = []
                 for i_mode in range(n_probe_modes):
                     if len(probe_real_ls.shape) == 3:
                         this_probe_real_ls = probe_real_ls[i_mode, :, :]
@@ -279,43 +281,53 @@ class PtychographyModel(ForwardModel):
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt)
-                    ex_real.append(temp_real)
-                    ex_imag.append(temp_imag)
-                ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
-                ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
-            ex_real_ls.append(ex_real)
-            ex_imag_ls.append(ex_imag)
+                    if i_mode == 0:
+                        ex_int = temp_real ** 2 + temp_imag ** 2
+                    else:
+                        ex_int = ex_int + temp_real ** 2 + temp_imag ** 2
+                    #ex_real.append(temp_real)
+                    #ex_imag.append(temp_imag)
+                #ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
+                #ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
+            #ex_real_ls.append(ex_real)
+            #ex_imag_ls.append(ex_imag)
+            ex_mag_ls = w.sqrt(ex_int)
         del subobj_ls, probe_real_ls, probe_imag_ls
 
-        # Output shape is [minibatch_size, n_probe_modes, y, x].
-        if len(ex_real_ls) == 1:
-            ex_real_ls = ex_real_ls[0]
-            ex_imag_ls = ex_imag_ls[0]
-        else:
-            ex_real_ls = w.concatenate(ex_real_ls, 0)
-            ex_imag_ls = w.concatenate(ex_imag_ls, 0)
+        # # Output shape is [minibatch_size, n_probe_modes, y, x].
+        #if len(ex_real_ls) == 1:
+        #    ex_real_ls = ex_real_ls[0]
+        #    ex_imag_ls = ex_imag_ls[0]
+        #else:
+        #    ex_real_ls = w.concatenate(ex_real_ls, 0)
+        #    ex_imag_ls = w.concatenate(ex_imag_ls, 0)
+        # Output shape is [minibatch_size, y, x].
+        if len(ex_mag_ls) > 1:
+            ex_mag_ls = w.concatenate(ex_mag_ls, 0)
         if rank == 0 and debug and self.i_call % 10 == 0:
-            ex_real_val = w.to_numpy(ex_real_ls)
-            ex_imag_val = w.to_numpy(ex_imag_ls)
-            dxchange.write_tiff(np.sum(ex_real_val ** 2 + ex_imag_val ** 2, axis=1),
-                                os.path.join(output_folder, 'intermediate', 'detected_intensity'), dtype='float32', overwrite=True)
+            #ex_real_val = w.to_numpy(ex_real_ls)
+            #ex_imag_val = w.to_numpy(ex_imag_ls)
+            #dxchange.write_tiff(np.sum(ex_real_val ** 2 + ex_imag_val ** 2, axis=1),
+            #                    os.path.join(output_folder, 'intermediate', 'detected_intensity'), dtype='float32', overwrite=True)
             # dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
             # dxchange.write_tiff(np.arctan2(ex_real_val, ex_imag_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
+            ex_mag_val = w.to_numpy(ex_mag_ls)
+            dxchange.write_tiff(ex_mag_val, os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
         self.i_call += 1
-        return ex_real_ls, ex_imag_ls
+        return ex_mag_ls
 
     def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            if self.common_vars['n_probe_modes'] == 1:
-                this_pred_batch = this_pred_batch[:, 0, :, :]
-            else:
-                this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
+            #this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
+            #if self.common_vars['n_probe_modes'] == 1:
+            #    this_pred_batch = this_pred_batch[:, 0, :, :]
+            #else:
+            #    this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
 
             beamstop = self.common_vars['beamstop']
             ds_level = self.common_vars['ds_level']
@@ -340,7 +352,8 @@ class PtychographyModel(ForwardModel):
             loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
-            del ex_real_ls, ex_imag_ls
+            #del ex_real_ls, ex_imag_ls
+            del this_pred_batch
             del this_prj_batch
             return loss
         return calculate_loss
