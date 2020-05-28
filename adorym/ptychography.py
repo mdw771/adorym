@@ -247,7 +247,7 @@ def reconstruct_ptychography(
 
     # Sample to detector distance.
     if free_prop_cm is None:
-        free_prop_cm = f['metadata/free_prop_cm']
+        free_prop_cm = f['metadata/free_prop_cm'][...]
     if np.array(free_prop_cm).size == 1:
         is_multi_dist = False
         if isinstance(free_prop_cm, np.ndarray):
