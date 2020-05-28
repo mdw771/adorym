@@ -1824,7 +1824,7 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
             else:
                 if save_history:
                     fname0 = 'delta_{}_{}'.format(i_epoch, i_batch)
-                    fname1 = 'beta{}_{}'.format(i_epoch, i_batch)
+                    fname1 = 'beta_{}_{}'.format(i_epoch, i_batch)
                 else:
                     fname0 = 'delta'
                     fname1 = 'beta'
