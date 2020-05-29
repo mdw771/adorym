@@ -362,8 +362,8 @@ def reconstruct_ptychography(
         # ================================================================================
         comm.Barrier()
         seed = int(time.time() / 60)
+        seed = comm.bcast(seed, root=0)
         np.random.seed(seed)
-        comm.Barrier()
 
         # ================================================================================
         # Create object function optimizer.
