@@ -178,9 +178,9 @@ class PtychographyModel(ForwardModel):
                 else:
                     obj_rot = obj
             else:
-                obj_rot = w.rotate(obj, tilt_ls[0, this_i_theta], axis=0)
-                obj_rot = w.rotate(obj_rot, tilt_ls[1, this_i_theta], axis=1)
-                obj_rot = w.rotate(obj_rot, tilt_ls[2, this_i_theta], axis=2)
+                obj_rot = w.rotate(obj, tilt_ls[0, this_i_theta], axis=0, device=device_obj)
+                obj_rot = w.rotate(obj_rot, tilt_ls[1, this_i_theta], axis=1, device=device_obj)
+                obj_rot = w.rotate(obj_rot, tilt_ls[2, this_i_theta], axis=2, device=device_obj)
 
         else:
             if optimize_tilt:
@@ -259,7 +259,7 @@ class PtychographyModel(ForwardModel):
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt)
-                ex_mag = w.norm([ex_real, ex_imag])
+                ex_mag_ls = w.norm([ex_real, ex_imag])
                 #ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 #ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
@@ -285,13 +285,13 @@ class PtychographyModel(ForwardModel):
                         ex_int = temp_real ** 2 + temp_imag ** 2
                     else:
                         ex_int = ex_int + temp_real ** 2 + temp_imag ** 2
+                ex_mag_ls.append(w.sqrt(ex_int))
                     #ex_real.append(temp_real)
                     #ex_imag.append(temp_imag)
                 #ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
                 #ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
             #ex_real_ls.append(ex_real)
-            #ex_imag_ls.append(ex_imag)
-            ex_mag_ls = w.sqrt(ex_int)
+            #ex_imag_ls.append(ex_imag)       
         del subobj_ls, probe_real_ls, probe_imag_ls
 
         # # Output shape is [minibatch_size, n_probe_modes, y, x].
@@ -304,6 +304,8 @@ class PtychographyModel(ForwardModel):
         # Output shape is [minibatch_size, y, x].
         if len(ex_mag_ls) > 1:
             ex_mag_ls = w.concatenate(ex_mag_ls, 0)
+        else:
+            ex_mag_ls = ex_mag_ls[0]
         if rank == 0 and debug and self.i_call % 10 == 0:
             #ex_real_val = w.to_numpy(ex_real_ls)
             #ex_imag_val = w.to_numpy(ex_imag_ls)

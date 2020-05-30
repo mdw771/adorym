@@ -790,7 +790,7 @@ def affine_transform(arr, transform, override_backend=None):
         return arr_new[:, 0, :, :]
 
 
-def rotate(arr, theta, axis=0, override_backend=None):
+def rotate(arr, theta, axis=0, override_backend=None, device=None):
     """
     A rotate function that allows taking gradient with regards to theta.
     :param arr: a 3D object in [N, H, W, C].
@@ -811,7 +811,7 @@ def rotate(arr, theta, axis=0, override_backend=None):
         if axis_arrangement[2] < axis_arrangement[3]:
             theta = -theta
         arr = permute_axes(arr, axis_arrangement, override_backend='pytorch')
-        naught = cast(tc.tensor([0.]), pytorch_dtype_query_mapping_dict[theta.dtype], override_backend='pytorch')
+        naught = cast(tc.tensor([0.], device=device), pytorch_dtype_query_mapping_dict[theta.dtype], override_backend='pytorch')
         m0 = tc.cat([tc.cos(theta), -tc.sin(theta), naught])
         m1 = tc.cat([tc.sin(theta), tc.cos(theta), naught])
         m = tc.stack([m0, m1]).view(1, 2, 3)
