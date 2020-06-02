@@ -83,20 +83,30 @@ class LargeArray(object):
         else:
             d = self.device
         if precalculate_rotation_coords:
+            if d is None or d == 'cpu':
+                coords = coords.astype('float64')
+            b = w.grid_sample(a, coords, axis=0, interpolation=interpolation, device=d)
             if overwrite_arr:
-                self.arr = apply_rotation(a, coords, interpolation=interpolation, device=d, override_backend=override_backend)
+                self.arr = b
             else:
-                self.arr_rot = apply_rotation(a, coords, interpolation=interpolation, device=d, override_backend=override_backend)
+                self.arr_rot = b
         else:
+            b = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
             if overwrite_arr:
-                self.arr = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+                self.arr = b
             else:
-                self.arr_rot = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+                self.arr_rot = b
         if dtype is not None:
             if overwrite_arr:
-                self.arr = w.cast(self.arr, dtype, override_backend=override_backend)
+                if self.distribution_mode == 'distributed_object':
+                    self.arr = self.arr.astype(dtype)
+                else:
+                    self.arr = w.cast(self.arr, dtype, override_backend=override_backend)
             else:
-                self.arr_rot = w.cast(self.arr_rot, dtype, override_backend=override_backend)
+                if self.distribution_mode == 'distributed_object':
+                    self.arr_rot = self.arr_rot.astype(dtype)
+                else:
+                    self.arr_rot = w.cast(self.arr_rot, dtype, override_backend=override_backend)
 
     def write_chunks_to_file(self, this_pos_batch, arr_channel_0, arr_channel_1, probe_size, write_difference=True, dset_2=None, dtype='float32'):
         dset = self.dset if dset_2 is None else dset_2
