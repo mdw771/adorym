@@ -1028,6 +1028,13 @@ def reconstruct_ptychography(
                     comm.Barrier()
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), sto_rank, rank, **stdout_options)
 
+                    comm.Barrier()
+                    t0_nonify = time.time()
+                    del obj.arr_rot
+                    obj.arr_rot = None
+                    gc.collect()
+                    print_flush('Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), rank, rank)
+
                 # ================================================================================
                 # Apply finite support mask if specified.
                 # ================================================================================
