@@ -485,7 +485,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # If a finite support mask path is specified (common for full-field imaging),
         # create an instance of monochannel mask class. While finite_support_mask_path
-        # has to point to a 3D tiff file, the mask will be written as an HDF5 if
+        # has to point to a 3D tiff file, the mask will be written  as an HDF5 if
         # share_file_mode is True.
         # ================================================================================
         mask = None
@@ -1024,7 +1024,7 @@ def reconstruct_ptychography(
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, use_numpy=True, **optimizer_options_obj)
-                        gradient.arr[...] = 0
+                        gradient.initialize_distributed_array_with_zeros(dtype=cache_dtype)
 
                     comm.Barrier()
                     print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), sto_rank, rank, **stdout_options)
