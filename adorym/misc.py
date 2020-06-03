@@ -165,7 +165,7 @@ def restore_checkpoint(output_folder, distribution_mode=None, optimizer=None):
         return i_epoch, i_batch, obj
     elif distribution_mode == 'distributed_object':
         obj = np.load(os.path.join(path, 'obj_checkpoint_rank_{}.npy'.format(rank)))
-        optimizer.restore_distributed_param_arrays_from_checkpoint()
+        optimizer.restore_distributed_param_arrays_from_checkpoint(use_numpy=True)
         return i_epoch, i_batch, obj
     elif distribution_mode == 'shared_file':
         return i_epoch, i_batch

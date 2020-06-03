@@ -380,7 +380,7 @@ def reconstruct_ptychography(
                               options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
-        opt.create_container(use_checkpoint, device_obj)
+        opt.create_container(use_checkpoint, device_obj, use_numpy=True)
         opt_ls = [opt]
 
         # ================================================================================
@@ -1034,7 +1034,7 @@ def reconstruct_ptychography(
                     del obj.arr_rot
                     obj.arr_rot = None
                     gc.collect()
-                    print_flush('Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), rank, rank)
+                    print_flush('Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), sto_rank, rank)
 
                 # ================================================================================
                 # Apply finite support mask if specified.

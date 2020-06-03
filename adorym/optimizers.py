@@ -45,11 +45,11 @@ class Optimizer(object):
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
 
-    def create_container(self, use_checkpoint, device_obj):
+    def create_container(self, use_checkpoint, device_obj, use_numpy=False):
         if self.distribution_mode == 'shared_file':
             self.create_file_objects(use_checkpoint=use_checkpoint)
         elif self.distribution_mode == 'distributed_object':
-            self.create_distributed_param_arrays()
+            self.create_distributed_param_arrays(use_numpy=use_numpy)
         elif self.distribution_mode is None:
             self.create_param_arrays(device=device_obj)
 
@@ -86,20 +86,20 @@ class Optimizer(object):
         return
 
     def restore_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
-        malias = np if use_numpy else w
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint.npy'))
-            arr = malias.create_variable(arr, device=device)
+            if use_numpy == False:
+                arr = w.create_variable(arr, device=device)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
                     self.params_whole_array_dict[param_name] = arr[i]
         return
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
-        malias = np if use_numpy else w
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank)))
-            arr = malias.create_variable(arr, device=device)
+            if use_numpy == False:
+                arr = w.create_variable(arr, device=device)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
                     self.params_whole_array_dict[param_name] = arr[i]
