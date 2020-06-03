@@ -401,7 +401,7 @@ def reconstruct_ptychography(
 
             elif distribution_mode != 'shared_file':
                 try:
-                    starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt)
+                    starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt, dtype=cache_dtype)
                 except:
                     needs_initialize = True
         else:

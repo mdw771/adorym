@@ -45,11 +45,11 @@ class Optimizer(object):
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
 
-    def create_container(self, use_checkpoint, device_obj, use_numpy=False):
+    def create_container(self, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
         if self.distribution_mode == 'shared_file':
             self.create_file_objects(use_checkpoint=use_checkpoint)
         elif self.distribution_mode == 'distributed_object':
-            self.create_distributed_param_arrays(use_numpy=use_numpy)
+            self.create_distributed_param_arrays(use_numpy=use_numpy, dtype=dtype)
         elif self.distribution_mode is None:
             self.create_param_arrays(device=device_obj)
 
@@ -78,11 +78,11 @@ class Optimizer(object):
                 self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
         return
 
-    def create_distributed_param_arrays(self, use_numpy=False):
+    def create_distributed_param_arrays(self, use_numpy=False, dtype='float32'):
         malias = np if use_numpy else w
         if len(self.params_list) > 0 and self.slice_catalog[rank] is not None:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]])
+                self.params_whole_array_dict[param_name] = malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]], dtype=dtype)
         return
 
     def restore_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
@@ -95,14 +95,14 @@ class Optimizer(object):
                     self.params_whole_array_dict[param_name] = arr[i]
         return
 
-    def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
+    def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False, dtype='float32'):
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank)))
             if use_numpy == False:
                 arr = w.create_variable(arr, device=device)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
-                    self.params_whole_array_dict[param_name] = arr[i]
+                    self.params_whole_array_dict[param_name] = arr[i].astype(dtype)
         return
 
     def save_param_arrays_to_checkpoint(self, use_numpy=False):
