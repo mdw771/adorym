@@ -751,15 +751,15 @@ def reconstruct_ptychography(
                     else:
                         if obj.arr is not None:
                             obj_arr = w.to_numpy(obj.arr)
-                else:
-                    obj_arr = None
-                    cp_path = os.path.join(output_folder, 'checkpoint')
-                    create_directory_multirank(cp_path)
-                    if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
-                        if obj_arr is not None:
-                            save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
-                                            obj_array=obj_arr, optimizer=opt)
-                        save_params_checkpoint(os.path.join(cp_path, 'params_{}'.format(rank)), optimizable_params)
+                        else:
+                            obj_arr = None
+                        cp_path = os.path.join(output_folder, 'checkpoint')
+                        create_directory_multirank(cp_path)
+                        if (distribution_mode is None and rank == 0) or (distribution_mode is not None):
+                            if obj_arr is not None:
+                                save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=distribution_mode,
+                                                obj_array=obj_arr, optimizer=opt)
+                            save_params_checkpoint(os.path.join(cp_path, 'params_{}'.format(rank)), optimizable_params)
                 comm.Barrier()
 
                 # ================================================================================
