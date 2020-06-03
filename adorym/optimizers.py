@@ -54,7 +54,6 @@ class Optimizer(object):
             self.create_param_arrays(device=device_obj)
 
     def create_file_objects(self, use_checkpoint=False):
-
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 fmode = 'a' if use_checkpoint else 'w'
@@ -72,54 +71,54 @@ class Optimizer(object):
                 self.params_dset_dict[param_name] = dset_p
         return
 
-    def create_param_arrays(self, device=None):
-
+    def create_param_arrays(self, device=None, use_numpy=False):
+        malias = np if use_numpy else w
         if len(self.params_list) > 0:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = w.zeros(self.whole_object_size, device=device)
+                self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
         return
 
-    def create_distributed_param_arrays(self):
-
+    def create_distributed_param_arrays(self, use_numpy=False):
+        malias = np if use_numpy else w
         if len(self.params_list) > 0 and self.slice_catalog[rank] is not None:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = w.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]])
+                self.params_whole_array_dict[param_name] = malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]])
         return
 
-    def restore_param_arrays_from_checkpoint(self, device=None):
-
+    def restore_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
+        malias = np if use_numpy else w
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint.npy'))
-            arr = w.create_variable(arr, device=device)
+            arr = malias.create_variable(arr, device=device)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
                     self.params_whole_array_dict[param_name] = arr[i]
         return
 
-    def restore_distributed_param_arrays_from_checkpoint(self, device=None):
-
+    def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
+        malias = np if use_numpy else w
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank)))
-            arr = w.create_variable(arr, device=device)
+            arr = malias.create_variable(arr, device=device)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
                     self.params_whole_array_dict[param_name] = arr[i]
         return
 
-    def save_param_arrays_to_checkpoint(self):
-
+    def save_param_arrays_to_checkpoint(self, use_numpy=False):
+        malias = np if use_numpy else w
         path = os.path.join(self.output_folder, 'checkpoint')
         create_directory_multirank(path)
         if len(self.params_list) > 0:
             arr = []
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
-            arr = w.stack(arr)
+            arr = malias.stack(arr)
             np.save(os.path.join(path, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
         return
 
-    def save_distributed_param_arrays_to_checkpoint(self):
-
+    def save_distributed_param_arrays_to_checkpoint(self, use_numpy=False):
+        malias = np if use_numpy else w
         path = os.path.join(self.output_folder, 'checkpoint')
         if not os.path.exists(path):
             os.makedirs(path)
@@ -127,7 +126,7 @@ class Optimizer(object):
             arr = []
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
-            arr = w.stack(arr)
+            arr = malias.stack(arr)
             np.save(os.path.join(path, 'opt_params_checkpoint_rank_{}.npy'.format(rank)), w.to_numpy(arr))
         return
 
@@ -173,8 +172,9 @@ class AdamOptimizer(Optimizer):
         return
 
     def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
-                       m=None, v=None, return_moments=False, update_batch_count=True, **kwargs):
+                       m=None, v=None, return_moments=False, update_batch_count=True, use_numpy=False, **kwargs):
 
+        malias = np if use_numpy else w
         if m is None or v is None:
             if distribution_mode == 'shared_file':
                 m = self.params_chunk_array_dict['m']
@@ -186,7 +186,7 @@ class AdamOptimizer(Optimizer):
         v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
         mhat = m / (1 - b1 ** (i_batch + 1))  # Bias correction.
         vhat = v / (1 - b2 ** (i_batch + 1))
-        d = step_size * mhat / (w.sqrt(vhat) + eps)
+        d = step_size * mhat / (malias.sqrt(vhat) + eps)
         x = x - d
         if distribution_mode == 'shared_file':
             self.params_chunk_array_dict['m'] = m
@@ -235,7 +235,7 @@ class GDOptimizer(Optimizer):
                                           distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, **kwargs):
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
         if dynamic_rate:
             threshold_iteration = first_downrate_iteration
             i = 1
@@ -416,7 +416,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
 def initialize_parameter_gradients(opt_ls, device=None):
 
     for opt in opt_ls:
-        if opt.name =='obj':
+        if opt.name == 'obj':
             continue
         else:
             opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device)

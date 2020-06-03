@@ -965,24 +965,25 @@ def reconstruct_ptychography(
                 # and update arrays in instance.
                 # ================================================================================
                 with w.no_grad():
+                    malias = np if distribution_mode == 'distributed_object' else w
                     if distribution_mode is not 'shared_file' and obj.arr is not None:
                         if non_negativity and unknown_type != 'real_imag':
-                            obj.arr = w.clip(obj.arr, 0, None)
+                            obj.arr = malias.clip(obj.arr, 0, None)
                         if unknown_type == 'delta_beta':
                             if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
                             if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
                         elif unknown_type == 'real_imag':
                             if object_type == 'absorption_only':
-                                delta, beta = w.split_channel(obj.arr)
-                                delta = w.norm(delta, beta)
+                                delta, beta = malias.split_channel(obj.arr)
+                                delta = malias.norm(delta, beta)
                                 beta = beta * 0
-                                obj.arr = w.stack([delta, beta], -1)
+                                obj.arr = malias.stack([delta, beta], -1)
                             if object_type == 'phase_only':
-                                delta, beta = w.split_channel(obj.arr)
-                                obj_norm = w.norm(delta, beta)
+                                delta, beta = malias.split_channel(obj.arr)
+                                obj_norm = malias.norm(delta, beta)
                                 delta = delta / obj_norm
                                 beta = beta / obj_norm
-                                obj.arr = w.stack([delta, beta], -1)
+                                obj.arr = malias.stack([delta, beta], -1)
                     if update_using_external_algorithm is not None:
                         obj.update_using_external_algorithm(update_using_external_algorithm, locals(), device_obj)
                 if distribution_mode is None:
@@ -1022,7 +1023,7 @@ def reconstruct_ptychography(
                         opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, **optimizer_options_obj)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, use_numpy=True, **optimizer_options_obj)
                         gradient.arr[...] = 0
 
                     comm.Barrier()
