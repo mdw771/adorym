@@ -27,8 +27,14 @@ from adorym.propagate import *
 from adorym.misc import *
 import adorym.global_settings as global_settings
 
+project_config = check_config_indept_mpi()
 try:
-    if global_settings.independent_mpi:
+    independent_mpi = project_config['independent_mpi']
+except:
+    independent_mpi = False
+
+try:
+    if independent_mpi:
         raise Exception
     from mpi4py import MPI
 except:
@@ -1937,6 +1943,4 @@ def get_multiprocess_distribution_index(size, n_ranks):
         else:
             task_ls.append(None)
     return task_ls
-
-
 

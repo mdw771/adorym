@@ -7,9 +7,16 @@ from adorym.util import *
 from adorym.array_ops import ObjectFunction, Gradient
 import adorym.wrappers as w
 import adorym.global_settings as global_settings
+from adorym.misc import *
+
+project_config = check_config_indept_mpi()
+try:
+    independent_mpi = project_config['independent_mpi']
+except:
+    independent_mpi = False
 
 try:
-    if global_settings.independent_mpi:
+    if independent_mpi:
         raise Exception
     from mpi4py import MPI
 except:

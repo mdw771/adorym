@@ -15,12 +15,18 @@ from adorym.array_ops import *
 from adorym.optimizers import *
 from adorym.differentiator import *
 import adorym.wrappers as w
-import adorym.global_settings
+import adorym.global_settings as global_settings
 from adorym.forward_model import *
 from adorym.conventional import *
 
+project_config = check_config_indept_mpi()
 try:
-    if adorym.global_settings.independent_mpi:
+    independent_mpi = project_config['independent_mpi']
+except:
+    independent_mpi = False
+
+try:
+    if independent_mpi:
         raise Exception
     from mpi4py import MPI
 except:
@@ -244,7 +250,7 @@ def reconstruct_ptychography(
         is_sparse_multislice = False
     else:
         is_sparse_multislice = True
-        u, v = adorym.gen_freq_mesh(np.array([psize_cm * 1e7] * 3), prj.shape[2:4])
+        u, v = gen_freq_mesh(np.array([psize_cm * 1e7] * 3), prj.shape[2:4])
         u = w.create_variable(u, requires_grad=False, device=device_obj)
         v = w.create_variable(v, requires_grad=False, device=device_obj)
 
@@ -274,7 +280,7 @@ def reconstruct_ptychography(
         subprobe_size = probe_size
 
     if is_multi_dist:
-        u_free, v_free = adorym.gen_freq_mesh(np.array([psize_cm * 1e7] * 3),
+        u_free, v_free = gen_freq_mesh(np.array([psize_cm * 1e7] * 3),
                                     [subprobe_size[i] + 2 * safe_zone_width for i in range(2)])
         u_free = w.create_variable(u_free, requires_grad=False, device=device_obj)
         v_free = w.create_variable(v_free, requires_grad=False, device=device_obj)

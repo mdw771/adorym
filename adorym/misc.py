@@ -3,9 +3,35 @@ import numpy as np
 import glob
 import dxchange
 import re
-import adorym.global_settings
+import adorym.global_settings as global_settings
+
+def check_config_indept_mpi():
+    d = {}
+    try:
+        f = open(os.path.join(os.getcwd(), 'project_config.txt'), 'r')
+        for l in f.readlines():
+            if '\n' in l:
+                l = l[:l.find('\n')]
+            k, v = l.split(' = ')
+            if v == 'True':
+                v = True
+            elif v == 'False':
+                v = False
+            else:
+                v = float(v)
+            d[k] = v
+    except:
+        pass
+    return d
+
+project_config = check_config_indept_mpi()
 try:
-    if adorym.global_settings.independent_mpi:
+    independent_mpi = project_config['independent_mpi']
+except:
+    independent_mpi = False
+
+try:
+    if independent_mpi:
         raise Exception
     from mpi4py import MPI
 except:
@@ -191,3 +217,4 @@ def parse_source_folder(src_dir, prefix):
     ind_ls = np.array(theta_full_ls) * n_dist + np.array(dist_ls)
     flist = np.array(flist)[np.argsort(ind_ls)]
     return flist, n_theta, n_dist, raw_img_shape
+

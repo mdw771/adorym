@@ -7,10 +7,17 @@ from scipy.ndimage import rotate as sp_rotate
 from adorym.util import *
 import adorym.wrappers as w
 import adorym.conventional as c
-import adorym.global_settings
+import adorym.global_settings as global_settings
+from adorym.misc import *
+
+project_config = check_config_indept_mpi()
+try:
+    independent_mpi = project_config['independent_mpi']
+except:
+    independent_mpi = False
 
 try:
-    if adorym.global_settings.independent_mpi:
+    if independent_mpi:
         raise Exception
     from mpi4py import MPI
 except:
