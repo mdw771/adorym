@@ -107,12 +107,14 @@ class Optimizer(object):
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False, dtype='float32'):
         if len(self.params_list) > 0:
-            arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank)))
-            if use_numpy == False:
-                arr = w.create_variable(arr, device=device)
-            if len(self.params_list) > 0:
-                for i, param_name in enumerate(self.params_list):
-                    self.params_whole_array_dict[param_name] = arr[i].astype(dtype)
+            path = os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank))
+            if os.path.exists(path):
+                arr = np.load(path)
+                if use_numpy == False:
+                    arr = w.create_variable(arr, device=device)
+                if len(self.params_list) > 0:
+                    for i, param_name in enumerate(self.params_list):
+                        self.params_whole_array_dict[param_name] = arr[i].astype(dtype)
         return
 
     def save_param_arrays_to_checkpoint(self, use_numpy=False):

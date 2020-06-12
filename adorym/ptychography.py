@@ -412,6 +412,7 @@ def reconstruct_ptychography(
                 try:
                     starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt, dtype=cache_dtype)
                 except:
+                    obj_arr = None
                     needs_initialize = True
         else:
             optimizable_params = None
