@@ -3,7 +3,10 @@ import numpy as np
 import glob
 import dxchange
 import re
+import adorym.global_settings
 try:
+    if adorym.global_settings.independent_mpi:
+        raise Exception
     from mpi4py import MPI
 except:
     from adorym.pseudo import MPI

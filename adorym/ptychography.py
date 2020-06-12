@@ -7,10 +7,6 @@ import h5py
 import gc
 import warnings
 import pickle
-try:
-    from mpi4py import MPI
-except:
-    from adorym.pseudo import MPI
 
 from adorym.util import *
 from adorym.misc import *
@@ -22,6 +18,13 @@ import adorym.wrappers as w
 import adorym.global_settings
 from adorym.forward_model import *
 from adorym.conventional import *
+
+try:
+    if adorym.global_settings.independent_mpi:
+        raise Exception
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 PI = 3.1415927
 
@@ -1089,7 +1092,9 @@ def reconstruct_ptychography(
                 f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
                 f_conv.flush()
 
-                if t_max_min is not None and (time.time() - t_zero) / 60 >= t_max_min:
+                t_elapsed = (time.time() - t_zero) / 60
+                t_elapsed = comm.bcast(t_elapsed, root=0)
+                if t_max_min is not None and t_elapsed >= t_max_min:
                     print_flush('Terminating program because maximum time limit is reached.', sto_rank, rank, **stdout_options)
                     sys.exit()
 

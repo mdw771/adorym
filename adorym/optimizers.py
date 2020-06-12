@@ -2,15 +2,18 @@ import numpy as np
 import os
 import h5py
 import pickle
-try:
-    from mpi4py import MPI
-except:
-    from adorym.pseudo import MPI
 
 from adorym.util import *
 from adorym.array_ops import ObjectFunction, Gradient
 import adorym.wrappers as w
 import adorym.global_settings as global_settings
+
+try:
+    if global_settings.independent_mpi:
+        raise Exception
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()

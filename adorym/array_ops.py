@@ -3,14 +3,18 @@ import os
 import h5py
 import gc
 from scipy.ndimage import rotate as sp_rotate
-try:
-    from mpi4py import MPI
-except:
-    from adorym.pseudo import MPI
 
 from adorym.util import *
 import adorym.wrappers as w
 import adorym.conventional as c
+import adorym.global_settings
+
+try:
+    if adorym.global_settings.independent_mpi:
+        raise Exception
+    from mpi4py import MPI
+except:
+    from adorym.pseudo import MPI
 
 comm = MPI.COMM_WORLD
 n_ranks = comm.Get_size()
