@@ -681,7 +681,6 @@ def reconstruct_ptychography(
             t0 = time.time()
 
             n_tot_per_batch = minibatch_size * n_ranks
-            ind_list_rand = []
 
             t00 = time.time()
             print_flush('Allocating jobs over threads...', sto_rank, rank, **stdout_options)
@@ -727,10 +726,12 @@ def reconstruct_ptychography(
                 #                    (minibatch_size * n_ranks)
                 # ================================================================================
                 if i == 0:
-                    ind_list_rand = np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()
+                    ind_list_rand = np.zeros([len(theta_ind_ls) * len(spots_ls), 2], dtype='int32')
+                    temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                    ind_list_rand[:len(spots_ls), :] = temp
                 else:
-                    ind_list_rand = np.concatenate(
-                        [ind_list_rand, np.vstack([np.array([i_theta] * len(spots_ls)), spots_ls]).transpose()], axis=0)
+                    temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                    ind_list_rand[i * len(spots_ls):(i + 1) * len(spots_ls), :] = temp
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             n_batch = len(ind_list_rand)
 
