@@ -97,7 +97,7 @@ def reconstruct_ptychography(
         # _____
         # |I/O|_________________________________________________________________
         save_path='.', output_folder=None, save_intermediate=False, save_history=False,
-        store_checkpoint=True, use_checkpoint=True, n_batch_per_checkpoint=10,
+        store_checkpoint=True, use_checkpoint=True, force_to_use_checkpoint=False, n_batch_per_checkpoint=10,
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
@@ -406,18 +406,25 @@ def reconstruct_ptychography(
                 try:
                     starting_epoch, starting_batch = restore_checkpoint(output_folder, distribution_mode)
                 except:
+                    if force_to_use_checkpoint:
+                        raise sys.exc_info()
                     needs_initialize = True
 
             elif distribution_mode != 'shared_file':
                 try:
                     starting_epoch, starting_batch, obj_arr = restore_checkpoint(output_folder, distribution_mode, opt, dtype=cache_dtype)
                 except:
+                    if distribution_mode == 'distributed_object':
+                        if rank < obj_size[0] and force_to_use_checkpoint:
+                            raise sys.exc_info()
                     obj_arr = None
                     needs_initialize = True
         else:
             optimizable_params = None
         
         needs_initialize = comm.bcast(needs_initialize, root=0)
+        starting_epoch = comm.bcast(starting_epoch, root=0)
+        starting_batch = comm.bcast(starting_batch, root=0)
 
         # ================================================================================
         # Create object class.
