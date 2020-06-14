@@ -194,10 +194,14 @@ class AdamOptimizer(Optimizer):
             else:
                 m = self.params_whole_array_dict['m']
                 v = self.params_whole_array_dict['v']
-        m = (1 - b1) * g + b1 * m  # First moment estimate.
-        v = (1 - b2) * (g ** 2) + b2 * v  # Second moment estimate.
-        mhat = m / (1 - b1 ** (i_batch + 1))  # Bias correction.
-        vhat = v / (1 - b2 ** (i_batch + 1))
+        m = b1 * m  # First moment estimate.
+        m = m + (1 - b1) * g
+        v = b2 * v  # Second moment estimate.
+        v = v + (1 - b2) * (g ** 2)
+        q = 1 - b1 ** (i_batch + 1)
+        mhat = m / q  # Bias correction.
+        q = 1 - b2 ** (i_batch + 1)
+        vhat = v / q
         d = step_size * mhat / (malias.sqrt(vhat) + eps)
         x = x - d
         if distribution_mode == 'shared_file':
