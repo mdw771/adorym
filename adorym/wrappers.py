@@ -157,6 +157,45 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
         return grads
 
 
+def vjp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the VJP between its argument and the
+    Jacobian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.make_vjp(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
+
+
+def jvp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the JVP between its argument and the
+    Jacobian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.differential_operators.make_jvp_reversemode(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
+
+
+def hvp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the HVP between its argument and the
+    Hessian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.differential_operators.make_hvp(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
+
+
 def get_gpu_memory_usage_mb():
     if global_settings.backend == 'autograd':
         return 0

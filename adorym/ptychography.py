@@ -60,7 +60,7 @@ def reconstruct_ptychography(
         optimize_object=True,
         # Keep True in most cases. Setting to False forbids the object from being updated using gradients, which
         # might be desirable when you just want to refine parameters for other reconstruction algorithms.
-        optimizer='adam', # Choose from 'gd' or 'adam'
+        optimizer='adam', # Choose from 'gd' or 'adam' or 'curveball'
         learning_rate=1e-5,
         update_using_external_algorithm=None,
         # ___________________________
@@ -387,6 +387,10 @@ def reconstruct_ptychography(
                                      'first_downrate_iteration': 20}
             opt = GDOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
+        elif optimizer == 'curveball':
+            optimizer_options_obj = {}
+            opt = CurveballOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+                              options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
         opt.create_container(use_checkpoint, device_obj, use_numpy=True)
@@ -656,7 +660,7 @@ def reconstruct_ptychography(
         # Get gradient of loss function w.r.t. optimizable variables.
         # ================================================================================
         diff = Differentiator()
-        calculate_loss = forward_model.get_loss_function()
+        calculate_loss = forward_model.get_loss_function(retain_data=(True if optimizer == 'curveball' else False))
         diff.create_loss_node(calculate_loss, opt_args_ls)
 
         # ================================================================================
@@ -819,6 +823,8 @@ def reconstruct_ptychography(
                                          precalculate_rotation_coords=precalculate_rotation_coords,
                                          apply_to_arr_rot=False, override_backend='autograd', dtype=cache_dtype,
                                          override_device='cpu')
+                        if optimizer == 'curveball':
+                            opt.rotate_arrays(coord_ls, overwrite_arr=False)
                     elif distribution_mode is None and rotate_out_of_loop:
                         obj.rotate_array(coord_ls, interpolation=interpolation,
                                          precalculate_rotation_coords=precalculate_rotation_coords,
@@ -840,6 +846,7 @@ def reconstruct_ptychography(
                                                                 dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
                         else:
                             obj_rot = obj.read_chunks_from_file(this_pos_batch, probe_size, dset_2=obj.dset_rot, device=device_obj, unknown_type=unknown_type)
+                        opt.get_params_from_file(this_pos_batch, probe_size)
                     elif distribution_mode == 'distributed_object':
                         if subdiv_probe:
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
@@ -847,15 +854,25 @@ def reconstruct_ptychography(
                                                                               minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
                                                                               device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                               dtype=cache_dtype)
+                            if optimizer == 'curveball':
+                                opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
+                                                                                  this_ind_batch_allranks,
+                                                                                  minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
+                                                                                  device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                                  dtype=cache_dtype)
                         else:
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
+                                                                              minibatch_size, probe_size, device=device_obj,
+                                                                              unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                              dtype=cache_dtype)
+                            if optimizer == 'curveball':
+                                opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
                                                                               minibatch_size, probe_size, device=device_obj,
                                                                               unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                               dtype=cache_dtype)
                     comm.Barrier()
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), sto_rank, rank, **stdout_options)
                     obj.chunks = obj_rot
-                    opt.get_params_from_file(this_pos_batch, probe_size)
 
                 # ================================================================================
                 # Update weight for reweighted l1 if necessary
@@ -892,7 +909,12 @@ def reconstruct_ptychography(
                             grad_func_args[arg] = locals()[arg]
                 comm.Barrier()
                 print_flush('  Entering differentiation loop...', sto_rank, rank, **stdout_options)
-                grads = diff.get_gradients(**grad_func_args)
+                if optimizer == 'curveball':
+                    diff.get_l_h_hessian_and_h_x_jacobian_mvps(forward_model, 0, **grad_func_args)
+                    grads = [opt.calculate_dz(diff, use_numpy=True)]
+                    opt.calculate_beta_rho(diff, use_numpy=True)
+                else:
+                    grads = diff.get_gradients(**grad_func_args)
                 comm.Barrier()
                 print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), sto_rank, rank, **stdout_options)
                 grads = list(grads)
