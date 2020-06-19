@@ -259,7 +259,7 @@ class PtychographyModel(ForwardModel):
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt)
-                ex_mag_ls = w.norm([ex_real, ex_imag])
+                ex_mag_ls = w.norm(ex_real, ex_imag)
                 #ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
                 #ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
             else:
