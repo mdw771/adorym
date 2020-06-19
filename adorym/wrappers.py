@@ -104,6 +104,8 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True, override_b
 def to_numpy(var):
     if isinstance(var, np.ndarray):
         return var
+    elif isinstance(var, np.float64):
+        return var
     else:
         if global_settings.backend == 'autograd':
             return var._value
@@ -155,6 +157,45 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
         del l
 
         return grads
+
+
+def vjp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the VJP between its argument and the
+    Jacobian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.make_vjp(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
+
+
+def jvp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the JVP between its argument and the
+    Jacobian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.differential_operators.make_jvp_reversemode(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
+
+
+def hvp(func, x):
+    """
+    Returns a constructor that would generate a function that computes the HVP between its argument and the
+    Hessian of func.
+    The returned constructor receives the input of the differentiated function as input, and the function it returns
+    receives the (adjoint) vector as input.
+    """
+    if global_settings.backend == 'autograd':
+        return ag.differential_operators.make_hvp(func, x)
+    elif global_settings.backend == 'pytorch':
+        raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
 
 
 def get_gpu_memory_usage_mb():

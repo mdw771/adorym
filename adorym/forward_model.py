@@ -99,6 +99,12 @@ class ForwardModel(object):
                     this_pred_batch ** 2 * self.poisson_multiplier))
         return loss
 
+    def predict(self, *args, **kwargs):
+        pass
+
+    def get_loss_function(self, *args, **kwargs):
+        pass
+
 
 class PtychographyModel(ForwardModel):
 
@@ -318,11 +324,11 @@ class PtychographyModel(ForwardModel):
         self.i_call += 1
         return ex_mag_ls
 
-    def get_loss_function(self):
+    def get_loss_function(self, retain_data=False):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+            self.this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls)
             #this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
@@ -336,27 +342,26 @@ class PtychographyModel(ForwardModel):
             theta_downsample = self.common_vars['theta_downsample']
             if theta_downsample is None: theta_downsample = 1
 
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            self.this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
+            self.this_prj_batch = w.create_variable(abs(self.this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+                self.this_prj_batch = self.this_prj_batch[:, ::ds_level, ::ds_level]
 
             if beamstop is not None:
                 beamstop_mask, beamstop_value = beamstop
                 beamstop_mask[beamstop_mask >= 1e-5] = 1
                 beamstop_mask[beamstop_mask < 1e-5] = 0
                 beamstop_mask = w.cast(beamstop_mask, 'bool')
-                beamstop_mask_stack = w.tile(beamstop_mask, [len(ex_real_ls), 1, 1])
-                this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
-                            rank)
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
+                beamstop_mask_stack = w.tile(beamstop_mask, [len(self.this_pred_batch), 1, 1])
+                self.this_pred_batch = w.reshape(self.this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                self.this_prj_batch = w.reshape(self.this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(self.this_pred_batch.shape[1]), 0, rank)
+            loss = self.get_mismatch_loss(self.this_pred_batch, self.this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
-            #del ex_real_ls, ex_imag_ls
-            del this_pred_batch
-            del this_prj_batch
+            if not retain_data:
+                self.this_pred_batch = None
+                self.this_prj_batch = None
             return loss
         return calculate_loss
 
@@ -420,30 +425,34 @@ class SingleBatchFullfieldModel(PtychographyModel):
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
             pure_projection_return_sqrt=flag_pp_sqrt)
+        ex_mag_ls = w.norm(ex_real, ex_imag)
 
-        return ex_real, ex_imag
+        return ex_mag_ls
 
-    def get_loss_function(self):
+    def get_loss_function(self, retain_data=False):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+            self.this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                                   probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                                   probe_pos_correction, this_ind_batch, tilt_ls)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
 
             ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
             if theta_downsample is None: theta_downsample = 1
 
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            self.this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
+            self.this_prj_batch = w.create_variable(abs(self.this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+                self.this_prj_batch = self.this_prj_batch[:, ::ds_level, ::ds_level]
 
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
+            loss = self.get_mismatch_loss(self.this_pred_batch, self.this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
+
+            if not retain_data:
+                self.this_prj_batch, self.this_pred_batch = None, None
+
             return loss
 
         return calculate_loss

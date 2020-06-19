@@ -3,6 +3,7 @@ import os
 import h5py
 import pickle
 
+import adorym
 from adorym.util import *
 from adorym.array_ops import ObjectFunction, Gradient
 import adorym.wrappers as w
@@ -43,6 +44,7 @@ class Optimizer(object):
         self.params_dset_dict = {}
         self.params_file_pointer_dict = {}
         self.params_whole_array_dict = {}
+        self.params_whole_array_rot_dict = {}
         self.params_chunk_array_dict = {}
         self.params_chunk_array_0_dict = {}
         self.i_batch = 0
@@ -166,11 +168,33 @@ class Optimizer(object):
         for param_name, dset_p in self.params_dset_dict.items():
             apply_rotation_to_hdf5(dset_p, coords, rank, n_ranks, interpolation=interpolation, monochannel=False)
 
-    def rotate_arrays(self, coords, interpolation='bilinear'):
+    def rotate_arrays(self, coords, interpolation='bilinear', overwrite_arr=False):
 
         for param_name, arr in self.params_whole_array_dict.items():
-            self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, interpolation=interpolation)
+            if overwrite_arr:
+                self.params_whole_array_dict[param_name] = apply_rotation(arr, coords, interpolation=interpolation)
+            else:
+                self.params_whole_array_rot_dict[param_name] = apply_rotation(arr, coords, interpolation=interpolation)
         return
+
+    def read_chunks_from_distributed_object(self, probe_pos, this_ind_batch_allranks, minibatch_size,
+                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False, dtype='float32'):
+        p_dict = self.params_whole_array_dict if not apply_to_arr_rot else self.params_whole_array_rot_dict
+        for param_name, arr in p_dict:
+            arr = get_subblocks_from_distributed_object_mpi(arr, self.slice_catalog, probe_pos, this_ind_batch_allranks,
+                                                            minibatch_size, probe_size, self.whole_object_size,
+                                                            unknown_type, output_folder=self.output_folder, dtype=dtype)
+            arr = w.create_variable(arr, device=device)
+        return arr
+
+    def sync_chunks_to_distributed_object(self, arr, probe_pos, this_ind_batch_allranks, minibatch_size,
+                                          probe_size, dtype='float32'):
+        arr = np.array(arr)
+        for param_name, params_arr in self.params_whole_array_dict:
+            self.params_whole_array_dict[param_name] = sync_subblocks_among_distributed_object_mpi(arr, params_arr,
+                                                           self.slice_catalog, probe_pos, this_ind_batch_allranks,
+                                                           minibatch_size, probe_size, self.whole_object_size,
+                                                           output_folder=self.output_folder, dtype='float32')
 
     def set_index_in_grad_return(self, ind):
         self.index_in_grad_returns = ind
@@ -282,6 +306,87 @@ class GDOptimizer(Optimizer):
             obj.dset[i_slice] = x
         self.i_batch += 1
         global_settings.backend = backend_temp
+
+
+class CurveballOptimizer(Optimizer):
+    """
+    Gauss-Newton second-order optimizer implemented using the Curveball algorithm:
+    Henriques, J. F., Ehrhardt, S., Albanie, S. & Vedaldi, A. Small steps and giant leaps: Minimal Newton solvers for
+    Deep Learning. arXiv (2018).
+    This code is adapted from https://github.com/saugatkandel/sopt.
+    When working with DO, dz is synchronized in place of gradient.
+    """
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+        if distribution_mode == 'shared_file':
+            raise NotImplementedError('Curveball does not support shared-file mode yet.')
+        self.beta = None
+        self.rho = None
+        self.lmbda = 10
+        self.z_chunk = None
+        self.dz_chunk = None
+        super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
+                                            distribution_mode=distribution_mode, options_dict=options_dict)
+        return
+
+    def calculate_dz(self, differentiator, use_numpy=False):
+        """
+        In DO, dz will be synchronized as Gradient class after this step.
+        """
+        assert isinstance(differentiator, adorym.Differentiator)
+        malias = np if use_numpy else w
+        if self.z_chunk is None:
+            self.z_chunk = malias.zeros(differentiator.full_grad.shape)
+        print(self.lmbda)
+        self.dz_chunk = differentiator.func_gvp(self.z_chunk) + self.lmbda * self.z_chunk + differentiator.full_grad
+        return self.dz_chunk
+
+    def calculate_beta_rho(self, differentiator, use_numpy=False):
+        """
+        Parameters are calculated using chunks when working with DO. In DP mode, self.dz_chunk and
+        self.z_chunk should match object size.
+        """
+        malias = np if use_numpy else w
+        assert isinstance(differentiator, adorym.Differentiator)
+        if self.z_chunk is None:
+            self.z_chunk = malias.zeros(differentiator.full_grad.shape)
+        if self.dz_chunk is None:
+            self.dz_chunk = malias.zeros(differentiator.full_grad.shape)
+        a11 = malias.sum(self.dz_chunk * differentiator.func_gvp(self.dz_chunk))
+        a12 = malias.sum(self.z_chunk * differentiator.func_gvp(self.dz_chunk))
+        a22 = malias.sum(self.z_chunk * differentiator.func_gvp(self.z_chunk))
+        b1 = malias.sum(differentiator.full_grad * self.dz_chunk)
+        b2 = malias.sum(differentiator.full_grad * self.z_chunk)
+        self.mat_a = np.array([[a11, a12], [a12, a22]])
+        self.vec_b = np.array([[b1], [b2]])
+        p = np.linalg.pinv(self.mat_a)
+        p = -np.matmul(p, self.vec_b)
+        self.beta, self.rho = -p[0, 0], p[1, 0]
+
+    def calculate_update_vector(self, dz):
+        """
+        In DO, this is done for slabs.
+        """
+        z = self.params_whole_array_dict['z']
+        z = self.rho * z - self.beta * dz
+        self.params_whole_array_dict['z'] = z
+        self.z_chunk = z
+        return z
+
+    def apply_gradient(self, x, g, i_batch, alpha=1, use_numpy=False, forward_model=None):
+        z = self.calculate_update_vector(g)
+        x = x + alpha * z
+        return x
+ 
+    def update_lambda(self, forward_model, forward_args):
+        loss_0 = forward_model.current_loss
+        loss_1 = forward_model.get_loss_function()(**forward_args)
+        d_loss_quad = -0.5 * (np.sum(np.matmul(np.linalg.pinv(self.mat_a), self.vec_b) * self.vec_b))
+        gamma = (loss_1 - loss_0) / d_loss_quad
+        print(gamma)
+        if gamma > 1.5:
+            self.lmbda *= 0.999
+        elif gamma < 0.5:
+            self.lmbda *= (1 / 0.999)
 
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
