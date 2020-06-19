@@ -321,7 +321,7 @@ class CurveballOptimizer(Optimizer):
             raise NotImplementedError('Curveball does not support shared-file mode yet.')
         self.beta = None
         self.rho = None
-        self.lmbda = 1
+        self.lmbda = 10
         self.z_chunk = None
         self.dz_chunk = None
         super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
@@ -336,6 +336,7 @@ class CurveballOptimizer(Optimizer):
         malias = np if use_numpy else w
         if self.z_chunk is None:
             self.z_chunk = malias.zeros(differentiator.full_grad.shape)
+        print(self.lmbda)
         self.dz_chunk = differentiator.func_gvp(self.z_chunk) + self.lmbda * self.z_chunk + differentiator.full_grad
         return self.dz_chunk
 
@@ -355,9 +356,11 @@ class CurveballOptimizer(Optimizer):
         a22 = malias.sum(self.z_chunk * differentiator.func_gvp(self.z_chunk))
         b1 = malias.sum(differentiator.full_grad * self.dz_chunk)
         b2 = malias.sum(differentiator.full_grad * self.z_chunk)
-        norm = a11 * a22 - a12 ** 2
-        self.beta = (a22 * b1 - a12 * b2) / norm
-        self.rho = -(-a12 * b1 + a11 * b2) / norm
+        self.mat_a = np.array([[a11, a12], [a12, a22]])
+        self.vec_b = np.array([[b1], [b2]])
+        p = np.linalg.pinv(self.mat_a)
+        p = -np.matmul(p, self.vec_b)
+        self.beta, self.rho = -p[0, 0], p[1, 0]
 
     def calculate_update_vector(self, dz):
         """
@@ -369,10 +372,21 @@ class CurveballOptimizer(Optimizer):
         self.z_chunk = z
         return z
 
-    def apply_gradient(self, x, g, i_batch, alpha=1, use_numpy=False):
+    def apply_gradient(self, x, g, i_batch, alpha=1, use_numpy=False, forward_model=None):
         z = self.calculate_update_vector(g)
         x = x + alpha * z
         return x
+ 
+    def update_lambda(self, forward_model, forward_args):
+        loss_0 = forward_model.current_loss
+        loss_1 = forward_model.get_loss_function()(**forward_args)
+        d_loss_quad = -0.5 * (np.sum(np.matmul(np.linalg.pinv(self.mat_a), self.vec_b) * self.vec_b))
+        gamma = (loss_1 - loss_0) / d_loss_quad
+        print(gamma)
+        if gamma > 1.5:
+            self.lmbda *= 0.999
+        elif gamma < 0.5:
+            self.lmbda *= (1 / 0.999)
 
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):

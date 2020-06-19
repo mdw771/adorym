@@ -433,7 +433,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+            self.this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                                   probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                                   probe_pos_correction, this_ind_batch, tilt_ls)
 
@@ -441,17 +441,17 @@ class SingleBatchFullfieldModel(PtychographyModel):
             theta_downsample = self.common_vars['theta_downsample']
             if theta_downsample is None: theta_downsample = 1
 
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            self.this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
+            self.this_prj_batch = w.create_variable(abs(self.this_prj_batch), requires_grad=False, device=self.device)
             if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+                self.this_prj_batch = self.this_prj_batch[:, ::ds_level, ::ds_level]
 
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
+            loss = self.get_mismatch_loss(self.this_pred_batch, self.this_prj_batch)
             loss = loss + self.get_regularization_value(obj)
             self.current_loss = float(w.to_numpy(loss))
 
             if not retain_data:
-                del this_prj_batch, this_pred_batch
+                self.this_prj_batch, self.this_pred_batch = None, None
 
             return loss
 

@@ -104,6 +104,8 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True, override_b
 def to_numpy(var):
     if isinstance(var, np.ndarray):
         return var
+    elif isinstance(var, np.float64):
+        return var
     else:
         if global_settings.backend == 'autograd':
             return var._value
