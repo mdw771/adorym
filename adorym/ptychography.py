@@ -101,7 +101,7 @@ def reconstruct_ptychography(
         save_stdout=False,
         # _____________
         # |Performance|_________________________________________________________
-        cpu_only=False, core_parallelization=True,
+        cpu_only=False, core_parallelization=True, gpu_index=0,
         n_dp_batch=20,
         distribution_mode=None, # Choose from None (for data parallelism), 'shared_file', 'distributed_object'
         dist_mode_n_batch_per_update=None, # If None, object is updated only after all DPs on an angle are processed.
@@ -164,7 +164,7 @@ def reconstruct_ptychography(
     rank = comm.Get_rank()
     t_zero = time.time()
     global_settings.backend = backend
-    device_obj = None if cpu_only else 0
+    device_obj = None if cpu_only else gpu_index
     device_obj = w.get_device(device_obj)
 
     if rank == 0:
