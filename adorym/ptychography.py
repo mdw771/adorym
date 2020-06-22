@@ -997,7 +997,7 @@ def reconstruct_ptychography(
                 with w.no_grad():
                     if distribution_mode is None and optimize_object:
                         obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **opt.options_dict)
-                        if i_batch % 10 == 0:
+                        if optimizer == 'curveball' and i_batch % 10 == 0:
                              opt.update_lambda(forward_model, grad_func_args)
                 if distribution_mode is None:
                     w.reattach(obj.arr)

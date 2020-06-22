@@ -321,7 +321,7 @@ class CurveballOptimizer(Optimizer):
             raise NotImplementedError('Curveball does not support shared-file mode yet.')
         self.beta = None
         self.rho = None
-        self.lmbda = 10
+        self.lmbda = 1
         self.z_chunk = None
         self.dz_chunk = None
         super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
@@ -336,7 +336,7 @@ class CurveballOptimizer(Optimizer):
         malias = np if use_numpy else w
         if self.z_chunk is None:
             self.z_chunk = malias.zeros(differentiator.full_grad.shape)
-        print(self.lmbda)
+        print_flush('  Curveball damping factor lambda is {}.'.format(self.lmbda), 0, rank)
         self.dz_chunk = differentiator.func_gvp(self.z_chunk) + self.lmbda * self.z_chunk + differentiator.full_grad
         return self.dz_chunk
 
@@ -354,6 +354,9 @@ class CurveballOptimizer(Optimizer):
         a11 = malias.sum(self.dz_chunk * differentiator.func_gvp(self.dz_chunk))
         a12 = malias.sum(self.z_chunk * differentiator.func_gvp(self.dz_chunk))
         a22 = malias.sum(self.z_chunk * differentiator.func_gvp(self.z_chunk))
+        a11 = a11 + malias.sum(self.dz_chunk * self.dz_chunk) * self.lmbda
+        a12 = a12 + malias.sum(self.z_chunk * self.dz_chunk) * self.lmbda
+        a22 = a22 + malias.sum(self.z_chunk * self.z_chunk) * self.lmbda
         b1 = malias.sum(differentiator.full_grad * self.dz_chunk)
         b2 = malias.sum(differentiator.full_grad * self.z_chunk)
         self.mat_a = np.array([[a11, a12], [a12, a22]])
@@ -382,7 +385,7 @@ class CurveballOptimizer(Optimizer):
         loss_1 = forward_model.get_loss_function()(**forward_args)
         d_loss_quad = -0.5 * (np.sum(np.matmul(np.linalg.pinv(self.mat_a), self.vec_b) * self.vec_b))
         gamma = (loss_1 - loss_0) / d_loss_quad
-        print(gamma)
+        print_flush('  Curveball fitting factor gamma is {}.'.format(gamma), 0, rank)
         if gamma > 1.5:
             self.lmbda *= 0.999
         elif gamma < 0.5:

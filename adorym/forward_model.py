@@ -529,7 +529,7 @@ class SingleBatchPtychographyModel(PtychographyModel):
 
         return ex_real, ex_imag
 
-    def get_loss_function(self):
+    def get_loss_function(self, retain_data=False):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
@@ -740,7 +740,7 @@ class SparseMultisliceModel(ForwardModel):
         self.i_call += 1
         return ex_real_ls, ex_imag_ls
 
-    def get_loss_function(self):
+    def get_loss_function(self, retain_data=False):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
@@ -986,7 +986,7 @@ class MultiDistModel(ForwardModel):
         del subobj_ls_ls, subprobe_real_ls_ls, subprobe_imag_ls_ls
         return ex_real_ls, ex_imag_ls
 
-    def get_loss_function(self):
+    def get_loss_function(self, retain_data=False):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls, ctf_lg_kappa):
