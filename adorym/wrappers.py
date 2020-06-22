@@ -24,12 +24,12 @@ except:
     flag_pytorch_avail = False
 
 
-func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'zeros',      'pytorch': 'zeros'},
-                     'ones':        {'autograd': 'ones',       'tensorflow': 'ones',       'pytorch': 'ones'},
-                     'zeros_like':  {'autograd': 'zeros_like', 'tensorflow': 'zeros_like', 'pytorch': 'zeros_like'},
-                     'ones_like':   {'autograd': 'ones_like',  'tensorflow': 'ones_like',  'pytorch': 'ones_like'},
-                     'stack':       {'autograd': 'stack',      'tensorflow': 'stack',      'pytorch': 'stack'},
-                     'concatenate': {'autograd': 'concatenate','tensorflow': 'cat',        'pytorch': 'cat'},
+func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'zeros',      'pytorch': 'zeros',      'numpy': 'zeros'},
+                     'ones':        {'autograd': 'ones',       'tensorflow': 'ones',       'pytorch': 'ones',       'numpy': 'ones'},
+                     'zeros_like':  {'autograd': 'zeros_like', 'tensorflow': 'zeros_like', 'pytorch': 'zeros_like', 'numpy': 'zeros_like'},
+                     'ones_like':   {'autograd': 'ones_like',  'tensorflow': 'ones_like',  'pytorch': 'ones_like',  'numpy': 'ones_like'},
+                     'stack':       {'autograd': 'stack',      'tensorflow': 'stack',      'pytorch': 'stack',      'numpy': 'stack'},
+                     'concatenate': {'autograd': 'concatenate','tensorflow': 'cat',        'pytorch': 'cat',        'numpy': 'concatenate'},
                      'exp':         {'autograd': 'exp',        'tensorflow': 'exp',        'pytorch': 'exp'},
                      'log':         {'autograd': 'log',        'tensorflow': 'log',        'pytorch': 'log'},
                      'round':       {'autograd': 'round',      'tensorflow': 'round',      'pytorch': 'round'},
@@ -40,23 +40,23 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'sqrt':        {'autograd': 'sqrt',       'tensorflow': 'sqrt',       'pytorch': 'sqrt'},
                      'real':        {'autograd': 'real',       'tensorflow': 'real',       'pytorch': 'real'},
                      'imag':        {'autograd': 'imag',       'tensorflow': 'imag',       'pytorch': 'imag'},
-                     'sin':         {'autograd': 'sin',        'tensorflow': 'sin',        'pytorch': 'sin'},
-                     'cos':         {'autograd': 'cos',        'tensorflow': 'cos',        'pytorch': 'cos'},
-                     'abs':         {'autograd': 'abs',        'tensorflow': 'abs',        'pytorch': 'abs'},
+                     'sin':         {'autograd': 'sin',        'tensorflow': 'sin',        'pytorch': 'sin',        'numpy': 'sin'},
+                     'cos':         {'autograd': 'cos',        'tensorflow': 'cos',        'pytorch': 'cos',        'numpy': 'cos'},
+                     'abs':         {'autograd': 'abs',        'tensorflow': 'abs',        'pytorch': 'abs',        'numpy': 'abs'},
                      'sum':         {'autograd': 'sum',        'tensorflow': 'reduce_sum', 'pytorch': 'sum'},
                      'prod':        {'autograd': 'prod',       'tensorflow': 'prod',       'pytorch': 'prod'},
                      'arctan2':     {'autograd': 'arctan2',    'tensorflow': 'atan2',      'pytorch': 'atan2'},
                      'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',      'pytorch': 'nonzero'},
                      }
 
-dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float'},
-                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double'},
-                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half'},
-                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8'},
-                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short'},
-                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int'},
-                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long'},
-                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool'},
+dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
+                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double', 'numpy': 'float64'},
+                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',   'numpy': 'float16'},
+                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',   'numpy': 'int8'},
+                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',  'numpy': 'int16'},
+                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',    'numpy': 'int32'},
+                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',   'numpy': 'int64'},
+                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',   'numpy': 'bool'},
                       }
 
 if flag_pytorch_avail:
@@ -387,6 +387,8 @@ def cast(var, dtype, override_backend=None):
         return var.astype(dtype)
     elif bn == 'pytorch':
         return getattr(var, dtype_mapping_dict[dtype]['pytorch'])()
+    elif bn == 'numpy':
+        return var.astype(dtype)
 
 
 def round(var, override_backend=None):
@@ -408,7 +410,7 @@ def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=Fal
         var = anp.fft.fft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
-        var = tc.stack([var_real, var_imag], axis=-1)
+        var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.fft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var_real.ndim - 1) + [0]
@@ -423,7 +425,7 @@ def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=Fa
         var = anp.fft.ifft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
-        var = tc.stack([var_real, var_imag], axis=-1)
+        var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.ifft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var_real.ndim - 1) + [0]
