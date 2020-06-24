@@ -637,7 +637,7 @@ def reconstruct_ptychography(
             optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
 
             if optimize_ctf_lg_kappa:
-                optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj)
+                optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj, dtype='float64')
 
         opt_ls, opt_args_ls = create_and_initialize_parameter_optimizers(optimizable_params, locals())
 
