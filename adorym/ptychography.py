@@ -96,7 +96,7 @@ def reconstruct_ptychography(
         fourier_disparity=False,
         # _____
         # |I/O|_________________________________________________________________
-        save_path='.', output_folder=None, save_intermediate=False, save_history=False,
+        save_path='.', output_folder=None, save_intermediate=False, save_intermediate_level='batch', save_history=False,
         store_checkpoint=True, use_checkpoint=True, force_to_use_checkpoint=False, n_batch_per_checkpoint=10,
         save_stdout=False,
         # _____________
@@ -1102,7 +1102,8 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save intermediate object.
                 # ================================================================================
-                if save_intermediate:
+                if save_intermediate and ((save_intermediate_level == 'epoch' and i_batch == 0) \
+                or save_intermediate_level == 'batch'):
                     create_directory_multirank(os.path.join(output_folder, 'intermediate', 'object'))
                     create_parameter_output_folders(opt_ls, output_folder)
                     if distribution_mode != 'distributed_object' and rank == 0 and is_last_batch_of_this_theta:
