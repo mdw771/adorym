@@ -660,7 +660,7 @@ def reconstruct_ptychography(
         # Get gradient of loss function w.r.t. optimizable variables.
         # ================================================================================
         diff = Differentiator()
-        calculate_loss = forward_model.get_loss_function(retain_data=(True if optimizer == 'curveball' else False))
+        calculate_loss = forward_model.get_loss_function()
         diff.create_loss_node(calculate_loss, opt_args_ls)
 
         # ================================================================================
