@@ -30,6 +30,7 @@ class ForwardModel(object):
         self.stdout_options = common_vars_dict['stdout_options']
         self.poisson_multiplier = common_vars_dict['poisson_multiplier']
         self.common_probe_pos = common_vars_dict['common_probe_pos']
+        self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict
@@ -82,7 +83,6 @@ class ForwardModel(object):
         raise ValueError('{} is not in the argument list.'.format(arg))
 
     def get_mismatch_loss(self, this_pred_batch, this_prj_batch):
-
         if self.loss_function_type == 'lsq':
             if self.raw_data_type == 'magnitude':
                 loss = w.mean((this_pred_batch - w.abs(this_prj_batch)) ** 2)
@@ -100,10 +100,57 @@ class ForwardModel(object):
         return loss
 
     def predict(self, *args, **kwargs):
+        """
+        Override and expand this method for each specific class.
+        Generally the method should return the detected magnitude. If this is not the case, you should also
+        override method `loss` (the last-layer loss) or `get_loss_function` (the full loss function constructor).
+        """
         pass
 
-    def get_loss_function(self, *args, **kwargs):
-        pass
+    def get_data(self, this_i_theta, this_ind_batch, theta_downsample=None, ds_level=1):
+        if theta_downsample is None: theta_downsample = 1
+        this_prj_batch = self.prj[this_i_theta * theta_downsample, this_ind_batch]
+        this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+        if ds_level > 1:
+            this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
+        return this_prj_batch
+
+    def loss(self, this_pred_batch, this_prj_batch, obj):
+        """
+        The last-layer loss function that computes (regularized) loss from predicted magnitude.
+        This function is combined with `predict` to give the full loss function, as done in `get_loss_function`.
+        Argument this_pred_batch is assumed to be detected **magnitude** (square root of intensity).
+        If this is not the case for your specific ForwardModel class, override this method.
+        """
+        beamstop = self.common_vars['beamstop']
+        if beamstop is not None:
+            beamstop_mask, beamstop_value = beamstop
+            beamstop_mask[beamstop_mask >= 1e-5] = 1
+            beamstop_mask[beamstop_mask < 1e-5] = 0
+            beamstop_mask = w.cast(beamstop_mask, 'bool')
+            beamstop_mask_stack = w.tile(beamstop_mask, [len(this_pred_batch), 1, 1])
+            this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+            this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
+            print_flush('  {} valid pixels remain after applying beamstop mask.'.format(this_pred_batch.shape[1]),
+                        0, rank)
+        loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
+        loss = loss + self.get_regularization_value(obj)
+        self.current_loss = float(w.to_numpy(loss))
+        return loss
+
+    def get_loss_function(self):
+        """
+        Overwrite this function for each sub-class, but make sure it contains the explicitly listed arguments.
+        Do not keep differentiable arguments as **kwargs since it will not be recognized by Autograd.
+        """
+        def calculate_loss(obj, this_i_theta, this_ind_batch, *args, **kwargs):
+            theta_downsample = self.common_vars['theta_downsample']
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(*args, **kwargs)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
+            return loss
+        return calculate_loss
 
 
 class PtychographyModel(ForwardModel):
@@ -193,8 +240,6 @@ class PtychographyModel(ForwardModel):
                 raise NotImplementedError('Tilt optimization is not impemented for distributed mode or when two_d_mode is on.')
             obj_rot = obj
 
-        #ex_real_ls = []
-        #ex_imag_ls = []
         ex_mag_ls = []
 
         # Pad if needed
@@ -265,12 +310,8 @@ class PtychographyModel(ForwardModel):
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt)
-                ex_mag_ls = w.norm(ex_real, ex_imag)
-                #ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
-                #ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
+                ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
-                #ex_real = []
-                #ex_imag = []
                 for i_mode in range(n_probe_modes):
                     if len(probe_real_ls.shape) == 3:
                         this_probe_real_ls = probe_real_ls[i_mode, :, :]
@@ -292,76 +333,30 @@ class PtychographyModel(ForwardModel):
                     else:
                         ex_int = ex_int + temp_real ** 2 + temp_imag ** 2
                 ex_mag_ls.append(w.sqrt(ex_int))
-                    #ex_real.append(temp_real)
-                    #ex_imag.append(temp_imag)
-                #ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
-                #ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
-            #ex_real_ls.append(ex_real)
-            #ex_imag_ls.append(ex_imag)       
         del subobj_ls, probe_real_ls, probe_imag_ls
 
-        # # Output shape is [minibatch_size, n_probe_modes, y, x].
-        #if len(ex_real_ls) == 1:
-        #    ex_real_ls = ex_real_ls[0]
-        #    ex_imag_ls = ex_imag_ls[0]
-        #else:
-        #    ex_real_ls = w.concatenate(ex_real_ls, 0)
-        #    ex_imag_ls = w.concatenate(ex_imag_ls, 0)
         # Output shape is [minibatch_size, y, x].
         if len(ex_mag_ls) > 1:
             ex_mag_ls = w.concatenate(ex_mag_ls, 0)
         else:
             ex_mag_ls = ex_mag_ls[0]
         if rank == 0 and debug and self.i_call % 10 == 0:
-            #ex_real_val = w.to_numpy(ex_real_ls)
-            #ex_imag_val = w.to_numpy(ex_imag_ls)
-            #dxchange.write_tiff(np.sum(ex_real_val ** 2 + ex_imag_val ** 2, axis=1),
-            #                    os.path.join(output_folder, 'intermediate', 'detected_intensity'), dtype='float32', overwrite=True)
-            # dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
-            # dxchange.write_tiff(np.arctan2(ex_real_val, ex_imag_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
             ex_mag_val = w.to_numpy(ex_mag_ls)
             dxchange.write_tiff(ex_mag_val, os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
         self.i_call += 1
         return ex_mag_ls
 
-    def get_loss_function(self, retain_data=False):
+    def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            self.this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, tilt_ls)
-            #this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            #if self.common_vars['n_probe_modes'] == 1:
-            #    this_pred_batch = this_pred_batch[:, 0, :, :]
-            #else:
-            #    this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
-
-            beamstop = self.common_vars['beamstop']
-            ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
-            if theta_downsample is None: theta_downsample = 1
-
-            self.this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            self.this_prj_batch = w.create_variable(abs(self.this_prj_batch), requires_grad=False, device=self.device)
-            if ds_level > 1:
-                self.this_prj_batch = self.this_prj_batch[:, ::ds_level, ::ds_level]
-
-            if beamstop is not None:
-                beamstop_mask, beamstop_value = beamstop
-                beamstop_mask[beamstop_mask >= 1e-5] = 1
-                beamstop_mask[beamstop_mask < 1e-5] = 0
-                beamstop_mask = w.cast(beamstop_mask, 'bool')
-                beamstop_mask_stack = w.tile(beamstop_mask, [len(self.this_pred_batch), 1, 1])
-                self.this_pred_batch = w.reshape(self.this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                self.this_prj_batch = w.reshape(self.this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(self.this_pred_batch.shape[1]), 0, rank)
-            loss = self.get_mismatch_loss(self.this_pred_batch, self.this_prj_batch)
-            loss = loss + self.get_regularization_value(obj)
-            self.current_loss = float(w.to_numpy(loss))
-            if not retain_data:
-                self.this_pred_batch = None
-                self.this_prj_batch = None
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                           probe_pos_correction, this_ind_batch, tilt_ls)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
         return calculate_loss
 
@@ -429,30 +424,18 @@ class SingleBatchFullfieldModel(PtychographyModel):
 
         return ex_mag_ls
 
-    def get_loss_function(self, retain_data=False):
+    def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            self.this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                                  probe_pos_correction, this_ind_batch, tilt_ls)
-
-            ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
-            if theta_downsample is None: theta_downsample = 1
-
-            self.this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            self.this_prj_batch = w.create_variable(abs(self.this_prj_batch), requires_grad=False, device=self.device)
-            if ds_level > 1:
-                self.this_prj_batch = self.this_prj_batch[:, ::ds_level, ::ds_level]
-
-            loss = self.get_mismatch_loss(self.this_pred_batch, self.this_prj_batch)
-            loss = loss + self.get_regularization_value(obj)
-            self.current_loss = float(w.to_numpy(loss))
-
-            if not retain_data:
-                self.this_prj_batch, self.this_pred_batch = None, None
-
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                           probe_pos_correction, this_ind_batch, tilt_ls)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample,
+                                           ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
 
         return calculate_loss
@@ -526,34 +509,22 @@ class SingleBatchPtychographyModel(PtychographyModel):
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
             pure_projection_return_sqrt=flag_pp_sqrt)
+        ex_mag_ls = w.norm(ex_real, ex_imag)
 
-        return ex_real, ex_imag
+        return ex_mag_ls
 
-    def get_loss_function(self, retain_data=False):
+    def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, tilt_ls):
-            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                                  probe_pos_correction, this_ind_batch, tilt_ls)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            if len(this_pred_batch) == 3:
-                this_pred_batch = this_pred_batch[0]
-
-            ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
-            if theta_downsample is None: theta_downsample = 1
-
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
-            if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
-
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
-            loss = loss + self.get_regularization_value(obj)
-            self.current_loss = float(w.to_numpy(loss))
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                           probe_pos_correction, this_ind_batch, tilt_ls)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
-
         return calculate_loss
 
 
@@ -632,8 +603,8 @@ class SparseMultisliceModel(ForwardModel):
                 obj_rot = obj
         else:
             obj_rot = obj
-        ex_real_ls = []
-        ex_imag_ls = []
+
+        ex_mag_ls = []
 
         # Pad if needed
         if not self.distribution_mode:
@@ -698,11 +669,8 @@ class SparseMultisliceModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k)
-                ex_real = w.reshape(ex_real, [len(pos_batch), 1, *probe_size])
-                ex_imag = w.reshape(ex_imag, [len(pos_batch), 1, *probe_size])
+                ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
-                ex_real = []
-                ex_imag = []
                 for i_mode in range(n_probe_modes):
                     if len(probe_real_ls.shape) == 3:
                         this_probe_real_ls = probe_real_ls[i_mode, :, :]
@@ -718,67 +686,36 @@ class SparseMultisliceModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k)
-                    ex_real.append(temp_real)
-                    ex_imag.append(temp_imag)
-                ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
-                ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
-            ex_real_ls.append(ex_real)
-            ex_imag_ls.append(ex_imag)
+                    if i_mode == 0:
+                        ex_int = temp_real ** 2 + temp_imag ** 2
+                    else:
+                        ex_int = ex_int + temp_real ** 2 + temp_imag ** 2
+                ex_mag_ls.append(w.sqrt(ex_int))
         del subobj_ls, probe_real_ls, probe_imag_ls
 
-        # Output shape is [minibatch_size, n_probe_modes, y, x].
-        ex_real_ls = w.concatenate(ex_real_ls, 0)
-        ex_imag_ls = w.concatenate(ex_imag_ls, 0)
-
+        # Output shape is [minibatch_size, y, x].
+        if len(ex_mag_ls) > 1:
+            ex_mag_ls = w.concatenate(ex_mag_ls, 0)
+        else:
+            ex_mag_ls = ex_mag_ls[0]
         if rank == 0 and debug and self.i_call % 10 == 0:
-            ex_real_val = w.to_numpy(ex_real_ls)
-            ex_imag_val = w.to_numpy(ex_imag_ls)
-            dxchange.write_tiff(np.sum(ex_real_val ** 2 + ex_imag_val ** 2, axis=1),
-                                os.path.join(output_folder, 'intermediate', 'detected_intensity'), dtype='float32', overwrite=True)
-            # dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
-            # dxchange.write_tiff(np.arctan2(ex_real_val, ex_imag_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
+            ex_mag_val = w.to_numpy(ex_mag_ls)
+            dxchange.write_tiff(ex_mag_val, os.path.join(output_folder, 'intermediate', 'detected_mag'),
+                                dtype='float32', overwrite=True)
         self.i_call += 1
-        return ex_real_ls, ex_imag_ls
+        return ex_mag_ls
 
-    def get_loss_function(self, retain_data=False):
+    def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
-            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            if self.common_vars['n_probe_modes'] == 1:
-                this_pred_batch = this_pred_batch[:, 0, :, :]
-            else:
-                this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
-
-            beamstop = self.common_vars['beamstop']
-            ds_level = self.common_vars['ds_level']
             theta_downsample = self.common_vars['theta_downsample']
-            if theta_downsample is None: theta_downsample = 1
-
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
-            if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
-
-            if beamstop is not None:
-                beamstop_mask, beamstop_value = beamstop
-                beamstop_mask[beamstop_mask >= 1e-5] = 1
-                beamstop_mask[beamstop_mask < 1e-5] = 0
-                beamstop_mask = w.cast(beamstop_mask, 'bool')
-                beamstop_mask_stack = w.tile(beamstop_mask, [len(ex_real_ls), 1, 1])
-                this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0,
-                            rank)
-
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
-            loss = loss + self.get_regularization_value(obj)
-            self.current_loss = float(w.to_numpy(loss))
-            del ex_real_ls, ex_imag_ls
-            del this_prj_batch
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
         return calculate_loss
 
@@ -942,12 +879,10 @@ class MultiDistModel(ForwardModel):
             subprobe_imag_ls_ls.append(subprobe_subbatch_imag_ls)
             pos_ind += len(pos_batch)
 
-        ex_real_ls = []
-        ex_imag_ls = []
+        ex_mag_ls = []
+
         for i_dist, this_dist in enumerate(free_prop_cm):
             for k, pos_batch in enumerate(probe_pos_batch_ls):
-                ex_real = []
-                ex_imag = []
                 for i_mode in range(n_probe_modes):
                     if self.forward_algorithm == 'fresnel':
                         temp_real, temp_imag = multislice_propagate_batch(
@@ -958,114 +893,47 @@ class MultiDistModel(ForwardModel):
                             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                             type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
                             u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, kappa=kappa)
-
                     elif self.forward_algorithm == 'ctf':
                         temp_real, temp_imag = modulate_and_get_ctf(subobj_ls_ls[k], energy_ev, this_dist, u_free, v_free, kappa=10 ** ctf_lg_kappa[0])
-                    ex_real.append(temp_real)
-                    ex_imag.append(temp_imag)
-                ex_real = w.swap_axes(w.stack(ex_real), [0, 1])
-                ex_imag = w.swap_axes(w.stack(ex_imag), [0, 1])
-            ex_real_ls.append(ex_real)
-            ex_imag_ls.append(ex_imag)
-        # Output shape is [minibatch_size, n_probe_modes, y, x].
-        ex_real_ls = w.concatenate(ex_real_ls)
-        ex_imag_ls = w.concatenate(ex_imag_ls)
+                    else:
+                        raise ValueError('Invalid value for "forward_algorithm". ')
+                    if i_mode == 0:
+                        ex_int = temp_real ** 2 + temp_imag ** 2
+                    else:
+                        ex_int = ex_int + temp_real ** 2 + temp_imag ** 2
+                ex_mag_ls.append(w.sqrt(ex_int))
+
+        # Output shape is [minibatch_size, y, x].
+        if len(ex_mag_ls) > 1:
+            ex_mag_ls = w.concatenate(ex_mag_ls, 0)
+        else:
+            ex_mag_ls = ex_mag_ls[0]
 
         if safe_zone_width > 0:
-            ex_real_ls = ex_real_ls[:, :, safe_zone_width:safe_zone_width + subprobe_size[0],
-                      safe_zone_width:safe_zone_width + subprobe_size[1]]
-            ex_imag_ls = ex_imag_ls[:, :, safe_zone_width:safe_zone_width + subprobe_size[0],
-                      safe_zone_width:safe_zone_width + subprobe_size[1]]
+            ex_mag_ls = ex_mag_ls[:, safe_zone_width:safe_zone_width + subprobe_size[0],
+                                     safe_zone_width:safe_zone_width + subprobe_size[1]]
 
         if rank == 0 and debug:
-            ex_real_val = w.to_numpy(ex_real_ls)
-            ex_imag_val = w.to_numpy(ex_imag_ls)
-            dxchange.write_tiff(np.sqrt(ex_real_val ** 2 + ex_imag_val ** 2), os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
-            dxchange.write_tiff(np.arctan2(ex_imag_val, ex_real_val), os.path.join(output_folder, 'intermediate', 'detected_phase'), dtype='float32', overwrite=True)
+            ex_mag_val = w.to_numpy(ex_mag_ls)
+            dxchange.write_tiff(ex_mag_val, os.path.join(output_folder, 'intermediate', 'detected_mag'), dtype='float32', overwrite=True)
 
         del subobj_ls_ls, subprobe_real_ls_ls, subprobe_imag_ls_ls
-        return ex_real_ls, ex_imag_ls
+        self.i_call += 1
+        return ex_mag_ls
 
-    def get_loss_function(self, retain_data=False):
+    def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls, ctf_lg_kappa):
-
-            beamstop = self.common_vars['beamstop']
-            ds_level = self.common_vars['ds_level']
-            optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
-            optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
-            optimize_prj_affine = self.common_vars['optimize_prj_affine']
-            device_obj = self.common_vars['device_obj']
-            minibatch_size =self.common_vars['minibatch_size']
+                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
+                           prj_affine_ls, ctf_lg_kappa):
             theta_downsample = self.common_vars['theta_downsample']
-            fourier_disparity = self.common_vars['fourier_disparity']
-            output_folder = self.common_vars['output_folder']
-            u_free = self.common_vars['u_free']
-            v_free = self.common_vars['v_free']
-            energy_ev = self.common_vars['energy_ev']
-
-            if theta_downsample is None: theta_downsample = 1
-
-            ex_real_ls, ex_imag_ls = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                                                  probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                                  probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
-                                                  prj_affine_ls, ctf_lg_kappa)
-            this_pred_batch = w.norm(ex_real_ls, ex_imag_ls)
-            if self.common_vars['n_probe_modes'] == 1:
-                this_pred_batch = this_pred_batch[:, 0, :, :]
-            else:
-                this_pred_batch = w.sqrt(w.sum(this_pred_batch ** 2, axis=1))
-
-            n_dists = len(free_prop_cm)
-            n_blocks = prj.shape[1] // n_dists
-            this_ind_batch_full = this_ind_batch
-            for i in range(1, n_dists):
-                this_ind_batch_full = np.concatenate([this_ind_batch_full, this_ind_batch + i * n_blocks])
-            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch_full]
-            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
-            if ds_level > 1:
-                this_prj_batch = this_prj_batch[:, :ds_level, ::ds_level]
-
-            if optimize_prj_affine:
-                scaled_prj_ls = []
-                for i in range(n_dists):
-                    this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
-                    this_prj_batch_idist = w.affine_transform(this_prj_batch_idist, prj_affine_ls[i])
-                    scaled_prj_ls.append(this_prj_batch_idist)
-                this_prj_batch = w.concatenate(scaled_prj_ls)
-
-            if optimize_probe_pos_offset:
-                this_offset = probe_pos_offset[this_i_theta]
-                this_prj_batch, _ = realign_image_fourier(this_prj_batch, w.zeros_like(this_prj_batch), this_offset, axes=(0, 1),
-                                                               device=device_obj)
-
-            if optimize_all_probe_pos:
-                shifted_prj_ls = []
-                for i in range(n_dists):
-                    this_shift = probe_pos_correction[i]
-                    this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
-                    this_prj_batch_idist, _ = realign_image_fourier(this_prj_batch_idist, w.zeros_like(this_prj_batch_idist),
-                                                                  this_shift, axes=(1, 2),
-                                                                  device=device_obj)
-                    shifted_prj_ls.append(this_prj_batch_idist)
-                this_prj_batch = w.concatenate(shifted_prj_ls)
-
-            if beamstop is not None:
-                beamstop_mask, beamstop_value = beamstop
-                beamstop_mask = w.cast(beamstop_mask, 'bool')
-                beamstop_mask_stack = w.tile(beamstop_mask, [len(ex_real_ls), 1, 1])
-                this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-                print_flush('  {} valid pixels remain after applying beamstop mask.'.format(ex_real_ls.shape[1]), 0, rank)
-
-            loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
-            reg = self.get_regularization_value(obj)
-            loss = loss + reg
-            self.current_loss = float(w.to_numpy(loss))
-
-            del ex_real_ls, ex_imag_ls
-            del this_prj_batch
+            ds_level = self.common_vars['ds_level']
+            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
+                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
+                                           probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
+                                           prj_affine_ls, ctf_lg_kappa)
+            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+            loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
         return calculate_loss
 
