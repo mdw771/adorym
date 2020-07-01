@@ -737,6 +737,7 @@ def reconstruct_ptychography(
                 #                    (minibatch_size * n_ranks)
                 # ================================================================================
                 if i == 0:
+
                     ind_list_rand = np.zeros([len(theta_ind_ls) * len(spots_ls), 2], dtype='int32')
                     temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
                     ind_list_rand[:len(spots_ls), :] = temp

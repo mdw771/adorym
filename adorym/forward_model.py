@@ -928,11 +928,50 @@ class MultiDistModel(ForwardModel):
                            prj_affine_ls, ctf_lg_kappa):
             theta_downsample = self.common_vars['theta_downsample']
             ds_level = self.common_vars['ds_level']
+            optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
+            optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
+            optimize_prj_affine = self.common_vars['optimize_prj_affine']
+
             this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
                                            prj_affine_ls, ctf_lg_kappa)
-            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
+
+            if theta_downsample is None: theta_downsample = 1 
+            n_dists = len(free_prop_cm)
+            n_blocks = prj.shape[1] // n_dists
+            this_ind_batch_full = this_ind_batch
+            for i in range(1, n_dists):
+                this_ind_batch_full = np.concatenate([this_ind_batch_full, this_ind_batch + i * n_blocks])
+            this_prj_batch = prj[this_i_theta * theta_downsample, this_ind_batch_full]
+            this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+            if ds_level > 1:
+                this_prj_batch = this_prj_batch[:, :ds_level, ::ds_level]
+
+            if optimize_prj_affine:
+                scaled_prj_ls = []
+                for i in range(n_dists):
+                    this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
+                    this_prj_batch_idist = w.affine_transform(this_prj_batch_idist, prj_affine_ls[i])
+                    scaled_prj_ls.append(this_prj_batch_idist)
+                this_prj_batch = w.concatenate(scaled_prj_ls)
+
+            if optimize_probe_pos_offset:
+                this_offset = probe_pos_offset[this_i_theta]
+                this_prj_batch, _ = realign_image_fourier(this_prj_batch, w.zeros_like(this_prj_batch), this_offset, axes=(0, 1),
+                                                               device=device_obj)
+
+            if optimize_all_probe_pos:
+                shifted_prj_ls = []
+                for i in range(n_dists):
+                    this_shift = probe_pos_correction[i]
+                    this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
+                    this_prj_batch_idist, _ = realign_image_fourier(this_prj_batch_idist, w.zeros_like(this_prj_batch_idist),
+                                                                  this_shift, axes=(1, 2),
+                                                                  device=device_obj)
+                    shifted_prj_ls.append(this_prj_batch_idist)
+                this_prj_batch = w.concatenate(shifted_prj_ls)
+
             loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
         return calculate_loss
