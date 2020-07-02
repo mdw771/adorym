@@ -136,7 +136,7 @@ def reconstruct_ptychography(
         backend='autograd', # Choose from 'autograd' or 'pytorch
         debug=False,
         t_max_min=None,
-        # At the end of a batch, terminate the program with status 0 if total time exceeds the set value.
+        # At the end of a batch, terminate the program with s tatus 0 if total time exceeds the set value.
         # Useful for working with supercomputers' job dependency system, where the dependent may start only
         # if the parent job exits with status 0.
         **kwargs,):

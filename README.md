@@ -140,9 +140,9 @@ parameters:
 |`multiscale_level`|Int|1|Number of levels for multi-scale progressive reconstruction. *This feature is still experimental.* 
 |`n_epoch_final_pass`|Int|None|If `multiscale_level` is larger than 1, this parameter sets the number of epochs for the last (full-resolution) pass.
 |`initial_guess`|List of Arrays|None|The initial guess of the object function in the form of `[obj_delta, obj_beta]` when `unknown_type` is `delta_beta`, or `[obj_mag, obj_phase]` when `unknown_type` is `real_imag`. The arrays must have the same size as specified by `obj_size`.
-|`random_guess_means_sigmas`|List of Floats. When `initial_guess` is `None`, the object function will be initialized usin Gaussian randoms. This argument provides the Gaussian parameters in the format of `(mean_delta, mean_beta, sigma_delta, sigma_beta)` or `(mean_mag, mean_phase, sigma_mag, sigma_phase)`, depending on the setting of `unknwon_type`.
+|`random_guess_means_sigmas`|List of Floats|`(8.7e-7, 5.1e-8, 1e-7, 1e-8)`|When `initial_guess` is `None`, the object function will be initialized usin Gaussian randoms. This argument provides the Gaussian parameters in the format of `(mean_delta, mean_beta, sigma_delta, sigma_beta)` or `(mean_mag, mean_phase, sigma_mag, sigma_phase)`, depending on the setting of `unknwon_type`.
 |`n_batch_per_update`|Int|1|The number of minibatches to accumulate before the object is updated. Ignored when `update_scheme` is `per angle`.
-|`reweighted_l1`|Bool|If `True` and `alpha_d != 0`, the program uses reweighted l1-norm to regularize the object (see Candès, E. J., Wakin,  M. B. & Boyd, S. P. Enhancing Sparsity by Reweighted ℓ1 Minimization. *Journal of Fourier Analysis and Applications* **14**, (2008). )
+|`reweighted_l1`|Bool|`False`|If `True` and `alpha_d != 0`, the program uses reweighted l1-norm to regularize the object (see Candès, E. J., Wakin,  M. B. & Boyd, S. P. Enhancing Sparsity by Reweighted ℓ1 Minimization. *Journal of Fourier Analysis and Applications* **14**, (2008). )
 |`interpolation`|String|`'bilinear'`|Interpolation method for rotation.
 |`update_scheme`|String|`'immediate'`|Choose from `'immediate'` or `'per angle'`. If `'immediate'`, the object function is updated immedaitely after each minibatch is done. If `'per angle'`, updated is performed only after all diffraction patterns from the current rotation angle are processed. If `shared_file_object` is on, the `'per angle'` mode is used regardless of this setting.
 |`unknown_type`|String|`'delta_beta'`|Choose from `delta_beta` and `real_imag`. If set to `delta_beta`, the program treats the unknowns as the delta and beta parts in the complex refractive indices of the object, `n = 1-delta-i*beta`. In this case, modulation to the wavefield by each slice of the object will be done as `wavefield * exp(-i*k*n*z)`. If set to `real_imag`, the unknowns are treated as the real and imaginary part of a multiplicative object function, where the modulation is done as `wavefield * (obj_real + i * obj_imag)`. Using `delta_beta` can help overcome mild phase wrapping, while using `real_imag` generally leads to better numerical robustness.
@@ -175,7 +175,7 @@ parameters:
 
 | **Arg name** | **Type** | **Default** | **Description** |
 | ------------ | -------- | ---------- | ----------------|
-|`forward_model`|`'auto''` or `adorym.ForwardModel` class|`'auto'`|Forward model class. Use `'auto'` to let the program automatically determine forward model from other parameters. 
+|`forward_model`|`'auto'` or `adorym.ForwardModel` class|`'auto'`|Forward model class. Use `'auto'` to let the program automatically determine forward model from other parameters. 
 |`forward_algorithm`|String|`'fresnel''`|Choose from `'fresnel'` and `'ctf'`.
 |`ctf_lg_kappa`|Float|1.7|The natural log of the proportional coefficient between `delta` and `beta`, *i.e.*, `kappa = 10 ** ctf_lg_kappa; beta_slice = delta_slice * kappa`. Only useful when `optimize_ctf_lg_kappa` is `True`, in which case the object will be constrained to be homogeneous. Otherwise, `delta` and `beta` are reconstructed independently and this argument is ignored.
 |`binning`|Int|1|The number of axial slices to be binned (*i.e.*, to be treated as line integrals) during multislice propagation.
@@ -224,18 +224,37 @@ parameters:
 |`precalculate_rotation_coords`|Bool|`True`|Whether to calculate rotation transformation coordinates and save them on the hard drive, or calculate them on-the-fly. 
 |`rotate_out_of_loop`|Bool|`False`|Applies to simple data parallelism mode only. If True, DP will do rotation outside the loss function and the rotated object function is sent for differentiation. May reduce the number of rotation operations if minibatch_size < n_tiles_per_angle, but object can be updated once only after all tiles on an angle are processed. Also this will save the object-sized gradient array in GPU memory or RAM depending on current device setting.
 
+#### Other (non-object) optimizers
 
+| **Arg name** | **Type** | **Default** | **Description** |
+| ------------ | -------- | ----------- | ----------------|
+|`optimize_probe`|Bool|`False`|Whether to optimize the probe function.
+|`probe_learning_rate`|Float|`1e-5`|Probe optimization step size.
+|`optimize_probe_defocuing`|Bool|`False`|Whether to optimize the defocusing distance of the probe.
+|`probe_defocusing_learning_rate`|Float|`1e-5`|Probe defocusing optimization step size.
+|`optimize_probe_pos_offset`|Bool|`False`|Whether to optimize the offset to probe positions. This is intended to correct for the x-y drifting of the sample stage at different angles. When turned on, the program creates an array with shape `[n_rotation_angles, 2]`. When processing data from a certain viewing angle, the positions of all diffraction spots are shifted by the value corresponding to that angle. The offset array is optimized by the optimizer along with the object function.
+|`probe_pos_offset_learning_rate`|Float|`1e-2`|Probe offset overlap.
+|`optimize_all_probe_pos`|Bool|`False`|Whether to optimize the probe positions at all angles. When turned on, the optimizer tries to optimize an array with shape `[n_rotation_angles, n_diffraction_spots, 2]`, which stores the correction values applied to each probe position at all viewing angles. Not recommended for ptychotomography with many viewing angles as it significantly increases the unknwon space to be searched, making the problem less well constrained.
+|`all_probe_pos_learning_rate`|Float|`1e-2`|All probe position optimization step size.
+|`optimize_slice_pos`|Bool|`False`|Whether to optimize slice positions. Used for sparse multislice ptychography where slice spacings are not uniform.
+|`slice_pos_learning_rate`|Float|`1e-4`|Slice position optimization step size.
+|`optimize_free_prop`|Bool|`False`|Whether to optimize free propagation distances.
+|`free_prop_learning_rate`|Float|`1e-2`|Free propagation distance optimization step size. 
+|`optimize_prj_affine`|Bool|`False`|Whether to optimize the affine alignment of holograms. Used for multi-distance holography.
+|`prj_affine_learning_rate`|Float|`1e-3`|Affine alignment step size.
+|`optimize_tilt`|Bool|`False`|Whether to optimize object tilt in all 3 axes. Works only with data parallelism mode.
+|`tilt_learning_rate`|Float|`1e-3`|Tilt optimization step size. 
+|`optimize_ctf_lg_kappa`|Bool|`False`|Whether to *enable homogeneity constraint* and optimize coefficient `kappa`, where `beta_slice = delta_slice * kappa`. 
+|`ctf_lg_kappa_learning_rate`|Float|`1e-3`|`kappa` optimization step size. 
+|`other_params_update_delay`|Int|0|If larger than 0, updates of above parameters will not happen until the specified number of minibatches are finished. This setting does not apply to object function.  
 
+#### Other settings
 
-#### Optimizers
-|`optimize_probe`|Bool|Whether to optimize the probe function.
-|`probe_learning_rate`|Float.
-|`optimize_probe_defocuing`|Bool|Whether to optimize the defocusing distance of the probe.
-|`probe_defocusing_learning_rate`|Float.
-|`optimize_probe_pos_offset`|Bool|Whether to optimize the offset to probe positions. This is intended to correct for the x-y drifting of the sample stage at different angles. When turned on, the program creates an array with shape `[n_rotation_angles, 2]`. When processing data from a certain viewing angle, the positions of all diffraction spots are shifted by the value corresponding to that angle. The offset array is optimized by the optimizer along with the object function.
-|`optimize_all_probe_pos`|Bool|Whether to optimize the probe positions at all angles. When turned on, the optimizer tries to optimize an array with shape `[n_rotation_angles, n_diffraction_spots, 2]`, which stores the correction values applied to each probe position at all viewing angles. Not recommended for ptychotomography with many viewing angles as it significantly increases the unknwon space to be searched, making the problem less well constrained.
-|`all_probe_pos_learning_rate`|Float.
-
+| **Arg name** | **Type** | **Default** | **Description** |
+| ------------ | -------- | ----------- | ----------------|
+|`dynamic_rate`|Bool|`True`|Whether to adaptively reduce step size when using GD optimizer.
+|`debug`|Bool|`False`|Whether to enable debugging messages. 
+|`t_max_min`|Float or `None`|None|At the end of a batch, terminate the program with s tatus 0 if total time exceeds the set value. Useful for working with supercomputers' job dependency system, where the dependent may start only if the parent job exits with status 0.
 
 ### Output
 During runtime, Adorym may create a folder named
@@ -259,8 +278,9 @@ output_folder
      |         |       |___ probe_phase_0_0.tiff
      |         |       |___ ...
      |         |___ probe_pos (if optimize_all_probe_pos is True)
-     |                 |___ probe_pos_correction_0_0_0.txt
-     |                 |___ ...
+     |         |       |___ probe_pos_correction_0_0_0.txt
+     |         |       |___ ...
+     |         ...
      |___ obj_delta_ds_1.tiff (or obj_mag_ds_1.tiff)
      |___ obj_beta_ds_1.tiff (or obj_phase_ds_1.tiff)
      |___ probe_mag_ds_1.tiff
@@ -272,6 +292,45 @@ output_folder
 ```
 By default, all image outputs are in 32-bit floating points which can be
 opened and viewed with ImageJ.
+
+## Customization
+
+### Adding your own forward model
+
+You can create additional forward models beyond the existing ones. To begin with, in `adorym/forward_model.py`, 
+create a class inheriting `ForwardModel` (*i.e.*, `class MyNovelModel(ForwardModel)`). Each forward model class 
+should contain three essential methods: `predict`, `get_data`, `loss`, and `get_loss_function`. `predict` maps input variables
+to predicted quantities (usually the real-numbered magnitude of the detected wavefield). `get_data` reads from
+the HDF5 file the raw data corresponding to the minibatch currently being processed. `loss` is the last-layer
+loss node that computes the (regularized)
+loss values from the predicted data and the experimental measurement for the current minibatch. `get_loss_function`
+concatenates the above methods and return the end-to-end loss function. If your `predict` returns the real-numbered
+magnitude of the detected wavefield, you can use `loss` inherented from the parent class, although you still need to
+make a copy of `get_loss_function` and explicitly change its arguments to match those of `predict` (do not use
+implicit argument tuples or dictionaries like `*args` and `**kwargs`, as that won't work with Autograd!). If your `predict`
+returns something else, you may also need to override `loss`. Also make sure your new forward model class contains
+a `self.argument_ls` attribute, which should be a list of argument strings that exactly matches the signature of `predict`.
+
+To use your forward model, pass your forward model class to the `forward_model` argument of `reconstruct_ptychography`.
+For example, in the script that you execute with Python, do the following:
+```
+import adorym
+from adorym.ptychography import reconstruct_ptychography
+
+params = {'fname': 'data.h5', 
+          ...
+          'forward_model': adorym.MyNovelModel,
+          ...}
+```
+
+### Adding refinable parameters
+
+To add new refinable parameters, (at the current stage) you'll need to add them to the dictionary `optimizable_params`
+in `adorym/ptychography.py`. An optimizer will be created for each refinable parameter in this dictionary 
+by function `create_and_initialize_parameter_optimizers`
+in `adorym/optimizers.py`. If the parameter requires a special rule when it is defined, updated, or outputted, 
+you will also need to explicitly modify `create_and_initialize_parameter_optimizers`, `update_parameters`,
+`create_parameter_output_folders`, and `output_intermediate_parameters`.
 
 ## Publications
 The early version of Adorym, which was used to demonstrate 3D reconstruction of continuous object beyond the depth of focus, is published as
