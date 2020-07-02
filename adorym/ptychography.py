@@ -736,14 +736,21 @@ def reconstruct_ptychography(
                 #                       a batch for all ranks  _|               |_ (i_theta, i_spot)
                 #                    (minibatch_size * n_ranks)
                 # ================================================================================
-                if i == 0:
-
-                    ind_list_rand = np.zeros([len(theta_ind_ls) * len(spots_ls), 2], dtype='int32')
-                    temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
-                    ind_list_rand[:len(spots_ls), :] = temp
+                if common_probe_pos:
+                    # Optimized task distribution for common_probe_pos with lower peak memory.
+                    if i == 0:
+                        ind_list_rand = np.zeros([len(theta_ind_ls) * len(spots_ls), 2], dtype='int32')
+                        temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                        ind_list_rand[:len(spots_ls), :] = temp
+                    else:
+                        temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                        ind_list_rand[i * len(spots_ls):(i + 1) * len(spots_ls), :] = temp
                 else:
-                    temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
-                    ind_list_rand[i * len(spots_ls):(i + 1) * len(spots_ls), :] = temp
+                    if i == 0:
+                        ind_list_rand = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                    else:
+                        temp = np.stack([np.array([i_theta] * len(spots_ls)), spots_ls], axis=1)
+                        ind_list_rand = np.concatenate([ind_list_rand, temp], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             n_batch = len(ind_list_rand)
 
