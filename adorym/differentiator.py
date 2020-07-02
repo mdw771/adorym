@@ -26,7 +26,6 @@ class Differentiator(object):
         assert isinstance(forward_model, adorym.ForwardModel)
         self.func_vjp, _ = w.vjp(forward_model.predict, [ind_opt_arg])(*list(kwargs.values()))
         self.func_jvp = w.jvp(forward_model.predict, [ind_opt_arg])(*list(kwargs.values()))
-        # TODO: should also add regularizers for jloss.
         #if forward_model.loss_function_type == 'lsq':
         #    self.func_hvp = lambda x: x
         #    self.jloss = 2 * forward_model.predict(**kwargs)
@@ -34,11 +33,12 @@ class Differentiator(object):
         #    self.func_hvp, self.jloss = w.hvp(forward_model.get_mismatch_loss, [0])(forward_model.this_pred_batch, forward_model.this_prj_batch)
 
         # Calculate HVP of loss using predicted and measured data.
-        theta_downsample = forward_model.common_vars['theta_downsample']
-        if theta_downsample is None: theta_downsample = 1
+        obj = kwargs['obj']
         this_pred_batch = forward_model.predict(**kwargs)
-        this_prj_batch = kwargs['prj'][kwargs['this_i_theta'] * theta_downsample, kwargs['this_ind_batch']]
-        self.func_hvp, self.jloss = w.hvp(forward_model.get_mismatch_loss, [0])(this_pred_batch, this_prj_batch)
+        this_prj_batch = forward_model.get_data(kwargs['this_i_theta'], kwargs['this_ind_batch'], 
+                                               theta_downsample=forward_model.common_vars['theta_downsample'],
+                                               ds_level=forward_model.common_vars['ds_level'])
+        self.func_hvp, self.jloss = w.hvp(forward_model.loss, [0])(this_pred_batch, this_prj_batch, obj)
 
         # GVP is Gauss-Newton-vector product.
         def f_gvp(g):

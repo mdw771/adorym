@@ -131,11 +131,16 @@ class ForwardModel(object):
             beamstop_mask_stack = w.tile(beamstop_mask, [len(this_pred_batch), 1, 1])
             this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
             this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
-            print_flush('  {} valid pixels remain after applying beamstop mask.'.format(this_pred_batch.shape[1]),
-                        0, rank)
+            print_flush('  {} valid pixels remain after applying beamstop mask.'.format(this_pred_batch.shape[1]), 0, rank)
         loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
         loss = loss + self.get_regularization_value(obj)
-        self.current_loss = float(w.to_numpy(loss))
+        loss_val = w.to_numpy(loss)
+        try:
+            loss_val = float(loss_val)
+        except:
+            # Variable loss might be a nested ArrayBox when using second order optimizers with Autograd
+            loss_val = float(loss_val._value)
+        self.current_loss = float(loss_val)
         return loss
 
     def get_loss_function(self):
