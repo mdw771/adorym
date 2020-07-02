@@ -518,7 +518,8 @@ def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None
     except:
         warnings.warn('PyTorch is not available, so I am applying rotation using apply_rotation_primitive which may '
                       'lead to lower performance. Installing PyTorch is strongly recommnended even if you do not'
-                      'wish to use the PyTorch backend for AD.')
+                      'wish to use the PyTorch backend for AD.\n(If you are using DP mode with Autograd backend, '
+                      'simply ignore this warning.)')
         obj_rot = apply_rotation_primitive(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
     return obj_rot
 
