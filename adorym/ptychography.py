@@ -72,6 +72,7 @@ def reconstruct_ptychography(
         non_negativity=False,
         # _______________
         # |Forward model|_______________________________________________________
+        forward_model='auto',
         forward_algorithm='fresnel', # Choose from 'fresnel' or 'ctf'
         # ---- CTF parameters ----
         ctf_lg_kappa=1.7, # This is the common log of kappa, i.e. kappa = 10 ** ctf_lg_kappa
@@ -473,17 +474,21 @@ def reconstruct_ptychography(
                              'device': device_obj,
                              'common_vars_dict': locals(),
                              'raw_data_type': raw_data_type}
-        if is_multi_dist:
-            forward_model = MultiDistModel(**forwardmodel_args)
-        elif is_sparse_multislice:
-            forward_model = SparseMultisliceModel(**forwardmodel_args)
-        elif common_probe_pos and minibatch_size == 1 and len(probe_pos) == 1 and np.allclose(probe_pos[0], 0):
-            forward_model = SingleBatchFullfieldModel(**forwardmodel_args)
-        elif common_probe_pos and minibatch_size == 1 and len(probe_pos) > 1 and n_probe_modes == 1:
-            forward_model = SingleBatchPtychographyModel(**forwardmodel_args)
+        if forward_model == 'auto':
+            if is_multi_dist:
+                forward_model = MultiDistModel(**forwardmodel_args)
+            elif is_sparse_multislice:
+                forward_model = SparseMultisliceModel(**forwardmodel_args)
+            elif common_probe_pos and minibatch_size == 1 and len(probe_pos) == 1 and np.allclose(probe_pos[0], 0):
+                forward_model = SingleBatchFullfieldModel(**forwardmodel_args)
+            elif common_probe_pos and minibatch_size == 1 and len(probe_pos) > 1 and n_probe_modes == 1:
+                forward_model = SingleBatchPtychographyModel(**forwardmodel_args)
+            else:
+                forward_model = PtychographyModel(**forwardmodel_args)
+            print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
         else:
-            forward_model = PtychographyModel(**forwardmodel_args)
-        print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
+            forward_model = forward_model(**forwardmodel_args)
+            print_flush('Specified forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
 
         if reweighted_l1:
             forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)

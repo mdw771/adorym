@@ -4,6 +4,7 @@ import dxchange
 import datetime
 import argparse
 import os
+import adorym
 
 timestr = str(datetime.datetime.today())
 timestr = timestr[:timestr.find('.')]
@@ -50,6 +51,7 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um.h5',
                   'psize_cm': 0.67e-7,
                   'minibatch_size': 23,
                   'n_batch_per_update': 1,
+                  'forward_model': adorym.PtychographyModel,
                   'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
                   'cpu_only': False,
                   'save_path': '../demos/adhesin_ptycho_2',
