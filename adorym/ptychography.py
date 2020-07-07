@@ -764,7 +764,7 @@ def reconstruct_ptychography(
             # ================================================================================
             # Initialize runtime indices and flags.
             # ================================================================================
-            current_i_theta = 0
+            current_i_theta = -1
             initialize_gradients = True
             shared_file_update_flag = False
 
