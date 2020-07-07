@@ -299,7 +299,7 @@ opened and viewed with ImageJ.
 
 You can create additional forward models beyond the existing ones. To begin with, in `adorym/forward_model.py`, 
 create a class inheriting `ForwardModel` (*i.e.*, `class MyNovelModel(ForwardModel)`). Each forward model class 
-should contain three essential methods: `predict`, `get_data`, `loss`, and `get_loss_function`. `predict` maps input variables
+should contain 4 essential methods: `predict`, `get_data`, `loss`, and `get_loss_function`. `predict` maps input variables
 to predicted quantities (usually the real-numbered magnitude of the detected wavefield). `get_data` reads from
 the HDF5 file the raw data corresponding to the minibatch currently being processed. `loss` is the last-layer
 loss node that computes the (regularized)
