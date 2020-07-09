@@ -60,56 +60,54 @@ def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
                              unknown_type='delta_beta', non_negativity=False):
 
-    if rank == 0:
-        if not_first_level == False:
-            if initial_guess is None:
-                print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
-                            save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
-                obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
-                obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
-            else:
-                print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
-                            output_folder=output_folder, timestamp=timestr)
-                sys.stdout.flush()
-                obj_delta = np.array(initial_guess[0])
-                obj_beta = np.array(initial_guess[1])
+    seed = int(time.time() / 60)
+    seed = comm.bcast(seed, root=0)
+    np.random.seed(seed)
+
+    if not_first_level == False:
+        if initial_guess is None:
+            print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
+                        save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
+            obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+            obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
         else:
-            print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+            print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                         output_folder=output_folder, timestamp=timestr)
-            if unknown_type == 'delta_beta':
-                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
-                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
-            elif unknown_type == 'real_imag':
-                obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'obj_mag_ds_{}.tiff'.format(ds_level * 2)))
-                obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'obj_phase_ds_{}.tiff'.format(ds_level * 2)))
-            obj_delta = upsample_2x(obj_delta)
-            obj_beta = upsample_2x(obj_beta)
-            obj_delta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
-            obj_beta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
-
-        # Apply specified constraints.
-        if object_type == 'phase_only':
-            if unknown_type == 'delta_beta':
-                obj_beta[...] = 0
-            elif unknown_type == 'real_imag':
-                obj_delta[...] = 1
-        elif object_type == 'absorption_only':
-            if unknown_type == 'delta_beta':
-                obj_delta[...] = 0
-            elif unknown_type == 'real_imag':
-                obj_beta[...] = 0
-
-        # Apply nonnegativity or convert to real/imag.
-        if unknown_type == 'delta_beta' and non_negativity:
-            obj_delta[obj_delta < 0] = 0
-            obj_beta[obj_beta < 0] = 0
-        elif unknown_type == 'real_imag':
-            obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
+            sys.stdout.flush()
+            obj_delta = np.array(initial_guess[0])
+            obj_beta = np.array(initial_guess[1])
     else:
-        obj_delta = None
-        obj_beta = None
-    obj_delta = comm.bcast(obj_delta, root=0)
-    obj_beta = comm.bcast(obj_beta, root=0)
+        print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+                    output_folder=output_folder, timestamp=timestr)
+        if unknown_type == 'delta_beta':
+            obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))
+            obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'beta_ds_{}.tiff'.format(ds_level * 2)))
+        elif unknown_type == 'real_imag':
+            obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'obj_mag_ds_{}.tiff'.format(ds_level * 2)))
+            obj_beta = dxchange.read_tiff(os.path.join(output_folder, 'obj_phase_ds_{}.tiff'.format(ds_level * 2)))
+        obj_delta = upsample_2x(obj_delta)
+        obj_beta = upsample_2x(obj_beta)
+        obj_delta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
+        obj_beta += np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
+
+    # Apply specified constraints.
+    if object_type == 'phase_only':
+        if unknown_type == 'delta_beta':
+            obj_beta[...] = 0
+        elif unknown_type == 'real_imag':
+            obj_delta[...] = 1
+    elif object_type == 'absorption_only':
+        if unknown_type == 'delta_beta':
+            obj_delta[...] = 0
+        elif unknown_type == 'real_imag':
+            obj_beta[...] = 0
+
+    # Apply nonnegativity or convert to real/imag.
+    if unknown_type == 'delta_beta' and non_negativity:
+        obj_delta[obj_delta < 0] = 0
+        obj_beta[obj_beta < 0] = 0
+    elif unknown_type == 'real_imag':
+        obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
     return obj_delta, obj_beta
 
 
