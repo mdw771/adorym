@@ -464,11 +464,21 @@ def simulate_ptychography(
         temp = abs(theta_ls - theta_st) < 1e-5
         i_theta = np.nonzero(temp)[0][0]
         theta_ind_ls = np.array([i_theta])
+    starting_i_theta = 0
+    if use_checkpoint:
+        try:
+            starting_i_theta = np.loadtxt(os.path.join(save_path, 'sim_checkpoint_i_theta.txt'))[0]
+            print_flush('Starting from i_theta {}.'.format(starting_i_theta), sto_rank, rank, **stdout_options)
+        except:
+            pass
 
     # ================================================================================
     # Put diffraction spots from all angles together, and divide into minibatches.
     # ================================================================================
-    for i, i_theta in enumerate(theta_ind_ls):
+    for i, i_theta in enumerate(starting_i_theta, theta_ind_ls):
+
+        np.savetxt(i_theta, os.path.join(save_path, 'sim_checkpoint_i_theta.txt'), fmt='%d')
+
         n_pos = len(probe_pos) if common_probe_pos else n_pos_ls[i_theta]
         spots_ls = range(n_pos)
         # ================================================================================
