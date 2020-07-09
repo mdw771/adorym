@@ -194,7 +194,10 @@ def simulate_ptychography(
         f = h5py.File(os.path.join(save_path, fname), 'a', driver='mpio', comm=comm)
     except:
         f = h5py.File(os.path.join(save_path, fname), 'a')
-    prj = f.create_group('exchange').create_dataset('data', shape=[n_theta, n_pos, *probe_size], dtype=np.float32)
+    try:
+        prj = f.create_group('exchange').create_dataset('data', shape=[n_theta, n_pos, *probe_size], dtype=np.float32)
+    except:
+        prj = f['exchange/data']
 
     # ================================================================================
     # Get metadata.
