@@ -396,9 +396,16 @@ def reconstruct_ptychography(
             optimizer_options_obj = {'step_size': learning_rate}
             opt = CGOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
+        elif optimizer == 'scipy':
+            if distribution_mode is not None or backend != 'autograd':
+                raise NotImplementedError('ScipyOptimizer supports only data parallelism and Autograd backend.')
+            optimizer_options_obj = {'method': 'CG', 'options': {'maxiter': 20}}
+            opt = ScipyOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder,
+                                 distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
         else:
-            raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg".')
+            raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
         opt.create_container(use_checkpoint, device_obj, use_numpy=True)
+        opt.set_index_in_grad_return(0)
         opt_ls = [opt]
 
         # ================================================================================
@@ -468,7 +475,6 @@ def reconstruct_ptychography(
                                      non_negativity=non_negativity)
             else:
                 obj.arr = w.create_variable(obj_arr, device=device_obj)
-
 
         # ================================================================================
         # Create forward model class.
@@ -1016,7 +1022,11 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     if distribution_mode is None and optimize_object:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, **opt.options_dict)
+                        if optimizer == 'scipy':
+                            obj.arr = opt.apply_gradient(obj.arr, forward_model=forward_model, differentiator=diff,
+                                                         method=opt.options_dict['method'], options=opt.options_dict['options'])
+                        else:
+                            obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, **opt.options_dict)
                         if optimizer == 'curveball' and i_batch % 10 == 0:
                              opt.update_lambda(forward_model, grad_func_args)
                 if distribution_mode is None:

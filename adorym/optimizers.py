@@ -520,7 +520,7 @@ class CGOptimizer(Optimizer):
 
 class ScipyOptimizer(Optimizer):
     """
-    API binding to scopy.optimizer.minimize. WORKS FOR DATA-PARALLELISM MODE ONLY.
+    API binding to scopy.optimizer.minimize. WORKS FOR DATA-PARALLELISM MODE AND AUTOGRAD ONLY.
     Upon calling the apply_gradient method, the scipy optimizer performs multiple inner optimization iterations.
     Note that for many algorithms (e.g., conjugate gradient) convergence is proven only for batch minimization --
     that means these algorithm works well only when there is just 1 minibatch. In that case, also set n_epochs
@@ -531,9 +531,28 @@ class ScipyOptimizer(Optimizer):
                                           distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
-        pass
-
+    def apply_gradient(self, x, step_size=1.e2, method='CG', forward_model=None, differentiator=None, options=None):
+        assert isinstance(forward_model, adorym.ForwardModel)
+        loss_kwargs = forward_model.loss_args
+        loss_fn = forward_model.get_loss_function()
+        shape_0 = x.shape
+        x0 = x
+        def fun(x, *args):
+            _x = w.reshape(x, shape_0)
+            loss_kwargs[self.name] = _x
+            loss = loss_fn(**loss_kwargs)
+            return loss
+        def jac(x, *args):
+            _x = w.reshape(x, shape_0)
+            loss_kwargs[self.name] = _x
+            grads = differentiator.get_gradients(**loss_kwargs)[self.index_in_grad_returns]
+            grads = np.reshape(grads, [-1])
+            grads *= step_size
+            return grads
+        x = scipy.optimize.minimize(fun, w.reshape(x, [-1]), method=method, jac=jac, options=options)
+        x = x.x
+        x = w.reshape(x, shape_0)
+        return x
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):
 
