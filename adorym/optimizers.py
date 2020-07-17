@@ -2,6 +2,7 @@ import numpy as np
 import os
 import h5py
 import pickle
+import scipy.optimize
 
 import adorym
 from adorym.util import *
@@ -9,6 +10,7 @@ from adorym.array_ops import ObjectFunction, Gradient
 import adorym.wrappers as w
 import adorym.global_settings as global_settings
 from adorym.misc import *
+from adorym.linesearch import *
 
 project_config = check_config_indept_mpi()
 try:
@@ -268,6 +270,7 @@ class AdamOptimizer(Optimizer):
         self.i_batch += 1
         global_settings.backend = backend_temp
 
+
 class GDOptimizer(Optimizer):
 
     def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
@@ -390,6 +393,87 @@ class CurveballOptimizer(Optimizer):
             self.lmbda *= 0.999
         elif gamma < 0.5:
             self.lmbda *= (1 / 0.999)
+
+
+class CGOptimizer(Optimizer):
+
+    linesearch_map = {'backtracking': BackTrackingLineSearch,
+                      'adaptive': AdaptiveLineSearch}
+
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+        super(CGOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['descent_dir_old', 's'],
+                                          distribution_mode=distribution_mode, options_dict=options_dict)
+        self.i_line_search_step = 0
+        self._diag_precondition_t = None
+        return
+
+    def _calculate_PR_beta(self):
+
+        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old']
+        p = self._descent_dir_t
+        p_old = _descent_dir_old_t
+        if self._diag_precondition_t is not None:
+            p = self._diag_precondition_t * p
+            p_old = self._diag_precondition_t * p_old
+        beta_num = w.sum(p * (self._descent_dir_t - _descent_dir_old_t))
+        beta_denom = w.sum(p_old * _descent_dir_old_t)
+        if self.i_batch > 0:
+            beta = beta_num / beta_denom
+        else:
+            beta = 0
+        beta = w.max([beta, 0.])
+        return beta
+
+    def apply_gradient(self, x, g, i_batch, forward_model, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None):
+        assert isinstance(forward_model, adorym.ForwardModel)
+        self._descent_dir_t = -g
+        loss_kwargs = forward_model.loss_args
+        loss_fn = forward_model.get_loss_function()
+        _s_t = self.params_whole_array_dict['s']
+        self._linesearch = self.linesearch_map[linesearch_type](maxiter=max_backtracking_iter,
+                                                                initial_stepsize=step_size)
+
+        beta = self._calculate_PR_beta()
+        s_new = self._descent_dir_t + beta * _s_t
+
+        # Ensure that the calculated descent direction actually reduces the objective
+        descent_check = w.sum(s_new * g)
+        if descent_check >= 0:
+            s_new = self._descent_dir_t
+
+        def _loss_and_update_fn(x, y):
+            update = x + y
+            loss_kwargs[self.name] = update
+            loss = loss_fn(**loss_kwargs)
+            return loss, update
+
+        linesearch_out = self._linesearch.search(_loss_and_update_fn,
+                                                 x0=x,
+                                                 descent_dir=s_new,
+                                                 gradient=g,
+                                                 f0=forward_model.current_loss)
+        x = linesearch_out.newx
+        self.params_whole_array_dict['s'] = s_new
+        self.params_whole_array_dict['descent_dir_old'] = self._descent_dir_t
+        self.i_batch += 1
+        self.i_line_search_step += linesearch_out.step_count
+        return x
+
+class ScipyOptimizer(Optimizer):
+    """
+    API binding to scopy.optimizer.minimize. WORKS FOR DATA-PARALLELISM MODE ONLY.
+    Upon calling the apply_gradient method, the scipy optimizer performs multiple inner optimization iterations.
+    Note that for many algorithms (e.g., conjugate gradient) convergence is proven only for batch minimization --
+    that means these algorithm works well only when there is just 1 minibatch. In that case, also set n_epochs
+    to 1 since there is no need for an outer loop.
+    """
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+        super(ScipyOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=[],
+                                          distribution_mode=distribution_mode, options_dict=options_dict)
+        return
+
+    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
+        pass
 
 
 def apply_gradient_adam(x, g, i_batch, m=None, v=None, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, **kwargs):

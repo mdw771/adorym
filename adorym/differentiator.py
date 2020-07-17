@@ -8,6 +8,7 @@ class Differentiator(object):
     def __init__(self):
         self.loss_object = None
         self.opt_args_ls = []
+        self.loss_args = {}
 
     def create_loss_node(self, loss, opt_args_ls=None):
         self.loss_object = w.prepare_loss_node(loss, opt_args_ls)

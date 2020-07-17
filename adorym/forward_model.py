@@ -31,6 +31,10 @@ class ForwardModel(object):
         self.poisson_multiplier = common_vars_dict['poisson_multiplier']
         self.common_probe_pos = common_vars_dict['common_probe_pos']
         self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
+        self.loss_args = {}
+
+    def update_loss_args(self, kwargs):
+        self.loss_args = kwargs
 
     def add_regularizer(self, name, reg_dict):
         self.regularizer_dict[name] = reg_dict

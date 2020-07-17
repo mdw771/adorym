@@ -740,6 +740,13 @@ def norm(var_real, var_imag):
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
 
 
+def vec_norm(arr):
+    if global_settings.backend == 'autograd':
+        return anp.sqrt(anp.sum(abs(arr ** 2)))
+    elif global_settings.backend == 'pytorch':
+        return tc.sqrt(tc.sum(arr ** 2))
+
+
 def swap_axes(arr, axes=(0, 1)):
     if global_settings.backend == 'autograd':
         temp = [*axes]

@@ -392,8 +392,12 @@ def reconstruct_ptychography(
             optimizer_options_obj = {}
             opt = CurveballOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
+        elif optimizer == 'cg':
+            optimizer_options_obj = {'step_size': learning_rate}
+            opt = CGOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+                              options_dict=optimizer_options_obj)
         else:
-            raise ValueError('Invalid optimizer type. Must be "gd" or "adam".')
+            raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg".')
         opt.create_container(use_checkpoint, device_obj, use_numpy=True)
         opt_ls = [opt]
 
@@ -495,6 +499,8 @@ def reconstruct_ptychography(
         else:
             if alpha_d not in [0, None]: forward_model.add_l1_norm(alpha_d, alpha_b)
         if gamma not in [0, None]: forward_model.add_tv(gamma)
+        if optimizer == 'cg':
+            opt.options_dict['forward_model'] = forward_model
 
         # ================================================================================
         # Create gradient class.
@@ -922,6 +928,9 @@ def reconstruct_ptychography(
                             grad_func_args[arg] = locals()[arg]
                 comm.Barrier()
                 print_flush('  Entering differentiation loop...', sto_rank, rank, **stdout_options)
+                # Update the loss argument dictionary saved in ForwardModel class. Needed for CG but done for all
+                # optimizers for now.
+                forward_model.update_loss_args(grad_func_args)
                 if optimizer == 'curveball':
                     diff.get_l_h_hessian_and_h_x_jacobian_mvps(forward_model, 0, **grad_func_args)
                     grads = [opt.calculate_dz(diff, use_numpy=True)]
