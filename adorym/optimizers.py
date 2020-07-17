@@ -464,7 +464,7 @@ class CGOptimizer(Optimizer):
             beta = beta_num / beta_denom
         else:
             beta = 0
-        beta = w.max([beta, 0.])
+        beta = max([beta, 0.])
         return beta
 
     def apply_gradient(self, x, gradient, i_batch, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None):
