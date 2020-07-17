@@ -269,10 +269,11 @@ class ObjectFunction(LargeArray):
 
 class Gradient(ObjectFunction):
 
-    def __init__(self, obj):
+    def __init__(self, obj, forward_model=None):
         assert isinstance(obj, ObjectFunction)
         super(Gradient, self).__init__(obj.full_size, obj.distribution_mode,
                                  obj.output_folder, obj.dset, obj.object_type)
+        self.forward_model = forward_model
 
     def create_file_object(self):
         super(ObjectFunction, self).create_file_object('intermediate_grad.h5', use_checkpoint=False)

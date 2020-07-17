@@ -31,7 +31,8 @@ rank = comm.Get_rank()
 
 class Optimizer(object):
 
-    def __init__(self, name, whole_object_size, output_folder='.', params_list=(), distribution_mode=None, options_dict=None):
+    def __init__(self, name, whole_object_size, output_folder='.', params_list=(), distribution_mode=None,
+                 options_dict=None, forward_model=None):
         """
         :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
                                   or a 3-D vector for probe, or a 1-D scalar for other variables.
@@ -40,6 +41,7 @@ class Optimizer(object):
         :param params_list: List of str; a list of optimizer parameters provided in strings.
         """
         self.name = name
+        self.forward_model = forward_model
         self.whole_object_size = whole_object_size
         self.output_folder = output_folder
         self.params_list = params_list
@@ -201,17 +203,35 @@ class Optimizer(object):
     def set_index_in_grad_return(self, ind):
         self.index_in_grad_returns = ind
 
+    def convert_gradient(self, gradient):
+        if isinstance(gradient, adorym.Gradient):
+            g = gradient.arr
+        else:
+            g = gradient
+        if self.distribution_mode == 'distributed_object':
+            g = g / n_ranks
+        return g
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
         super(AdamOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['m', 'v'],
-                                            distribution_mode=distribution_mode, options_dict=options_dict)
+                                            distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
+    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
                        m=None, v=None, return_moments=False, update_batch_count=True, use_numpy=False, **kwargs):
-
+        """
+        Use calculated gradient to update the variable being optimized.
+        :param x: Array or Tensor of the optimized variable.
+        :param gradient: Array or adorym.Gradient. If optimizer is CG, the ForwardModel instance (which is needed for
+            providing loss function for line search) can be supplied through the Gradient instance. Otherwise, it must
+            be specified when the optimizer is instantiated.
+        :param i_batch: Int. User-specifiable step number. When minibatching localized data using optimizers like
+            Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
+            gradient.
+        """
+        g = self.convert_gradient(gradient)
         malias = np if use_numpy else w
         if m is None or v is None:
             if distribution_mode == 'shared_file':
@@ -273,12 +293,24 @@ class AdamOptimizer(Optimizer):
 
 class GDOptimizer(Optimizer):
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
         super(GDOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=[],
-                                          distribution_mode=distribution_mode, options_dict=options_dict)
+                                          distribution_mode=distribution_mode, options_dict=options_dict,
+                                          forward_model=forward_model)
         return
 
-    def apply_gradient(self, x, g, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
+    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
+        """
+        Use calculated gradient to update the variable being optimized.
+        :param x: Array or Tensor of the optimized variable.
+        :param gradient: Array or adorym.Gradient. If optimizer is CG, the ForwardModel instance (which is needed for
+            providing loss function for line search) can be supplied through the Gradient instance. Otherwise, it must
+            be specified when the optimizer is instantiated.
+        :param i_batch: Int. User-specifiable step number. When minibatching localized data using optimizers like
+            Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
+            gradient.
+        """
+        g = self.convert_gradient(gradient)
         if dynamic_rate:
             threshold_iteration = first_downrate_iteration
             i = 1
@@ -319,7 +351,9 @@ class CurveballOptimizer(Optimizer):
     This code is adapted from https://github.com/saugatkandel/sopt.
     When working with DO, dz is synchronized in place of gradient.
     """
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
+                                            distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         if distribution_mode == 'shared_file':
             raise NotImplementedError('Curveball does not support shared-file mode yet.')
         self.beta = None
@@ -327,8 +361,6 @@ class CurveballOptimizer(Optimizer):
         self.lmbda = 1
         self.z_chunk = None
         self.dz_chunk = None
-        super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
-                                            distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
     def calculate_dz(self, differentiator, use_numpy=False):
@@ -378,7 +410,18 @@ class CurveballOptimizer(Optimizer):
         self.z_chunk = z
         return z
 
-    def apply_gradient(self, x, g, i_batch, alpha=1, use_numpy=False, forward_model=None):
+    def apply_gradient(self, x, gradient, i_batch, alpha=1, use_numpy=False):
+        """
+        Use calculated gradient to update the variable being optimized.
+        :param x: Array or Tensor of the optimized variable.
+        :param gradient: Array or adorym.Gradient. If optimizer is CG, the ForwardModel instance (which is needed for
+            providing loss function for line search) can be supplied through the Gradient instance. Otherwise, it must
+            be specified when the optimizer is instantiated.
+        :param i_batch: Int. User-specifiable step number. When minibatching localized data using optimizers like
+            Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
+            gradient.
+        """
+        g = self.convert_gradient(gradient)
         z = self.calculate_update_vector(g)
         x = x + alpha * z
         return x
@@ -400,9 +443,9 @@ class CGOptimizer(Optimizer):
     linesearch_map = {'backtracking': BackTrackingLineSearch,
                       'adaptive': AdaptiveLineSearch}
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
         super(CGOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['descent_dir_old', 's'],
-                                          distribution_mode=distribution_mode, options_dict=options_dict)
+                                          distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         self.i_line_search_step = 0
         self._diag_precondition_t = None
         return
@@ -424,8 +467,24 @@ class CGOptimizer(Optimizer):
         beta = w.max([beta, 0.])
         return beta
 
-    def apply_gradient(self, x, g, i_batch, forward_model, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None):
-        assert isinstance(forward_model, adorym.ForwardModel)
+    def apply_gradient(self, x, gradient, i_batch, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None):
+        """
+        Use calculated gradient to update the variable being optimized.
+        :param x: Array or Tensor of the optimized variable.
+        :param gradient: Array or adorym.Gradient. If optimizer is CG, the ForwardModel instance (which is needed for
+            providing loss function for line search) can be supplied through the Gradient instance. Otherwise, it must
+            be specified when the optimizer is instantiated.
+        :param i_batch: Int. User-specifiable step number. When minibatching localized data using optimizers like
+            Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
+            gradient.
+        """
+        g = self.convert_gradient(gradient)
+        try:
+            forward_model = gradient.forward_model
+        except:
+            forward_model = self.forward_model
+            if not isinstance(forward_model, adorym.ForwardModel):
+                raise ValueError('ForwardModel must be supplied either through Gradient object or upon optimizer instantiation.')
         self._descent_dir_t = -g
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
@@ -534,7 +593,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_probe']:
         optimizer_options_probe = {'step_size': kwargs['probe_learning_rate']}
         opt_probe = AdamOptimizer('probe', [n_probe_modes, *probe_size, 2], output_folder=output_folder,
-                                  options_dict=optimizer_options_probe)
+                                  options_dict=optimizer_options_probe, forward_model=forward_model)
         opt_probe.create_param_arrays(device=device_obj)
         opt_probe.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'),
@@ -544,7 +603,8 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     # Except probe, optimizer name must match the name of the variable to be optimized.
     if kwargs['optimize_probe_defocusing']:
         optimizer_options_probe_defocus = {'step_size': kwargs['probe_defocusing_learning_rate']}
-        opt_probe_defocus = AdamOptimizer('probe_defocus_mm', [1], output_folder=output_folder, options_dict=optimizer_options_probe_defocus)
+        opt_probe_defocus = AdamOptimizer('probe_defocus_mm', [1], output_folder=output_folder,
+                                          options_dict=optimizer_options_probe_defocus, forward_model=forward_model)
         opt_probe_defocus.create_param_arrays(device=device_obj)
         opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_defocus_mm'))
@@ -552,10 +612,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
 
     if kwargs['optimize_probe_pos_offset']:
         assert kwargs['optimize_all_probe_pos'] == False
-        optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate'],
-                                              'dynamic_rate': False}
-        opt_probe_pos_offset = GDOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
-                                           options_dict=optimizer_options_probe_pos_offset)
+        optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate']}
+        opt_probe_pos_offset = AdamOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
+                                           options_dict=optimizer_options_probe_pos_offset, forward_model=forward_model)
         opt_probe_pos_offset.create_param_arrays(device=device_obj)
         opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
@@ -565,7 +624,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         assert kwargs['optimize_probe_pos_offset'] == False
         optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
         opt_probe_pos = AdamOptimizer('probe_pos_correction', optimizable_params['probe_pos_correction'].shape, output_folder=output_folder,
-                                      options_dict=optimizer_options_probe_pos)
+                                      options_dict=optimizer_options_probe_pos, forward_model=forward_model)
         opt_probe_pos.create_param_arrays(device=device_obj)
         opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
@@ -575,7 +634,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         if kwargs['optimize_slice_pos']:
             optimizer_options_slice_pos = {'step_size': kwargs['slice_pos_learning_rate']}
             opt_slice_pos = AdamOptimizer('slice_pos_cm_ls', optimizable_params['slice_pos_cm_ls'].shape, output_folder=output_folder,
-                                          options_dict=optimizer_options_slice_pos)
+                                          options_dict=optimizer_options_slice_pos, forward_model=forward_model)
             opt_slice_pos.create_param_arrays(device=device_obj)
             opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('slice_pos_cm_ls'))
@@ -585,7 +644,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         if kwargs['optimize_free_prop']:
             optimizer_options_free_prop = {'step_size': kwargs['free_prop_learning_rate']}
             opt_free_prop = AdamOptimizer('free_prop_cm', optimizable_params['free_prop_cm'].shape, output_folder=output_folder,
-                                          options_dict=optimizer_options_free_prop)
+                                          options_dict=optimizer_options_free_prop, forward_model=forward_model)
             opt_free_prop.create_param_arrays(device=device_obj)
             opt_free_prop.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('free_prop_cm'))
@@ -594,7 +653,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_tilt']:
         optimizer_options_tilt = {'step_size': kwargs['tilt_learning_rate']}
         opt_tilt = AdamOptimizer('tilt_ls', optimizable_params['tilt_ls'].shape, output_folder=output_folder,
-                                 options_dict=optimizer_options_tilt)
+                                 options_dict=optimizer_options_tilt, forward_model=forward_model)
         opt_tilt.create_param_arrays(device=device_obj)
         opt_tilt.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('tilt_ls'))
@@ -603,7 +662,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_prj_affine']:
         optimizer_options_prj_scale = {'step_size': kwargs['prj_affine_learning_rate']}
         opt_prj_affine = AdamOptimizer('prj_affine_ls', optimizable_params['prj_affine_ls'].shape, output_folder=output_folder,
-                                       options_dict=optimizer_options_prj_scale)
+                                       options_dict=optimizer_options_prj_scale, forward_model=forward_model)
         opt_prj_affine.create_param_arrays(device=device_obj)
         opt_prj_affine.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
@@ -612,7 +671,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_ctf_lg_kappa']:
         optimizer_options_ctf_lg_kappa = {'step_size': kwargs['ctf_lg_kappa_learning_rate']}
         opt_ctf_lg_kappa = AdamOptimizer('ctf_lg_kappa', optimizable_params['ctf_lg_kappa'].shape, output_folder=output_folder,
-                                         options_dict=optimizer_options_ctf_lg_kappa)
+                                         options_dict=optimizer_options_ctf_lg_kappa, forward_model=forward_model)
         opt_ctf_lg_kappa.create_param_arrays(device=device_obj)
         opt_ctf_lg_kappa.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('ctf_lg_kappa'))

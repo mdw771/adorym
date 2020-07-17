@@ -499,13 +499,11 @@ def reconstruct_ptychography(
         else:
             if alpha_d not in [0, None]: forward_model.add_l1_norm(alpha_d, alpha_b)
         if gamma not in [0, None]: forward_model.add_tv(gamma)
-        if optimizer == 'cg':
-            opt.options_dict['forward_model'] = forward_model
 
         # ================================================================================
         # Create gradient class.
         # ================================================================================
-        gradient = Gradient(obj)
+        gradient = Gradient(obj, forward_model=forward_model)
         if distribution_mode == 'shared_file':
             gradient.create_file_object()
             gradient.initialize_gradient_file()
@@ -1018,7 +1016,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     if distribution_mode is None and optimize_object:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr, i_full_angle, **opt.options_dict)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, **opt.options_dict)
                         if optimizer == 'curveball' and i_batch % 10 == 0:
                              opt.update_lambda(forward_model, grad_func_args)
                 if distribution_mode is None:
@@ -1087,7 +1085,7 @@ def reconstruct_ptychography(
                         opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient.arr / n_ranks, i_full_angle, use_numpy=True, **optimizer_options_obj)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, use_numpy=True, **optimizer_options_obj)
                         gradient.initialize_distributed_array_with_zeros(dtype=cache_dtype)
 
                     comm.Barrier()
