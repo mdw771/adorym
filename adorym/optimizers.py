@@ -291,6 +291,58 @@ class AdamOptimizer(Optimizer):
         global_settings.backend = backend_temp
 
 
+class MomentumOptimizer(Optimizer):
+
+    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(MomentumOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['v'],
+                                          distribution_mode=distribution_mode, options_dict=options_dict,
+                                          forward_model=forward_model)
+        return
+
+    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, gamma=0.9, use_numpy=False, **kwargs):
+        """
+        Use calculated gradient to update the variable being optimized.
+        :param x: Array or Tensor of the optimized variable.
+        :param gradient: Array or adorym.Gradient. If optimizer is CG, the ForwardModel instance (which is needed for
+            providing loss function for line search) can be supplied through the Gradient instance. Otherwise, it must
+            be specified when the optimizer is instantiated.
+        :param i_batch: Int. User-specifiable step number. When minibatching localized data using optimizers like
+            Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
+            gradient.
+        """
+        if self.distribution_mode == 'shared_file':
+            v = self.params_chunk_array_dict['v']
+        else:
+            v = self.params_whole_array_dict['v']
+        g = self.convert_gradient(gradient)
+        v = self.params_whole_array_dict['v']
+        v = gamma * v + step_size * g
+        x = x - v
+        if self.distribution_mode == 'shared_file':
+            self.params_chunk_array_dict['v'] = v
+        else:
+            self.params_whole_array_dict['v'] = v
+        return x
+
+    def apply_gradient_to_file(self, obj, gradient, i_batch=None, step_size=0.001, gamma=0.9, **kwargs):
+
+        assert isinstance(obj, ObjectFunction)
+        assert isinstance(gradient, Gradient)
+        s = obj.dset.shape
+        slice_ls = range(rank, s[0], n_ranks)
+        if i_batch is None: i_batch = self.i_batch
+
+        backend_temp = global_settings.backend
+        global_settings.backend = 'autograd'
+        for i_slice in slice_ls:
+            x = obj.dset[i_slice]
+            g = gradient.dset[i_slice]
+            x = self.apply_gradient(x, g, i_batch, step_size=step_size, gamma=gamma)
+            obj.dset[i_slice] = x
+        self.i_batch += 1
+        global_settings.backend = backend_temp
+
+
 class GDOptimizer(Optimizer):
 
     def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
