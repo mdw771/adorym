@@ -1132,7 +1132,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Save intermediate object.
                 # ================================================================================
-                if save_intermediate and ((save_intermediate_level == 'epoch' and i_batch == 0) \
+                if save_intermediate and ((save_intermediate_level == 'epoch' and i_batch == n_batch - 1) \
                 or save_intermediate_level == 'batch'):
                     create_directory_multirank(os.path.join(output_folder, 'intermediate', 'object'))
                     create_parameter_output_folders(opt_ls, output_folder)
