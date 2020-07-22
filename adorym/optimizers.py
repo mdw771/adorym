@@ -182,23 +182,23 @@ class Optimizer(object):
         return
 
     def read_chunks_from_distributed_object(self, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False, dtype='float32'):
+                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False, dtype='float32', n_split='auto'):
         p_dict = self.params_whole_array_dict if not apply_to_arr_rot else self.params_whole_array_rot_dict
         for param_name, arr in p_dict:
             arr = get_subblocks_from_distributed_object_mpi(arr, self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                             minibatch_size, probe_size, self.whole_object_size,
-                                                            unknown_type, output_folder=self.output_folder, dtype=dtype)
+                                                            unknown_type, output_folder=self.output_folder, dtype=dtype, n_split=n_split)
             arr = w.create_variable(arr, device=device)
         return arr
 
     def sync_chunks_to_distributed_object(self, arr, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                          probe_size, dtype='float32'):
+                                          probe_size, dtype='float32', n_split='auto'):
         arr = np.array(arr)
         for param_name, params_arr in self.params_whole_array_dict:
             self.params_whole_array_dict[param_name] = sync_subblocks_among_distributed_object_mpi(arr, params_arr,
                                                            self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                            minibatch_size, probe_size, self.whole_object_size,
-                                                           output_folder=self.output_folder, dtype='float32')
+                                                           output_folder=self.output_folder, dtype='float32', n_split=n_split)
 
     def set_index_in_grad_return(self, ind):
         self.index_in_grad_returns = ind

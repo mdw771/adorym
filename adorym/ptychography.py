@@ -109,6 +109,7 @@ def reconstruct_ptychography(
         precalculate_rotation_coords=True,
         cache_dtype='float32',
         rotate_out_of_loop=False,
+        n_split_mpi_ata='auto', # Number of segments that the arrays should be split into for MPI AlltoAll
         # Applies to simple data parallelism mode only. If True, DP will do rotation outside the loss function
         # and the rotated object function is sent for differentiation. May reduce the number
         # of rotation operations if minibatch_size < n_tiles_per_angle, but object can be updated once only after
@@ -876,23 +877,23 @@ def reconstruct_ptychography(
                                                                               this_ind_batch_allranks,
                                                                               minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
                                                                               device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
-                                                                              dtype=cache_dtype)
+                                                                              dtype=cache_dtype, n_split=n_split_mpi_ata)
                             if optimizer == 'curveball':
                                 opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
-                                                                                  this_ind_batch_allranks,
-                                                                                  minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
-                                                                                  device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
-                                                                                  dtype=cache_dtype)
+                                                                                      this_ind_batch_allranks,
+                                                                                      minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
+                                                                                      device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                                      dtype=cache_dtype, n_split=n_split_mpi_ata)
                         else:
                             obj_rot = obj.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
                                                                               minibatch_size, probe_size, device=device_obj,
                                                                               unknown_type=unknown_type, apply_to_arr_rot=True,
-                                                                              dtype=cache_dtype)
+                                                                              dtype=cache_dtype, n_split=n_split_mpi_ata)
                             if optimizer == 'curveball':
                                 opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
-                                                                              minibatch_size, probe_size, device=device_obj,
-                                                                              unknown_type=unknown_type, apply_to_arr_rot=True,
-                                                                              dtype=cache_dtype)
+                                                                                      minibatch_size, probe_size, device=device_obj,
+                                                                                      unknown_type=unknown_type, apply_to_arr_rot=True,
+                                                                                      dtype=cache_dtype, n_split=n_split_mpi_ata)
                     comm.Barrier()
                     print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), sto_rank, rank, **stdout_options)
                     obj.chunks = obj_rot
@@ -959,7 +960,7 @@ def reconstruct_ptychography(
                     obj_grads = grads[0]
                     t_grad_write_0 = time.time()
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
-                                                               minibatch_size, probe_size, dtype=cache_dtype)
+                                                               minibatch_size, probe_size, dtype=cache_dtype, n_split=n_split_mpi_ata)
                     comm.Barrier()
                     print_flush('  Gradient syncing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)

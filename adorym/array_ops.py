@@ -66,10 +66,12 @@ class LargeArray(object):
         return obj
 
     def read_chunks_from_distributed_object(self, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False, dtype='float32'):
+                                            probe_size, device=None, unknown_type='delta_beta', apply_to_arr_rot=False,
+                                            dtype='float32', n_split='auto'):
         a = self.arr if not apply_to_arr_rot else self.arr_rot
         obj = get_subblocks_from_distributed_object_mpi(a, self.slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                                    probe_size, self.full_size, unknown_type, output_folder=self.output_folder, dtype=dtype)
+                                                    probe_size, self.full_size, unknown_type, output_folder=self.output_folder,
+                                                    dtype=dtype, n_split=n_split)
         obj = w.create_variable(obj, device=device)
         return obj
 
@@ -136,11 +138,11 @@ class LargeArray(object):
                                 probe_size, self.full_size, monochannel=self.monochannel, dtype='float32')
 
     def sync_chunks_to_distributed_object(self, obj, probe_pos, this_ind_batch_allranks, minibatch_size,
-                                          probe_size, dtype='float32'):
+                                          probe_size, dtype='float32', n_split='auto'):
         obj = np.array(obj)
         self.arr = sync_subblocks_among_distributed_object_mpi(obj, self.arr, self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                        minibatch_size, probe_size, self.full_size,
-                                                       output_folder=self.output_folder, dtype='float32')
+                                                       output_folder=self.output_folder, dtype='float32', n_split=n_splits)
 
 
 class ObjectFunction(LargeArray):
