@@ -768,9 +768,21 @@ def initialize_hdf5_with_arrays(dset, rank, n_ranks, init_delta, init_beta, dtyp
     return None
 
 
+def print_alltoall_data_shape(chunk_batch_ls_ls, i_split=0):
+    for ii in range(len(chunk_batch_ls_ls[i_split])):
+        if chunk_batch_ls_ls[i_split][ii] is not None:
+            for iii in range(len(chunk_batch_ls_ls[i_split][ii])):
+                print_flush('Source rank: {}; target rank: {}; chunk {}; shape: {}.'.format(
+                    rank, ii, iii, chunk_batch_ls_ls[i_split][ii][iii].shape))
+        else:
+            print_flush('Source rank: {}; target rank: {}; chunk {}; shape: {}.'.format(
+                rank, ii, iii, chunk_batch_ls_ls[i_split][ii]), 0, 0)
+    return
+
+
 def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, this_ind_batch_allranks, minibatch_size,
                                               probe_size, whole_object_size, unknown_type='delta_beta', output_folder='.',
-                                              n_split='auto', dtype='float32'):
+                                              n_split='auto', dtype='float32', debug=False):
 
     if n_split == 'auto':
         chunk_thickness = ceil(whole_object_size[0] / n_ranks)
@@ -818,11 +830,8 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
     # Broadcast data.
     for i_split in range(n_split):
+        if debug: print_alltoall_data_shape(chunk_batch_ls_ls, i_split=i_split)
         chunk_batch_ls_ls[i_split] = comm.alltoall(chunk_batch_ls_ls[i_split])
-    # for i_rank in range(n_ranks):
-    #     buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
-    #     if buf is not None:of
-    #         chunk_batch_ls[i_rank] = buf
     chunk_batch_ls = []
     for i_rank in range(n_ranks):
         if chunk_batch_ls_ls[0][i_rank] is None:
@@ -890,8 +899,7 @@ def get_subblocks_from_distributed_object_mpi(obj, slice_catalog, probe_pos, thi
 
 def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, probe_pos, this_ind_batch_allranks,
                                                 minibatch_size, probe_size, whole_object_size, output_folder='.', n_split='auto',
-                                                dtype='float32'):
-
+                                                dtype='float32', debug=False):
     s = obj.shape[1:]
     obj = obj.astype(dtype)
 
@@ -938,11 +946,8 @@ def sync_subblocks_among_distributed_object_mpi(obj, my_slab, slice_catalog, pro
 
     # Broadcast data.
     for i_split in range(n_split):
+        if debug: print_alltoall_data_shape(chunk_batch_ls_ls, i_split=i_split)
         chunk_batch_ls_ls[i_split] = comm.alltoall(chunk_batch_ls_ls[i_split])
-    # for i_rank in range(n_ranks):
-    #     buf = comm.scatter(chunk_batch_send_ls, root=i_rank)
-    #     if buf is not None:
-    #         chunk_batch_ls[i_rank] = buf
     chunk_batch_ls = []
     for i_rank in range(n_ranks):
         if chunk_batch_ls_ls[0][i_rank] is None:
