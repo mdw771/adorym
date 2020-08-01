@@ -142,7 +142,7 @@ class LargeArray(object):
         obj = np.array(obj)
         self.arr = sync_subblocks_among_distributed_object_mpi(obj, self.arr, self.slice_catalog, probe_pos, this_ind_batch_allranks,
                                                        minibatch_size, probe_size, self.full_size,
-                                                       output_folder=self.output_folder, dtype='float32', n_split=n_splits)
+                                                       output_folder=self.output_folder, dtype='float32', n_split=n_split)
 
 
 class ObjectFunction(LargeArray):
