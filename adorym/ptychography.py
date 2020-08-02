@@ -782,6 +782,15 @@ def reconstruct_ptychography(
             for i_batch in range(starting_batch, n_batch):
 
                 # ================================================================================
+                # Time limit check.
+                # ================================================================================
+                t_elapsed = (time.time() - t_zero) / 60
+                t_elapsed = comm.bcast(t_elapsed, root=0)
+                if t_max_min is not None and t_elapsed >= t_max_min:
+                    print_flush('Terminating program because maximum time limit is reached.', sto_rank, rank, **stdout_options)
+                    sys.exit()
+
+                # ================================================================================
                 # Initialize batch.
                 # ================================================================================
                 print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), sto_rank, rank, **stdout_options)
@@ -1162,12 +1171,6 @@ def reconstruct_ptychography(
                         w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), sto_rank, rank, **stdout_options)
                 f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
                 f_conv.flush()
-
-                t_elapsed = (time.time() - t_zero) / 60
-                t_elapsed = comm.bcast(t_elapsed, root=0)
-                if t_max_min is not None and t_elapsed >= t_max_min:
-                    print_flush('Terminating program because maximum time limit is reached.', sto_rank, rank, **stdout_options)
-                    sys.exit()
 
                 # ================================================================================
                 # Update full-angle count.
