@@ -840,7 +840,6 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if (not (distribution_mode is None and not rotate_out_of_loop)) and \
                         (this_i_theta != current_i_theta or shared_file_update_flag):
-                    current_i_theta = this_i_theta
                     print_flush('  Rotating dataset...', sto_rank, rank, **stdout_options)
                     t_rot_0 = time.time()
                     if precalculate_rotation_coords:
@@ -865,6 +864,11 @@ def reconstruct_ptychography(
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
                     print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
+
+
+                if this_i_theta != current_i_theta:
+                    current_i_theta = this_i_theta
+
 
                 if distribution_mode:
                     # ================================================================================
