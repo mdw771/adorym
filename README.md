@@ -155,6 +155,7 @@ parameters:
 |`optimize_object`|Bool|`True`|Keep True in most cases. Setting to False forbids the object from being updated using gradients, which might be desirable when you just want to refine parameters for other reconstruction algorithms. 
 |`optimizer`|String|`'adam'`|Optimizer type for updating the object function. Choosen from `'adam'` or `'gd'` (steepest gradient descent). You may also try `'curveball'` but it is still experimental and supports only data parallelism mode. 
 |`learning_rate`|Float|`1e-5`|Learning rate, or step size of the chosen optimizer for the object function. Ignored if `optimizer` is `'curveball'`.
+|`optimizer_batch_number_increment`|String|`'angle'`|Applies to optimizers that use the current batch number for calculation, such as Adam. If `'angle'`, batch number passed to optimizer increments after each angle. This is recommended for 2D reconstruction. If `'batch'`, it increases after each batch. This is recommended for 3D reconstruction. If `distribution_mode` is not `None`, `'batch'` behaves the same as `'angle'`.
 
 #### Finite support constraint
 

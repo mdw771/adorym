@@ -63,6 +63,9 @@ def reconstruct_ptychography(
         optimizer='adam', # Choose from 'gd' or 'adam' or 'curveball'
         learning_rate=1e-5,
         update_using_external_algorithm=None,
+        # Applies to optimizers that use the current batch number for calculation, such as Adam. If 'angle', batch
+        # number passed to optimizer increments after each angle. If 'batch', it increases after each batch.
+        optimizer_batch_number_increment='angle',
         # ___________________________
         # |Finite support constraint|___________________________________________
         finite_support_mask_path=None, shrink_cycle=None, shrink_threshold=1e-9,
@@ -703,7 +706,7 @@ def reconstruct_ptychography(
         # ================================================================================
         cont = True
         i_epoch = starting_epoch
-        i_full_angle = 0
+        i_opt_batch = 0
         while cont:
             t0 = time.time()
 
@@ -1040,7 +1043,7 @@ def reconstruct_ptychography(
                             obj.arr = opt.apply_gradient(obj.arr, forward_model=forward_model, differentiator=diff,
                                                          method=opt.options_dict['method'], options=opt.options_dict['options'])
                         else:
-                            obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, **opt.options_dict)
+                            obj.arr = opt.apply_gradient(obj.arr, gradient, i_opt_batch, **opt.options_dict)
                         if optimizer == 'curveball' and i_batch % 10 == 0:
                              opt.update_lambda(forward_model, grad_func_args)
                 if distribution_mode is None:
@@ -1106,10 +1109,10 @@ def reconstruct_ptychography(
 
                     t_apply_grad_0 = time.time()
                     if distribution_mode == 'shared_file' and optimize_object:
-                        opt.apply_gradient_to_file(obj, gradient, i_batch=i_full_angle, **optimizer_options_obj)
+                        opt.apply_gradient_to_file(obj, gradient, i_batch=i_opt_batch, **optimizer_options_obj)
                         gradient.initialize_gradient_file()
                     elif distribution_mode == 'distributed_object' and obj.arr is not None and optimize_object:
-                        obj.arr = opt.apply_gradient(obj.arr, gradient, i_full_angle, use_numpy=True, **optimizer_options_obj)
+                        obj.arr = opt.apply_gradient(obj.arr, gradient, i_opt_batch, use_numpy=True, **optimizer_options_obj)
                         gradient.initialize_distributed_array_with_zeros(dtype=cache_dtype)
 
                     comm.Barrier()
@@ -1177,9 +1180,13 @@ def reconstruct_ptychography(
                 f_conv.flush()
 
                 # ================================================================================
-                # Update full-angle count.
+                # Update object optimizer's count.
                 # ================================================================================
-                if i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != current_i_theta: i_full_angle += 1
+                if optimizer_batch_number_increment == 'angle':
+                    if i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != current_i_theta:
+                        i_opt_batch += 1
+                elif optimizer_batch_number_increment == 'batch':
+                    i_opt_batch += 1
 
             # ================================================================================
             # Stopping criterion.
