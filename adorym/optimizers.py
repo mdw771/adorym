@@ -31,7 +31,7 @@ rank = comm.Get_rank()
 
 class Optimizer(object):
 
-    def __init__(self, name, whole_object_size, output_folder='.', params_list=(), distribution_mode=None,
+    def __init__(self, name, output_folder='.', params_list=(), distribution_mode=None,
                  options_dict=None, forward_model=None):
         """
         :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
@@ -42,7 +42,6 @@ class Optimizer(object):
         """
         self.name = name
         self.forward_model = forward_model
-        self.whole_object_size = whole_object_size
         self.output_folder = output_folder
         self.params_list = params_list
         self.params_dset_dict = {}
@@ -57,19 +56,21 @@ class Optimizer(object):
         self.distribution_mode = distribution_mode
         self.options_dict = options_dict
         self.grads = None # Object gradient should be saved in Gradient class, not here.
-        if distribution_mode == 'distributed_object':
-            self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         return
 
-    def create_container(self, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
+    def create_container(self, whole_object_size, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
+        if self.distribution_mode == 'distributed_object':
+            self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
+        self.whole_object_size = whole_object_size
         if self.distribution_mode == 'shared_file':
-            self.create_file_objects(use_checkpoint=use_checkpoint)
+            self.create_file_objects(whole_object_size, use_checkpoint=use_checkpoint)
         elif self.distribution_mode == 'distributed_object':
-            self.create_distributed_param_arrays(use_numpy=use_numpy, dtype=dtype)
+            self.create_distributed_param_arrays(whole_object_size, use_numpy=use_numpy, dtype=dtype)
         elif self.distribution_mode is None:
-            self.create_param_arrays(device=device_obj)
+            self.create_param_arrays(whole_object_size, device=device_obj)
 
-    def create_file_objects(self, use_checkpoint=False):
+    def create_file_objects(self, whole_object_size, use_checkpoint=False):
+        self.whole_object_size = whole_object_size
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 fmode = 'a' if use_checkpoint else 'w'
@@ -87,14 +88,16 @@ class Optimizer(object):
                 self.params_dset_dict[param_name] = dset_p
         return
 
-    def create_param_arrays(self, device=None, use_numpy=False):
+    def create_param_arrays(self, whole_object_size, device=None, use_numpy=False):
+        self.whole_object_size = whole_object_size
         malias = np if use_numpy else w
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
         return
 
-    def create_distributed_param_arrays(self, use_numpy=False, dtype='float32'):
+    def create_distributed_param_arrays(self, whole_object_size, use_numpy=False, dtype='float32'):
+        self.whole_object_size = whole_object_size
         malias = np if use_numpy else w
         if len(self.params_list) > 0 and self.slice_catalog[rank] is not None:
             for param_name in self.params_list:
@@ -214,8 +217,8 @@ class Optimizer(object):
 
 class AdamOptimizer(Optimizer):
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(AdamOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['m', 'v'],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(AdamOptimizer, self).__init__(name, output_folder=output_folder, params_list=['m', 'v'],
                                             distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         return
 
@@ -293,8 +296,8 @@ class AdamOptimizer(Optimizer):
 
 class MomentumOptimizer(Optimizer):
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(MomentumOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['v'],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(MomentumOptimizer, self).__init__(name, output_folder=output_folder, params_list=['v'],
                                           distribution_mode=distribution_mode, options_dict=options_dict,
                                           forward_model=forward_model)
         return
@@ -345,8 +348,8 @@ class MomentumOptimizer(Optimizer):
 
 class GDOptimizer(Optimizer):
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(GDOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=[],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(GDOptimizer, self).__init__(name, output_folder=output_folder, params_list=[],
                                           distribution_mode=distribution_mode, options_dict=options_dict,
                                           forward_model=forward_model)
         return
@@ -403,8 +406,8 @@ class CurveballOptimizer(Optimizer):
     This code is adapted from https://github.com/saugatkandel/sopt.
     When working with DO, dz is synchronized in place of gradient.
     """
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(CurveballOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['z'],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(CurveballOptimizer, self).__init__(name, output_folder=output_folder, params_list=['z'],
                                             distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         if distribution_mode == 'shared_file':
             raise NotImplementedError('Curveball does not support shared-file mode yet.')
@@ -495,8 +498,8 @@ class CGOptimizer(Optimizer):
     linesearch_map = {'backtracking': BackTrackingLineSearch,
                       'adaptive': AdaptiveLineSearch}
 
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(CGOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=['descent_dir_old', 's'],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
+        super(CGOptimizer, self).__init__(name, output_folder=output_folder, params_list=['descent_dir_old', 's'],
                                           distribution_mode=distribution_mode, options_dict=options_dict, forward_model=forward_model)
         self.i_line_search_step = 0
         self._diag_precondition_t = None
@@ -578,8 +581,8 @@ class ScipyOptimizer(Optimizer):
     that means these algorithm works well only when there is just 1 minibatch. In that case, also set n_epochs
     to 1 since there is no need for an outer loop.
     """
-    def __init__(self, name, whole_object_size, output_folder='.', distribution_mode=None, options_dict=None):
-        super(ScipyOptimizer, self).__init__(name, whole_object_size, output_folder=output_folder, params_list=[],
+    def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None):
+        super(ScipyOptimizer, self).__init__(name, output_folder=output_folder, params_list=[],
                                           distribution_mode=distribution_mode, options_dict=options_dict)
         return
 
@@ -663,9 +666,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     opt_args_ls = [0]
     if kwargs['optimize_probe']:
         optimizer_options_probe = {'step_size': kwargs['probe_learning_rate']}
-        opt_probe = AdamOptimizer('probe', [n_probe_modes, *probe_size, 2], output_folder=output_folder,
+        opt_probe = AdamOptimizer('probe', output_folder=output_folder,
                                   options_dict=optimizer_options_probe, forward_model=forward_model)
-        opt_probe.create_param_arrays(device=device_obj)
+        opt_probe.create_param_arrays([n_probe_modes, *probe_size, 2], device=device_obj)
         opt_probe.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'),
                                      forward_model.get_argument_index('probe_imag')]
@@ -674,9 +677,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     # Except probe, optimizer name must match the name of the variable to be optimized.
     if kwargs['optimize_probe_defocusing']:
         optimizer_options_probe_defocus = {'step_size': kwargs['probe_defocusing_learning_rate']}
-        opt_probe_defocus = AdamOptimizer('probe_defocus_mm', [1], output_folder=output_folder,
+        opt_probe_defocus = AdamOptimizer('probe_defocus_mm', output_folder=output_folder,
                                           options_dict=optimizer_options_probe_defocus, forward_model=forward_model)
-        opt_probe_defocus.create_param_arrays(device=device_obj)
+        opt_probe_defocus.create_param_arrays([1], device=device_obj)
         opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_defocus_mm'))
         opt_ls.append(opt_probe_defocus)
@@ -688,9 +691,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         #                                    options_dict=optimizer_options_probe_pos_offset, forward_model=forward_model)
         optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate'],
                                               'dynamic_rate': False}
-        opt_probe_pos_offset = GDOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
+        opt_probe_pos_offset = GDOptimizer('probe_pos_offset', output_folder=output_folder,
                                            options_dict=optimizer_options_probe_pos_offset)
-        opt_probe_pos_offset.create_param_arrays(device=device_obj)
+        opt_probe_pos_offset.create_param_arrays(optimizable_params['probe_pos_offset'].shape, device=device_obj)
         opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
         opt_ls.append(opt_probe_pos_offset)
@@ -698,9 +701,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_all_probe_pos']:
         assert kwargs['optimize_probe_pos_offset'] == False
         optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
-        opt_probe_pos = AdamOptimizer('probe_pos_correction', optimizable_params['probe_pos_correction'].shape, output_folder=output_folder,
+        opt_probe_pos = AdamOptimizer('probe_pos_correction', output_folder=output_folder,
                                       options_dict=optimizer_options_probe_pos, forward_model=forward_model)
-        opt_probe_pos.create_param_arrays(device=device_obj)
+        opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj)
         opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
         opt_ls.append(opt_probe_pos)
@@ -708,9 +711,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['is_sparse_multislice']:
         if kwargs['optimize_slice_pos']:
             optimizer_options_slice_pos = {'step_size': kwargs['slice_pos_learning_rate']}
-            opt_slice_pos = AdamOptimizer('slice_pos_cm_ls', optimizable_params['slice_pos_cm_ls'].shape, output_folder=output_folder,
+            opt_slice_pos = AdamOptimizer('slice_pos_cm_ls', output_folder=output_folder,
                                           options_dict=optimizer_options_slice_pos, forward_model=forward_model)
-            opt_slice_pos.create_param_arrays(device=device_obj)
+            opt_slice_pos.create_param_arrays(optimizable_params['slice_pos_cm_ls'].shape, device=device_obj)
             opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('slice_pos_cm_ls'))
             opt_ls.append(opt_slice_pos)
@@ -718,36 +721,36 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['is_multi_dist']:
         if kwargs['optimize_free_prop']:
             optimizer_options_free_prop = {'step_size': kwargs['free_prop_learning_rate']}
-            opt_free_prop = AdamOptimizer('free_prop_cm', optimizable_params['free_prop_cm'].shape, output_folder=output_folder,
+            opt_free_prop = AdamOptimizer('free_prop_cm', output_folder=output_folder,
                                           options_dict=optimizer_options_free_prop, forward_model=forward_model)
-            opt_free_prop.create_param_arrays(device=device_obj)
+            opt_free_prop.create_param_arrays(optimizable_params['free_prop_cm'].shape, device=device_obj)
             opt_free_prop.set_index_in_grad_return(len(opt_args_ls))
             opt_args_ls.append(forward_model.get_argument_index('free_prop_cm'))
             opt_ls.append(opt_free_prop)
 
     if kwargs['optimize_tilt']:
         optimizer_options_tilt = {'step_size': kwargs['tilt_learning_rate']}
-        opt_tilt = AdamOptimizer('tilt_ls', optimizable_params['tilt_ls'].shape, output_folder=output_folder,
+        opt_tilt = AdamOptimizer('tilt_ls', output_folder=output_folder,
                                  options_dict=optimizer_options_tilt, forward_model=forward_model)
-        opt_tilt.create_param_arrays(device=device_obj)
+        opt_tilt.create_param_arrays(optimizable_params['tilt_ls'].shape, device=device_obj)
         opt_tilt.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('tilt_ls'))
         opt_ls.append(opt_tilt)
 
     if kwargs['optimize_prj_affine']:
         optimizer_options_prj_scale = {'step_size': kwargs['prj_affine_learning_rate']}
-        opt_prj_affine = AdamOptimizer('prj_affine_ls', optimizable_params['prj_affine_ls'].shape, output_folder=output_folder,
+        opt_prj_affine = AdamOptimizer('prj_affine_ls', output_folder=output_folder,
                                        options_dict=optimizer_options_prj_scale, forward_model=forward_model)
-        opt_prj_affine.create_param_arrays(device=device_obj)
+        opt_prj_affine.create_param_arrays(optimizable_params['prj_affine_ls'].shape, device=device_obj)
         opt_prj_affine.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('prj_affine_ls'))
         opt_ls.append(opt_prj_affine)
 
     if kwargs['optimize_ctf_lg_kappa']:
         optimizer_options_ctf_lg_kappa = {'step_size': kwargs['ctf_lg_kappa_learning_rate']}
-        opt_ctf_lg_kappa = AdamOptimizer('ctf_lg_kappa', optimizable_params['ctf_lg_kappa'].shape, output_folder=output_folder,
+        opt_ctf_lg_kappa = AdamOptimizer('ctf_lg_kappa', output_folder=output_folder,
                                          options_dict=optimizer_options_ctf_lg_kappa, forward_model=forward_model)
-        opt_ctf_lg_kappa.create_param_arrays(device=device_obj)
+        opt_ctf_lg_kappa.create_param_arrays(optimizable_params['ctf_lg_kappa'].shape, device=device_obj)
         opt_ctf_lg_kappa.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('ctf_lg_kappa'))
         opt_ls.append(opt_ctf_lg_kappa)
@@ -785,7 +788,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
     other_params_update_delay = kwargs['other_params_update_delay']
     probe_update_delay = kwargs['probe_update_delay']
     probe_update_limit = kwargs['probe_update_limit']
-    i_full_angle = kwargs['i_full_angle']
+    i_full_angle = kwargs['i_opt_batch']
     stdout_options = kwargs['stdout_options']
 
     if probe_update_limit is None:

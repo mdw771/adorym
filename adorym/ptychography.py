@@ -384,31 +384,35 @@ def reconstruct_ptychography(
         # ================================================================================
         if optimizer == 'adam':
             optimizer_options_obj = {'step_size': learning_rate}
-            opt = AdamOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                 options_dict=optimizer_options_obj)
         elif optimizer == 'gd':
             optimizer_options_obj = {'step_size': learning_rate,
                                      'dynamic_rate': True,
                                      'first_downrate_iteration': 20}
-            opt = GDOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = GDOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
         elif optimizer == 'curveball':
             optimizer_options_obj = {}
-            opt = CurveballOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = CurveballOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
         elif optimizer == 'cg':
             optimizer_options_obj = {'step_size': learning_rate}
-            opt = CGOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder, distribution_mode=distribution_mode,
+            opt = CGOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                              options_dict=optimizer_options_obj)
+        elif optimizer == 'momentum':
+            optimizer_options_obj = {'step_size': learning_rate}
+            opt = MomentumOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                               options_dict=optimizer_options_obj)
         elif optimizer == 'scipy':
             if distribution_mode is not None or backend != 'autograd':
                 raise NotImplementedError('ScipyOptimizer supports only data parallelism and Autograd backend.')
             optimizer_options_obj = {'method': 'CG', 'options': {'maxiter': 20}}
-            opt = ScipyOptimizer('obj', [*this_obj_size, 2], output_folder=output_folder,
+            opt = ScipyOptimizer('obj', output_folder=output_folder,
                                  distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
         else:
             raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
-        opt.create_container(use_checkpoint, device_obj, use_numpy=True)
+        opt.create_container([*this_obj_size, 2], use_checkpoint, device_obj, use_numpy=True)
         opt.set_index_in_grad_return(0)
         opt_ls = [opt]
 
