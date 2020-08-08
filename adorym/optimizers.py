@@ -683,9 +683,13 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
 
     if kwargs['optimize_probe_pos_offset']:
         assert kwargs['optimize_all_probe_pos'] == False
-        optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate']}
-        opt_probe_pos_offset = AdamOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
-                                           options_dict=optimizer_options_probe_pos_offset, forward_model=forward_model)
+        # optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate']}
+        # opt_probe_pos_offset = AdamOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
+        #                                    options_dict=optimizer_options_probe_pos_offset, forward_model=forward_model)
+        optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate'],
+                                              'dynamic_rate': False}
+        opt_probe_pos_offset = GDOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
+                                           options_dict=optimizer_options_probe_pos_offset)
         opt_probe_pos_offset.create_param_arrays(device=device_obj)
         opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
