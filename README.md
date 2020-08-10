@@ -153,7 +153,7 @@ parameters:
 | **Arg name** | **Type** | **Default** | **Description** |
 | ------------ | -------- | ---------- | ----------------|
 |`optimize_object`|Bool|`True`|Keep True in most cases. Setting to False forbids the object from being updated using gradients, which might be desirable when you just want to refine parameters for other reconstruction algorithms. 
-|`optimizer`|String|`'adam'`|Optimizer type for updating the object function. Choosen from `'adam'` or `'gd'` (steepest gradient descent). You may also try `'curveball'` but it is still experimental and supports only data parallelism mode. 
+|`optimizer`|`adorym.Optimizer` or String|`'adam'`|Either a predeclared `adorym.Optimizer` class, or choose from `'adam'`, `'gd'` (steepest gradient descent), `'momentum'`, or `'cg'`. You may also try `'curveball'` but it is still experimental and supports only data parallelism mode. 
 |`learning_rate`|Float|`1e-5`|Learning rate, or step size of the chosen optimizer for the object function. Ignored if `optimizer` is `'curveball'`.
 |`optimizer_batch_number_increment`|String|`'angle'`|Applies to optimizers that use the current batch number for calculation, such as Adam. If `'angle'`, batch number passed to optimizer increments after each angle. This is recommended for 2D reconstruction. If `'batch'`, it increases after each batch. This is recommended for 3D reconstruction. If `distribution_mode` is not `None`, `'batch'` behaves the same as `'angle'`.
 
@@ -231,22 +231,31 @@ parameters:
 | ------------ | -------- | ----------- | ----------------|
 |`optimize_probe`|Bool|`False`|Whether to optimize the probe function.
 |`probe_learning_rate`|Float|`1e-5`|Probe optimization step size.
-|`optimize_probe_defocuing`|Bool|`False`|Whether to optimize the defocusing distance of the probe.
+|`optimizer_probe`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
+|`optimize_probe_defocusing`|Bool|`False`|Whether to optimize the defocusing distance of the probe.
 |`probe_defocusing_learning_rate`|Float|`1e-5`|Probe defocusing optimization step size.
+|`optimizer_probe_defocusing`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_probe_pos_offset`|Bool|`False`|Whether to optimize the offset to probe positions. This is intended to correct for the x-y drifting of the sample stage at different angles. When turned on, the program creates an array with shape `[n_rotation_angles, 2]`. When processing data from a certain viewing angle, the positions of all diffraction spots are shifted by the value corresponding to that angle. The offset array is optimized by the optimizer along with the object function.
 |`probe_pos_offset_learning_rate`|Float|`1e-2`|Probe offset overlap.
+|`optimizer_probe_pos_offset`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_all_probe_pos`|Bool|`False`|Whether to optimize the probe positions at all angles. When turned on, the optimizer tries to optimize an array with shape `[n_rotation_angles, n_diffraction_spots, 2]`, which stores the correction values applied to each probe position at all viewing angles. Not recommended for ptychotomography with many viewing angles as it significantly increases the unknwon space to be searched, making the problem less well constrained.
 |`all_probe_pos_learning_rate`|Float|`1e-2`|All probe position optimization step size.
+|`optimizer_all_probe_pos`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_slice_pos`|Bool|`False`|Whether to optimize slice positions. Used for sparse multislice ptychography where slice spacings are not uniform.
 |`slice_pos_learning_rate`|Float|`1e-4`|Slice position optimization step size.
+|`optimizer_slice_pos`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_free_prop`|Bool|`False`|Whether to optimize free propagation distances.
 |`free_prop_learning_rate`|Float|`1e-2`|Free propagation distance optimization step size. 
+|`optimizer_free_prop`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_prj_affine`|Bool|`False`|Whether to optimize the affine alignment of holograms. Used for multi-distance holography.
 |`prj_affine_learning_rate`|Float|`1e-3`|Affine alignment step size.
+|`optimizer_prj_affine`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_tilt`|Bool|`False`|Whether to optimize object tilt in all 3 axes. Works only with data parallelism mode.
 |`tilt_learning_rate`|Float|`1e-3`|Tilt optimization step size. 
+|`optimizer_tilt`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`optimize_ctf_lg_kappa`|Bool|`False`|Whether to *enable homogeneity constraint* and optimize coefficient `kappa`, where `beta_slice = delta_slice * kappa`. 
 |`ctf_lg_kappa_learning_rate`|Float|`1e-3`|`kappa` optimization step size. 
+|`optimizer_ctf_lg_kappa`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
 |`other_params_update_delay`|Int|0|If larger than 0, updates of above parameters will not happen until the specified number of minibatches are finished. This setting does not apply to object function.  
 
 #### Other settings
@@ -326,12 +335,32 @@ params = {'fname': 'data.h5',
 
 ### Adding refinable parameters
 
-To add new refinable parameters, (at the current stage) you'll need to add them to the dictionary `optimizable_params`
-in `adorym/ptychography.py`. An optimizer will be created for each refinable parameter in this dictionary 
-by function `create_and_initialize_parameter_optimizers`
-in `adorym/optimizers.py`. If the parameter requires a special rule when it is defined, updated, or outputted, 
-you will also need to explicitly modify `create_and_initialize_parameter_optimizers`, `update_parameters`,
-`create_parameter_output_folders`, and `output_intermediate_parameters`.
+Whenever possible, users who want to create new forward models with new refinable parameters are always 
+recommended to make use of parameter variables existing in the program, because they all have optimizers
+already linked to them. These include the following:
+
+| **Var name** | **Shape** | 
+| ------------ | -------- | 
+|`probe_real`|`[n_modes, tile_len_y, tile_len_x]`|
+|`probe_imag`|`[n_modes, tile_len_y, tile_len_x]`|
+|`probe_defocus_mm`|`[1]`|
+|`probe_pos_offset`|`[n_theta, 2]`|
+|`probe_pos_correction`|`[n_theta, n_tiles_per_angle]`|
+|`slice_pos_cm_ls`|`[n_slices]`|
+|`free_prop_cm`|`[1] or [n_distances]`|
+|`tilt_ls`|`[3, n_theta]`|
+|`prj_affine_ls`|`[n_distances, 2, 3]`|
+|`ctf_lg_kappa`|`[1]`|
+
+Adding new refinable parameters (at the current stage) involves some hard coding. To do that, take the following
+steps:
+1. in `ptychography.py`, find the code block labeled by `"Create variables and optimizers for other parameters (probe, probe defocus, probe positions, etc.)."` In this block, declare the variable use `adorym.wrapper.create_variable`, and add it to the dictionary `optimizable_params`. The name of the variable must match the name of the argument defined in your `ForwardModel` class.
+
+2. In the argument list of `ptychography.reconstruct_ptychography`, add an optimization switch for the new variable. Optionally, also add an variable to hold pre-declared optimizer for this variable, and set the default to `None`.
+
+3. In function `create_and_initialize_parameter_optimizers` within `adorym/optimizers.py`, define how the optimizer of the parameter variable should be defined. You can use the existing optimizer declaration codes for other parameters as a template.
+
+4. If the parameter requires a special rule when it is defined, updated, or outputted, you will also need to explicitly modify `create_and_initialize_parameter_optimizers`, `update_parameters`, `create_parameter_output_folders`, and `output_intermediate_parameters`. 
 
 ## Publications
 The early version of Adorym, which was used to demonstrate 3D reconstruction of continuous object beyond the depth of focus, is published as

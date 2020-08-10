@@ -60,8 +60,8 @@ def reconstruct_ptychography(
         optimize_object=True,
         # Keep True in most cases. Setting to False forbids the object from being updated using gradients, which
         # might be desirable when you just want to refine parameters for other reconstruction algorithms.
-        optimizer='adam', # Choose from 'gd' or 'adam' or 'curveball'
-        learning_rate=1e-5,
+        optimizer='adam', # Provide adorym.Optimizer type, or choose from 'gd' or 'adam' or 'curveball' or 'momentum' or 'cg'
+        learning_rate=1e-5, # Ignored when optimizer is an adorym.Optimizer type
         update_using_external_algorithm=None,
         # Applies to optimizers that use the current batch number for calculation, such as Adam. If 'angle', batch
         # number passed to optimizer increments after each angle. If 'batch', it increases after each batch.
@@ -122,14 +122,14 @@ def reconstruct_ptychography(
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5,
         probe_update_delay=0, probe_update_limit=None,
-        optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
-        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
-        optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
-        optimize_free_prop=False, free_prop_learning_rate=1e-2,
-        optimize_prj_affine=False, prj_affine_learning_rate=1e-3,
-        optimize_tilt=False, tilt_learning_rate=1e-3,
-        optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3,
+        optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
+        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2, optimizer_all_probe_pos=None,
+        optimize_slice_pos=False, slice_pos_learning_rate=1e-4, optimizer_slice_pos=None,
+        optimize_free_prop=False, free_prop_learning_rate=1e-2, optimizer_free_prop=None,
+        optimize_prj_affine=False, prj_affine_learning_rate=1e-3, optimizer_prj_affine=None,
+        optimize_tilt=False, tilt_learning_rate=1e-3, optimizer_tilt=None,
+        optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3, optimizer_ctf_lg_kappa=None,
         other_params_update_delay=0,
         # _________________________
         # |Alternative algorithms |_____________________________________________
@@ -382,36 +382,39 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create object function optimizer.
         # ================================================================================
-        if optimizer == 'adam':
-            optimizer_options_obj = {'step_size': learning_rate}
-            opt = AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
-                                options_dict=optimizer_options_obj)
-        elif optimizer == 'gd':
-            optimizer_options_obj = {'step_size': learning_rate,
-                                     'dynamic_rate': True,
-                                     'first_downrate_iteration': 20}
-            opt = GDOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
-                              options_dict=optimizer_options_obj)
-        elif optimizer == 'curveball':
-            optimizer_options_obj = {}
-            opt = CurveballOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
-                              options_dict=optimizer_options_obj)
-        elif optimizer == 'cg':
-            optimizer_options_obj = {'step_size': learning_rate}
-            opt = CGOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
-                              options_dict=optimizer_options_obj)
-        elif optimizer == 'momentum':
-            optimizer_options_obj = {'step_size': learning_rate}
-            opt = MomentumOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
-                              options_dict=optimizer_options_obj)
-        elif optimizer == 'scipy':
-            if distribution_mode is not None or backend != 'autograd':
-                raise NotImplementedError('ScipyOptimizer supports only data parallelism and Autograd backend.')
-            optimizer_options_obj = {'method': 'CG', 'options': {'maxiter': 20}}
-            opt = ScipyOptimizer('obj', output_folder=output_folder,
-                                 distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
+        if isinstance(optimizer, Optimizer):
+            opt = optimizer
         else:
-            raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
+            if optimizer == 'adam':
+                optimizer_options_obj = {'step_size': learning_rate}
+                opt = AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                    options_dict=optimizer_options_obj)
+            elif optimizer == 'gd':
+                optimizer_options_obj = {'step_size': learning_rate,
+                                         'dynamic_rate': True,
+                                         'first_downrate_iteration': 20}
+                opt = GDOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                  options_dict=optimizer_options_obj)
+            elif optimizer == 'curveball':
+                optimizer_options_obj = {}
+                opt = CurveballOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                  options_dict=optimizer_options_obj)
+            elif optimizer == 'cg':
+                optimizer_options_obj = {'step_size': learning_rate}
+                opt = CGOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                  options_dict=optimizer_options_obj)
+            elif optimizer == 'momentum':
+                optimizer_options_obj = {'step_size': learning_rate}
+                opt = MomentumOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                  options_dict=optimizer_options_obj)
+            elif optimizer == 'scipy':
+                if distribution_mode is not None or backend != 'autograd':
+                    raise NotImplementedError('ScipyOptimizer supports only data parallelism and Autograd backend.')
+                optimizer_options_obj = {'method': 'CG', 'options': {'maxiter': 20}}
+                opt = ScipyOptimizer('obj', output_folder=output_folder,
+                                     distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
+            else:
+                raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
         opt.create_container([*this_obj_size, 2], use_checkpoint, device_obj, use_numpy=True)
         opt.set_index_in_grad_return(0)
         opt_ls = [opt]
