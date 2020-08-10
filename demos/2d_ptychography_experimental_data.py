@@ -1,4 +1,5 @@
 from adorym.ptychography import reconstruct_ptychography
+import adorym
 import numpy as np
 import dxchange
 import datetime
@@ -32,28 +33,28 @@ else:
         print(os.path.join(args.save_path, args.output_folder, 'epoch_{}/delta_ds_1.tiff'.format(epoch - 1)))
         init = [np.array(init_delta[...]), np.array(init_beta[...])]
 
+output_folder = 'test'
+distribution_mode = None
+optimizer_obj = adorym.AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                                     options_dict={'step_size': 1e-3})
+optimizer_probe = adorym.AdamOptimizer('probe', output_folder=output_folder, distribution_mode=distribution_mode,
+                                        options_dict={'step_size': 1e-3, 'eps': 1e-7})
+optimizer_all_probe_pos = adorym.AdamOptimizer('probe_pos_correction', output_folder=output_folder, distribution_mode=distribution_mode,
+                                               options_dict={'step_size': 1e-2})
+
 params_2idd_gpu = {'fname': 'data.h5',
                     'theta_st': 0,
                     'theta_end': 0,
-                    'theta_downsample': None,
                     'n_epochs': 1000,
                     'obj_size': (618, 606, 1),
-                    # 'obj_size': (50, 50, 1),
-                    'alpha_d': 0,
-                    'alpha_b': 0,
-                    'gamma': 0,
                     'two_d_mode': True,
-                    'learning_rate': 1e-3,
-                    'probe_learning_rate': 1e-3,
                     'energy_ev': 8801.121930115722,
                     'psize_cm': 1.32789376566526e-06,
                     'minibatch_size': 35,
-                    'randomize_probe_pos': False,
-                    'n_batch_per_update': 1,
-                    'output_folder': 'test2',
+                    'output_folder': 'test',
+                    # 'output_folder': 'rec_ukp_perline_posopt1_olr1e-3_defoc_modes5',
                     'cpu_only': False,
                     'save_path': '../demos/siemens_star_aps_2idd',
-                    'multiscale_level': 1,
                     'use_checkpoint': False,
                     'n_epoch_final_pass': None,
                     'save_intermediate': True,
@@ -61,7 +62,6 @@ params_2idd_gpu = {'fname': 'data.h5',
                     'initial_guess': None,
                     'random_guess_means_sigmas': (1., 0., 0.001, 0.002),
                     'n_dp_batch': 350,
-                    'optimize_probe': True,
                     # ===============================
                     'probe_type': 'aperture_defocus',
                     'n_probe_modes': 5,
@@ -69,22 +69,16 @@ params_2idd_gpu = {'fname': 'data.h5',
                     'beamstop_radius': 5,
                     'probe_defocus_cm': 0.0069,
                     # ===============================
-                    'probe_initial': None,
                     'rescale_probe_intensity': True,
-                    'forward_algorithm': 'fresnel',
-                    'probe_pos': None,
-                    'finite_support_mask': None,
-                    'shared_file_object': False,
-                    'reweighted_l1': False,
-                    'optimizer': 'adam',
                     'free_prop_cm': 'inf',
                     'backend': 'pytorch',
                     'raw_data_type': 'intensity',
                     'beamstop': None,
-                    #'beamstop': [dxchange.read_tiff('beamstop/beamstop_mask.tiff'), dxchange.read_tiff('beamstop/beamstop_value.tiff')],
-                    'debug': True,
+                    'optimizer': optimizer_obj,
+                    'optimize_probe': True,
+                    'optimizer_probe': optimizer_probe,
                     'optimize_all_probe_pos': True,
-                    'all_probe_pos_learning_rate': 1e-2,
+                    'optimizer_all_probe_pos': optimizer_all_probe_pos,
                     'save_history': True,
                     'update_scheme': 'immediate',
                     'unknown_type': 'real_imag',
