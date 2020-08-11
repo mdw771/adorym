@@ -58,6 +58,12 @@ class Optimizer(object):
         self.grads = None # Object gradient should be saved in Gradient class, not here.
         return
 
+    def __str__(self):
+        s = self.__class__.__name__ + '; '
+        for k in self.options_dict.keys():
+            s = s + k + ': ' + str(self.options_dict[k]) + '; '
+        return s
+
     def create_container(self, whole_object_size, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
         if self.distribution_mode == 'distributed_object':
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
@@ -674,6 +680,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         # of reconstruct_ptychography. Note the difference between 'optimize' and 'optimizer'!
         if kwargs['optimizer_probe'] is not None:
             opt_probe = kwargs['optimizer_probe']
+<<<<<<< HEAD
+            opt_probe.name = 'probe'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         # If a pre-declared optimizer is not given, use the default optimizer and parameter settings.
         else:
             optimizer_options_probe = {'step_size': kwargs['probe_learning_rate']}
@@ -694,6 +704,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_probe_defocusing']:
         if kwargs['optimizer_probe_defocusing'] is not None:
             opt_probe_defocus = kwargs['optimizer_probe_defocusing']
+<<<<<<< HEAD
+            opt_probe_defocus.name = 'probe_defocus_mm'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             optimizer_options_probe_defocus = {'step_size': kwargs['probe_defocusing_learning_rate']}
             opt_probe_defocus = AdamOptimizer('probe_defocus_mm', output_folder=output_folder,
@@ -707,6 +721,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         assert kwargs['optimize_all_probe_pos'] == False
         if kwargs['optimizer_all_probe_pos'] is not None:
             opt_probe_pos_offset = kwargs['optimizer_all_probe_pos']
+<<<<<<< HEAD
+            opt_probe_pos_offset.name = 'probe_pos_offset'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             # optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate']}
             # opt_probe_pos_offset = AdamOptimizer('probe_pos_offset', optimizable_params['probe_pos_offset'].shape, output_folder=output_folder,
@@ -724,6 +742,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         assert kwargs['optimize_probe_pos_offset'] == False
         if kwargs['optimizer_all_probe_pos'] is not None:
             opt_probe_pos = kwargs['optimizer_all_probe_pos']
+<<<<<<< HEAD
+            opt_probe_pos.name = 'probe_pos_correction'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
             opt_probe_pos = AdamOptimizer('probe_pos_correction', output_folder=output_folder,
@@ -737,6 +759,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         if kwargs['optimize_slice_pos']:
             if kwargs['optimizer_slice_pos'] is not None:
                 opt_slice_pos = kwargs['optimizer_slice_pos']
+<<<<<<< HEAD
+                opt_slice_pos.name = 'slice_pos_cm_ls'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
             else:
                 optimizer_options_slice_pos = {'step_size': kwargs['slice_pos_learning_rate']}
                 opt_slice_pos = AdamOptimizer('slice_pos_cm_ls', output_folder=output_folder,
@@ -750,6 +776,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         if kwargs['optimize_free_prop']:
             if kwargs['optimizer_free_prop'] is not None:
                 opt_free_prop = kwargs['optimizer_free_prop']
+<<<<<<< HEAD
+                opt_free_prop.name = 'free_prop_cm'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
             else:
                 optimizer_options_free_prop = {'step_size': kwargs['free_prop_learning_rate']}
                 opt_free_prop = AdamOptimizer('free_prop_cm', output_folder=output_folder,
@@ -762,6 +792,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_tilt']:
         if kwargs['optimizer_tilt'] is not None:
             opt_tilt = kwargs['optimizer_tilt']
+<<<<<<< HEAD
+            opt_tilt.name = 'tilt_ls'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             optimizer_options_tilt = {'step_size': kwargs['tilt_learning_rate']}
             opt_tilt = AdamOptimizer('tilt_ls', output_folder=output_folder,
@@ -774,6 +808,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_prj_affine']:
         if kwargs['optimizer_prj_affine'] is not None:
             opt_prj_affine = kwargs['optimizer_prj_affine']
+<<<<<<< HEAD
+            opt_prj_affine.nmame = 'prj_affine_ls'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             optimizer_options_prj_scale = {'step_size': kwargs['prj_affine_learning_rate']}
             opt_prj_affine = AdamOptimizer('prj_affine_ls', output_folder=output_folder,
@@ -786,6 +824,10 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_ctf_lg_kappa']:
         if kwargs['optimizer_ctf_lg_kappa']:
             opt_ctf_lg_kappa = kwargs['optimizer_ctf_lg_kappa']
+<<<<<<< HEAD
+            opt_ctf_lg_kappa.name = 'ctf_lg_kappa'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             optimizer_options_ctf_lg_kappa = {'step_size': kwargs['ctf_lg_kappa_learning_rate']}
             opt_ctf_lg_kappa = AdamOptimizer('ctf_lg_kappa', output_folder=output_folder,
@@ -830,11 +872,22 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
     probe_update_limit = kwargs['probe_update_limit']
     i_full_angle = kwargs['i_opt_batch']
     stdout_options = kwargs['stdout_options']
+    forward_model = kwargs['forward_model']
+    diff = kwargs['differentiator']
 
     if probe_update_limit is None:
         probe_update_limit = np.inf
 
     for opt in opt_ls:
+
+        if opt.forward_model is None:
+            opt.forward_model = forward_model
+        if isinstance(opt, CurveballOptimizer):
+            diff.get_l_h_hessian_and_h_x_jacobian_mvps(forward_model, 0, **forward_model.loss_args)
+            opt.calculate_dz(diff, use_numpy=True)
+            opt.calculate_beta_rho(diff, use_numpy=True)
+            opt.update_lambda(forward_model, forward_model.loss_args)
+
         if opt.name == 'obj':
             continue
         elif opt.name == 'probe':

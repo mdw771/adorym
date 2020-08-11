@@ -46,7 +46,6 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'output_folder',
                          'theta_downsample',
                          'n_theta',
-                         'n_pos',
                          'n_epochs',
                          'learning_rate',
                          'alpha_d',
@@ -64,14 +63,16 @@ SUMMARY_PRESET_PTYCHO = ['obj_size',
                          'probe_phase_sigma',
                          'probe_phase_max',
                          'probe_learning_rate',
-                         'probe_learning_rate_init',
                          'probe_type',
                          'optimize_probe_defocusing',
                          'probe_defocusing_learning_rate',
+                         'optimizer_probe_defocusing',
                          'optimize_all_probe_pos',
                          'all_probe_pos_learning_rate',
+                         'optimizer_all_probe_pos',
                          'optimize_probe_pos_offset',
                          'probe_pos_offset_learning_rate',
+                         'optimizer_probe_pos_offset',
                          'distribution_mode',
                          'n_ranks',
                          'backend',
@@ -156,13 +157,18 @@ def create_summary(save_path, locals_dict, var_list=None, preset=None, verbose=T
     f = open(os.path.join(save_path, 'summary.txt'), 'w')
     print('============== PARAMETERS ==============')
     for var_name in var_list:
-        try:
-            line = '{:<30}{}\n'.format(var_name, str(locals_dict[var_name]))
-            if verbose:
-                print(line)
-            f.write(line)
-        except:
-            pass
+        if var_name == 'learning_rate' and locals_dict['optimizer'] is not None:
+            continue
+        elif 'learning_rate' in var_name and locals_dict['optimizer_' + var_name[:-14]] is not None:
+            continue
+        else:
+            try:
+                line = '{:<30}{}\n'.format(var_name, str(locals_dict[var_name]))
+                if verbose:
+                    print(line)
+                f.write(line)
+            except:
+                pass
     print('========================================')
     f.close()
     return

@@ -1,5 +1,30 @@
 # Adorym: Automatic Differentiation-based Object Reconstruction with DynaMical Scattering
 
+## Table of contents
+1. [Installation](#installation)
+1. [Quick start guide](#quick-start-guide)
+   1. [Running a demo script](#running-a-demo-script)
+   1. [Data format](#dataset-format)
+1. [API references](#api-references)
+   1. [Parameter settings in main function](#parameter-settings-in-main-function)
+      1. [Backend](#backend)
+      1. [Raw data and experimental parameters](#raw-data-and-experimental-parameters)
+      1. [Reconstruction parameters](#reconstruction-parameters)
+      1. [Object optimizer options](#object-optimizer-options)
+      1. [Finite support constraint](#finite-support-constraint)
+      1. [Object contraints](#object-contraints)
+      1. [Forward model](#forward-model)
+      1. [I/O](#io)
+      1. [Performance](#performance)
+      1. [Other (non-object) optimizers](#other-non-object-optimizers)
+      1. [Other settings](#other-settings)
+   1. [Output](#output)
+1. [Customization](#customization)
+   1. [Adding your own forward model](#adding-your-own-forward-model)
+   1. [Adding refinable parameters](#adding-refinable-parameters)
+1. [Publications](#publications)
+   
+
 ## Installation
 Get this repository to your hard drive using 
 ```
@@ -96,7 +121,9 @@ data.h5
                              Position of each slice in sparse multislice ptychography. Starts from 0.
 ```
 
-### Parameter settings
+## API references
+
+### Parameter settings in main function
 The scripts in `demos` and `tests` supply the `reconstruct_ptychography`
 with parameters listed as a Python dictionary. You may find the docstrings
 of the function helpful, but here lists a collection of the most crucial
@@ -265,6 +292,46 @@ parameters:
 |`dynamic_rate`|Bool|`True`|Whether to adaptively reduce step size when using GD optimizer.
 |`debug`|Bool|`False`|Whether to enable debugging messages. 
 |`t_max_min`|Float or `None`|None|At the end of a batch, terminate the program with s tatus 0 if total time exceeds the set value. Useful for working with supercomputers' job dependency system, where the dependent may start only if the parent job exits with status 0.
+
+### Optimizers
+
+When setting the optimizer for the object function, users can provide the name of the optimizer (see 
+[Object optimizer options](#object-optimizer-options)) and the step size of that parameter as the only hyperparameter.
+For other refinable parameters, users may use the default optimizer type, only specifying the step size. This can
+be limited when one wants to try different types of optimizers for non-object variables or to tune optimizer hyperparameters
+other than the step size. Therefore, you may also explicitly declare the optimizer, and pass the `adorym.Optimizer`
+object to the main fucntion `reconstruct_ptychography`.
+
+For now, `ScipyOptimizer` can only be used for the object function.
+
+Below is the API reference of the general `Optimizer` class:
+```
+Optimizer(name, output_folder='.', distribution_mode=None, options_dict=None)
+Declare an optimizer.
+Parameters:
+  - name: String. Name of the optimizer. It is currently used to match the optimizer to special handling rules
+          defined in optimizers.update_parameters, optimizers.update_parameter_gradients, 
+          optimizers.create_parameter_output_folders, and optimizers.output_intermediate_parameters. If the optimizer
+          is created for preset variables (e.g., probe_pos_correction), the name can be any arbitrary string since
+          Adorym will forcefully set the names to the default names for these variables. If the optimizer if created
+          for user-defined optimizable parameters, make sure the name match the rules defined in the aforementioned
+          functions, if any. 
+  - output_folder: String. Path to the output folder. This should be the combination of save_path and output_folder
+                   passed to reconstruct_ptytchography. This path will be the location to save/read checkpoints
+                   of optimizer parameters. 
+  - distribution_mode: None or String. Should match the value passed to reconstruct_ptychography.
+  - options_dict: Dict. A dictionary of optimizer hyperparameters. The options differ depending on the type of
+                        optimizers. See table below for a thorough reference.
+```
+| **Optimizer** | **`options_dict` and default values** |
+|-------------- | ------------------------------------- |
+|`GDOptimizer`  | `step_size=0.001, dynamic_rate=True, first_downrate_iteration=92` |
+|`AdamOptimizer`  | `step_size=0.001, b1=0.9, b2=0.999, eps=1e-7` |
+|`MomentumOptimizer`  | `step_size=0.001, gamma=0.9` |
+|`CurveballOptimizer`  | `alpha=1.0` |
+|`CGOptimizer`  | `step_size=1.0, linesearch_type='adaptive', max_backtracking_iter=None` |
+|`ScipyOptimizer`  | `step_size=1.e2, method='CG', options=None` |
+
 
 ### Output
 During runtime, Adorym may create a folder named

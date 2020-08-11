@@ -120,7 +120,7 @@ def reconstruct_ptychography(
         # or RAM depending on current device setting.
         # _________________________
         # |Other optimizer options|_____________________________________________
-        optimize_probe=False, probe_learning_rate=1e-5,
+        optimize_probe=False, probe_learning_rate=1e-5, optimizer_probe=None,
         probe_update_delay=0, probe_update_limit=None,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
@@ -384,6 +384,10 @@ def reconstruct_ptychography(
         # ================================================================================
         if isinstance(optimizer, Optimizer):
             opt = optimizer
+<<<<<<< HEAD
+            opt.name = 'obj'
+=======
+>>>>>>> 6865733... Allow predeclared optimizers
         else:
             if optimizer == 'adam':
                 optimizer_options_obj = {'step_size': learning_rate}
@@ -901,7 +905,7 @@ def reconstruct_ptychography(
                                                                               minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
                                                                               device=device_obj, unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                               dtype=cache_dtype, n_split=n_split_mpi_ata)
-                            if optimizer == 'curveball':
+                            if isinstance(opt, CurveballOptimizer):
                                 opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int - np.array([safe_zone_width] * 2),
                                                                                       this_ind_batch_allranks,
                                                                                       minibatch_size, subprobe_size + np.array([safe_zone_width] * 2) * 2,
@@ -912,7 +916,7 @@ def reconstruct_ptychography(
                                                                               minibatch_size, probe_size, device=device_obj,
                                                                               unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                               dtype=cache_dtype, n_split=n_split_mpi_ata)
-                            if optimizer == 'curveball':
+                            if isinstance(opt, CurveballOptimizer):
                                 opt.z_chunk = opt.read_chunks_from_distributed_object(probe_pos_int, this_ind_batch_allranks,
                                                                                       minibatch_size, probe_size, device=device_obj,
                                                                                       unknown_type=unknown_type, apply_to_arr_rot=True,
@@ -959,7 +963,7 @@ def reconstruct_ptychography(
                 # Update the loss argument dictionary saved in ForwardModel class. Needed for CG but done for all
                 # optimizers for now.
                 forward_model.update_loss_args(grad_func_args)
-                if optimizer == 'curveball':
+                if isinstance(opt, CurveballOptimizer):
                     diff.get_l_h_hessian_and_h_x_jacobian_mvps(forward_model, 0, **grad_func_args)
                     grads = [opt.calculate_dz(diff, use_numpy=True)]
                     opt.calculate_beta_rho(diff, use_numpy=True)
@@ -1046,12 +1050,12 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     if distribution_mode is None and optimize_object:
-                        if optimizer == 'scipy':
+                        if isinstance(opt, ScipyOptimizer):
                             obj.arr = opt.apply_gradient(obj.arr, forward_model=forward_model, differentiator=diff,
-                                                         method=opt.options_dict['method'], options=opt.options_dict['options'])
+                                                         method=opt.options_dict['method'], **opt.options_dict)
                         else:
                             obj.arr = opt.apply_gradient(obj.arr, gradient, i_opt_batch, **opt.options_dict)
-                        if optimizer == 'curveball' and i_batch % 10 == 0:
+                        if isinstance(opt, CurveballOptimizer) and i_batch % 10 == 0:
                              opt.update_lambda(forward_model, grad_func_args)
                 if distribution_mode is None:
                     w.reattach(obj.arr)
