@@ -33,7 +33,7 @@ else:
         print(os.path.join(args.save_path, args.output_folder, 'epoch_{}/delta_ds_1.tiff'.format(epoch - 1)))
         init = [np.array(init_delta[...]), np.array(init_beta[...])]
 
-output_folder = 'test'
+output_folder = 'siemens_star_aps_2idd/test'
 distribution_mode = None
 optimizer_obj = adorym.AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                      options_dict={'step_size': 1e-3})
@@ -52,7 +52,6 @@ params_2idd_gpu = {'fname': 'data.h5',
                     'psize_cm': 1.32789376566526e-06,
                     'minibatch_size': 35,
                     'output_folder': 'test',
-                    # 'output_folder': 'rec_ukp_perline_posopt1_olr1e-3_defoc_modes5',
                     'cpu_only': False,
                     'save_path': '../demos/siemens_star_aps_2idd',
                     'use_checkpoint': False,

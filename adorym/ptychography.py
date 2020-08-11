@@ -384,10 +384,7 @@ def reconstruct_ptychography(
         # ================================================================================
         if isinstance(optimizer, Optimizer):
             opt = optimizer
-<<<<<<< HEAD
             opt.name = 'obj'
-=======
->>>>>>> 6865733... Allow predeclared optimizers
         else:
             if optimizer == 'adam':
                 optimizer_options_obj = {'step_size': learning_rate}
