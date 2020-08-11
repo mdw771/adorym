@@ -1048,8 +1048,7 @@ def reconstruct_ptychography(
                 with w.no_grad():
                     if distribution_mode is None and optimize_object:
                         if isinstance(opt, ScipyOptimizer):
-                            obj.arr = opt.apply_gradient(obj.arr, forward_model=forward_model, differentiator=diff,
-                                                         method=opt.options_dict['method'], **opt.options_dict)
+                            obj.arr = opt.apply_gradient(obj.arr, forward_model=forward_model, differentiator=diff, **opt.options_dict)
                         else:
                             obj.arr = opt.apply_gradient(obj.arr, gradient, i_opt_batch, **opt.options_dict)
                         if isinstance(opt, CurveballOptimizer) and i_batch % 10 == 0:

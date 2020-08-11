@@ -597,7 +597,6 @@ class ScipyOptimizer(Optimizer):
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
         shape_0 = x.shape
-        x0 = x
         def fun(x, *args):
             _x = w.reshape(x, shape_0)
             loss_kwargs[self.name] = _x
@@ -610,7 +609,14 @@ class ScipyOptimizer(Optimizer):
             grads = np.reshape(grads, [-1])
             grads *= step_size
             return grads
-        x = scipy.optimize.minimize(fun, w.reshape(x, [-1]), method=method, jac=jac, options=options)
+        def hessp(x, *args):
+            _x = w.reshape(x, shape_0)
+            loss_kwargs[self.name] = _x
+            differentiator.get_l_h_hessian_and_h_x_jacobian_mvps(forward_model, self.index_in_grad_returns, **loss_kwargs)
+            hvp = differentiator.func_gvp(_x)
+            hvp = np.reshape(hvp, [-1])
+            return hvp
+        x = scipy.optimize.minimize(fun, w.reshape(x, [-1]), method=method, jac=jac, hessp=hessp, options=options)
         x = x.x
         x = w.reshape(x, shape_0)
         return x

@@ -309,13 +309,14 @@ Below is the API reference of the general `Optimizer` class:
 Optimizer(name, output_folder='.', distribution_mode=None, options_dict=None)
 Declare an optimizer.
 Parameters:
-  - name: String. Name of the optimizer. It is currently used to match the optimizer to special handling rules
+  - name: String. Name of the optimizer. It is currently used to (1) match the optimizer to special handling rules
           defined in optimizers.update_parameters, optimizers.update_parameter_gradients, 
-          optimizers.create_parameter_output_folders, and optimizers.output_intermediate_parameters. If the optimizer
+          optimizers.create_parameter_output_folders, and optimizers.output_intermediate_parameters, and (2) to
+          locate the optimized variable in predict function's argument list in ScipyOptmizer. If the optimizer
           is created for preset variables (e.g., probe_pos_correction), the name can be any arbitrary string since
           Adorym will forcefully set the names to the default names for these variables. If the optimizer if created
-          for user-defined optimizable parameters, make sure the name match the rules defined in the aforementioned
-          functions, if any. 
+          for user-defined optimizable parameters, make sure the name is the same as the name of the variable being
+          optimized, and matches the rules defined in the aforementioned functions, if any. 
   - output_folder: String. Path to the output folder. This should be the combination of save_path and output_folder
                    passed to reconstruct_ptytchography. This path will be the location to save/read checkpoints
                    of optimizer parameters. 
@@ -330,8 +331,12 @@ Parameters:
 |`MomentumOptimizer`  | `step_size=0.001, gamma=0.9` |
 |`CurveballOptimizer`  | `alpha=1.0` |
 |`CGOptimizer`  | `step_size=1.0, linesearch_type='adaptive', max_backtracking_iter=None` |
-|`ScipyOptimizer`  | `step_size=1.e2, method='CG', options=None` |
+|`ScipyOptimizer`*  | `step_size=1.e2, method='CG', options=None`** |
 
+\* `ScipyOptimizer` needs Hessian-vector product when method is one of `Newton-CG`, `trust-ncg`, `trust-krylov`, 
+and `trust-constr`. In these cases, the HVP is approximated using Gauss-Newton method.
+
+\*\* For valid values of `method` and `options`, refer to the documentation of `scipy.optimize.minimize`.
 
 ### Output
 During runtime, Adorym may create a folder named
