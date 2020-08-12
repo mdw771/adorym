@@ -21,6 +21,7 @@ from scipy.special import erf
 
 from adorym.constants import *
 import adorym.wrappers as w
+from adorym.util import realign_image_fourier
 
 
 def gen_mesh(max, shape):
@@ -119,7 +120,7 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
-                               kappa=None, repeating_slice=None, return_fft_time=False):
+                               kappa=None, repeating_slice=None, return_fft_time=False, shift_exit_wave=None):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -224,6 +225,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                         probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
                 i_bin = 0
             t_tot += (time.time() - t0)
+
+    if shift_exit_wave is not None:
+        probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, shift_exit_wave, axes=(1, 2), device=device)
 
     if free_prop_cm not in [0, None]:
         if isinstance(free_prop_cm, str) and free_prop_cm == 'inf':
