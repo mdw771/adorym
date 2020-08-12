@@ -163,8 +163,10 @@ def vjp(func, x):
     """
     Returns a constructor that would generate a function that computes the VJP between its argument and the
     Jacobian of func.
-    The returned constructor receives the input of the differentiated function as input, and the function it returns
-    receives the (adjoint) vector as input.
+    :param func: Function handle of loss function.
+    :param x: List. A list of all arguments to func. The order of arguments must match.
+    :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
+             receives the (adjoint) vector as input.
     """
     if global_settings.backend == 'autograd':
         return ag.make_vjp(func, x)
@@ -176,8 +178,10 @@ def jvp(func, x):
     """
     Returns a constructor that would generate a function that computes the JVP between its argument and the
     Jacobian of func.
-    The returned constructor receives the input of the differentiated function as input, and the function it returns
-    receives the (adjoint) vector as input.
+    :param func: Function handle of loss function.
+    :param x: List. A list of all arguments to func. The order of arguments must match.
+    :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
+             receives the (adjoint) vector as input.
     """
     if global_settings.backend == 'autograd':
         return ag.differential_operators.make_jvp_reversemode(func, x)
@@ -189,8 +193,10 @@ def hvp(func, x):
     """
     Returns a constructor that would generate a function that computes the HVP between its argument and the
     Hessian of func.
-    The returned constructor receives the input of the differentiated function as input, and the function it returns
-    receives the (adjoint) vector as input.
+    :param func: Function handle of loss function.
+    :param x: List. A list of all arguments to func. The order of arguments must match.
+    :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
+             receives the (adjoint) vector as input.
     """
     if global_settings.backend == 'autograd':
         return ag.differential_operators.make_hvp(func, x)

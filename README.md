@@ -18,6 +18,7 @@
       1. [Performance](#performance)
       1. [Other (non-object) optimizers](#other-non-object-optimizers)
       1. [Other settings](#other-settings)
+   1. [Optimizers](#optimizers)
    1. [Output](#output)
 1. [Customization](#customization)
    1. [Adding your own forward model](#adding-your-own-forward-model)

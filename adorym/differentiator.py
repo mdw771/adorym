@@ -11,10 +11,18 @@ class Differentiator(object):
         self.loss_args = {}
 
     def create_loss_node(self, loss, opt_args_ls=None):
+        """
+        :param loss: The loss object (loss node in PyTorch, or loss function handle in Autograd).
+        :param opt_args_ls: List of Int. A list of indices of arguments in forward_model.get_loss_function/predict to 
+                            which the gradient should be calculated.
+        """
         self.loss_object = w.prepare_loss_node(loss, opt_args_ls)
         self.opt_args_ls = opt_args_ls
 
     def get_gradients(self, **kwargs):
+        """
+        :param kwargs: Unwrapped dictionary or key word arguments that contain all optimizable variables.
+        """
         gradients = w.get_gradients(self.loss_object, opt_args_ls=self.opt_args_ls, **kwargs)
         return gradients
 
@@ -23,6 +31,10 @@ class Differentiator(object):
         Create functions to compute the matrix-vector product of loss-predict-Hessian and predict-object-Jacobian
         with any arbitrary vector in its argument.
         The predict function of forward_model must return detected **magnitudes**.
+        :param forward_model: adorym.ForwardModel object.
+        :param ind_opt_arg: List of Int. A list of indices of arguments in forward_model.get_loss_function to
+                            which the gradient should be calculated.
+        :param kwargs: Unwrapped dictionary or key word arguments that contain ALL arguments of forward_model.get_loss_function/predict.
         """
         assert isinstance(forward_model, adorym.ForwardModel)
         self.func_vjp, _ = w.vjp(forward_model.predict, [ind_opt_arg])(*list(kwargs.values()))
