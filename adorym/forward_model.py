@@ -228,7 +228,8 @@ class PtychographyModel(ForwardModel):
 
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
-            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(1, 2), device=device_obj)
+        else:
+            this_offset = None
 
         if not two_d_mode and not self.distribution_mode:
             if not optimize_tilt:
@@ -318,7 +319,7 @@ class PtychographyModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-                                pure_projection_return_sqrt=flag_pp_sqrt)
+                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_offset)
                 ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
                 for i_mode in range(n_probe_modes):
@@ -336,7 +337,7 @@ class PtychographyModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-                                pure_projection_return_sqrt=flag_pp_sqrt)
+                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_offset)
                     if i_mode == 0:
                         ex_int = temp_real ** 2 + temp_imag ** 2
                     else:
@@ -600,7 +601,8 @@ class SparseMultisliceModel(ForwardModel):
 
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
-            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(0, 1), device=device_obj)
+        else:
+            this_offset = None
 
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
@@ -677,7 +679,7 @@ class SparseMultisliceModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k)
+                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_offset)
                 ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
                 for i_mode in range(n_probe_modes):
@@ -694,7 +696,7 @@ class SparseMultisliceModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k)
+                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_offset)
                     if i_mode == 0:
                         ex_int = temp_real ** 2 + temp_imag ** 2
                     else:

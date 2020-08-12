@@ -76,12 +76,12 @@ class Optimizer(object):
         return s
 
     def create_container(self, whole_object_size, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
-    """
-    :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
-                              or a 3-D vector for probe, or a 1-D scalar for other variables.
-                              Channel must be the last domension. Parameter arrays will be created
-                              following exactly whole_object_size.
-    """
+        """
+        :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
+                                  or a 3-D vector for probe, or a 1-D scalar for other variables.
+                                  Channel must be the last domension. Parameter arrays will be created
+                                  following exactly whole_object_size.
+        """
         if self.distribution_mode == 'distributed_object':
             self.slice_catalog = get_multiprocess_distribution_index(whole_object_size[0], n_ranks)
         self.whole_object_size = whole_object_size

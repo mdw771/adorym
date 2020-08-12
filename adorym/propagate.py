@@ -21,7 +21,26 @@ from scipy.special import erf
 
 from adorym.constants import *
 import adorym.wrappers as w
-from adorym.util import realign_image_fourier
+
+
+def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1), device=None):
+    """
+    Returns real and imaginary parts as a list.
+    """
+    f_real, f_imag = w.fft2(a_real, a_imag, axes=axes)
+    s = f_real.shape
+    freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))
+    freq_x = w.create_variable(freq_x, requires_grad=False, device=device)
+    freq_y = w.create_variable(freq_y, requires_grad=False, device=device)
+    mult_real, mult_imag = w.exp_complex(0., -2 * PI * (freq_x * shift[1] + freq_y * shift[0]))
+    # Reshape for broadcasting
+    if len(s) > max(axes) + 1:
+        mult_real = w.reshape(mult_real, list(mult_real.shape) + [1] * (len(s) - (max(axes) + 1)))
+        mult_real = w.tile(mult_real, [1, 1] + list(s[max(axes) + 1:]))
+        mult_imag = w.reshape(mult_imag, list(mult_imag.shape) + [1] * (len(s) - (max(axes) + 1)))
+        mult_imag = w.tile(mult_imag, [1, 1] + list(s[max(axes) + 1:]))
+    a_real, a_imag = (f_real * mult_real - f_imag * mult_imag, f_real * mult_imag + f_imag * mult_real)
+    return w.ifft2(a_real, a_imag, axes=axes)
 
 
 def gen_mesh(max, shape):
@@ -267,7 +286,8 @@ def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm, u_free=None, v_fre
 
 def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, energy_ev, psize_cm,
                                       slice_pos_cm_ls, free_prop_cm=None, obj_batch_shape=None, fresnel_approx=True,
-                                      device=None, type='delta_beta', normalize_fft=False, sign_convention=1, scale_ri_by_k=True):
+                                      device=None, type='delta_beta', normalize_fft=False, sign_convention=1,
+                                      scale_ri_by_k=True, shift_exit_wave=None):
 
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
@@ -300,6 +320,9 @@ def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, 
         if i < n_slices - 1:
             probe_real, probe_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, slice_pos_nm_ls[i + 1] - slice_pos_nm_ls[i],
                                                                lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+
+    if shift_exit_wave is not None:
+        probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, shift_exit_wave, axes=(1, 2), device=device)
 
     if free_prop_cm not in [0, None]:
         if free_prop_cm == 'inf':
