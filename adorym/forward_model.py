@@ -232,7 +232,7 @@ class PtychographyModel(ForwardModel):
             this_offset = None
 
         if not two_d_mode and not self.distribution_mode:
-            if not optimize_tilt:
+            if not optimize_tilt and self.common_vars['initial_tilt'] is None:
                 if not self.rotate_out_of_loop:
                     if precalculate_rotation_coords:
                         obj_rot = apply_rotation(obj, coord_ls, device=device_obj)

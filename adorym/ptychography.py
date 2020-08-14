@@ -128,7 +128,7 @@ def reconstruct_ptychography(
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4, optimizer_slice_pos=None,
         optimize_free_prop=False, free_prop_learning_rate=1e-2, optimizer_free_prop=None,
         optimize_prj_affine=False, prj_affine_learning_rate=1e-3, optimizer_prj_affine=None,
-        optimize_tilt=False, tilt_learning_rate=1e-3, optimizer_tilt=None,
+        optimize_tilt=False, tilt_learning_rate=1e-3, optimizer_tilt=None, initial_tilt=None,
         optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3, optimizer_ctf_lg_kappa=None,
         other_params_update_delay=0,
         # _________________________
@@ -617,8 +617,11 @@ def reconstruct_ptychography(
             probe_pos_int = np.round(probe_pos).astype(int)
         else:
             probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in probe_pos_ls]
-        tilt_ls = np.zeros([3, n_theta])
-        tilt_ls[0] = theta_ls
+        if initial_tilt is None:
+            tilt_ls = np.zeros([3, n_theta])
+            tilt_ls[0] = theta_ls
+        else:
+            tilt_ls = initial_tilt
         if is_multi_dist:
             n_dists = len(free_prop_cm)
         else:
@@ -660,6 +663,8 @@ def reconstruct_ptychography(
 
             if optimize_tilt:
                 optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
+            elif initial_tilt is not None:
+                tilt_ls = w.create_variable(tilt_ls, device=device_obj, requires_grad=False)
 
             optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
 

@@ -281,6 +281,7 @@ parameters:
 |`optimize_tilt`|Bool|`False`|Whether to optimize object tilt in all 3 axes. Works only with data parallelism mode.
 |`tilt_learning_rate`|Float|`1e-3`|Tilt optimization step size. 
 |`optimizer_tilt`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
+|`initial_tilt`|`ndarray`|`None`|Initial 3D tilts with shape `[3, n_theta]`. If not `None`, 3D tilt will be applied to the object when DP mode is used, regardless whether `optimizer_tilt` is on or not. 
 |`optimize_ctf_lg_kappa`|Bool|`False`|Whether to *enable homogeneity constraint* and optimize coefficient `kappa`, where `beta_slice = delta_slice * kappa`. 
 |`ctf_lg_kappa_learning_rate`|Float|`1e-3`|`kappa` optimization step size. 
 |`optimizer_ctf_lg_kappa`|`adorym.Optimizer`|`None`|Pre-declared optimizer class. If `None`, a default optimizer will be declared using provided step size and other default parameters.
