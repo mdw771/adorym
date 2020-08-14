@@ -4,30 +4,30 @@ API references
 Dataset format
 ~~~~~~~~~~~~~~
 
-| Adorym reads raw data contained an HDF5 file. The diffraction images
+Adorym reads raw data contained an HDF5 file. The diffraction images
 should be
-| stored in the ``exchange/data`` dataset as a 4D array, with a shape of
-| ``[n_rotation_angles, n_diffraction_spots, image_size_y, image_size_x]``.
-| In a large part, Adorym is blind to the type of experiment, which
+stored in the ``exchange/data`` dataset as a 4D array, with a shape of
+``[n_rotation_angles, n_diffraction_spots, image_size_y, image_size_x]``.
+In a large part, Adorym is blind to the type of experiment, which
 means
-| there no need to explicitly tell it the imaging technique used to
+there no need to explicitly tell it the imaging technique used to
 generate
-| the dataset. For imaging data collected from only one angle,
+the dataset. For imaging data collected from only one angle,
 ``n_rotation_angles = 1``.
-| For full-field imaging without scanning, ``n_diffraction_spots = 1``.
+For full-field imaging without scanning, ``n_diffraction_spots = 1``.
 For
-| 2D imaging, set the last dimension of the object size to 1 (this will
+2D imaging, set the last dimension of the object size to 1 (this will
 be
-| introduced further below).
+introduced further below).
 
-| Experimental metadata including beam energy, probe position, and pixel
-| size, may also be stored in the HDF5, but they can also be provided
+Experimental metadata including beam energy, probe position, and pixel
+size, may also be stored in the HDF5, but they can also be provided
 individually
-| as arguments to the function ``reconstruct_ptychography``. When these
+as arguments to the function ``reconstruct_ptychography``. When these
 arguments
-| are provided, Adorym uses the arguments rather than reads the metadata
+are provided, Adorym uses the arguments rather than reads the metadata
 from
-| the HDF5.
+the HDF5.
 
 The following is the full structure of the HDf5:
 
@@ -52,13 +52,13 @@ The following is the full structure of the HDf5:
 Parameter settings in main function
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| The scripts in ``demos`` and ``tests`` supply the
+The scripts in ``demos`` and ``tests`` supply the
 ``reconstruct_ptychography``
-| with parameters listed as a Python dictionary. You may find the
+with parameters listed as a Python dictionary. You may find the
 docstrings
-| of the function helpful, but here lists a collection of the most
+of the function helpful, but here lists a collection of the most
 crucial
-| parameters:
+parameters:
 
 Backend
 ^^^^^^^
@@ -360,17 +360,17 @@ Other settings
 Optimizers
 ~~~~~~~~~~
 
-| When setting the optimizer for the object function, users can provide
+When setting the optimizer for the object function, users can provide
 the name of the optimizer (see
-| `Object optimizer options <#object-optimizer-options>`__) and the step
+`Object optimizer options <#object-optimizer-options>`__) and the step
 size of that parameter as the only hyperparameter.
-| For other refinable parameters, users may use the default optimizer
+For other refinable parameters, users may use the default optimizer
 type, only specifying the step size. This can
-| be limited when one wants to try different types of optimizers for
+be limited when one wants to try different types of optimizers for
 non-object variables or to tune optimizer hyperparameters
-| other than the step size. Therefore, you may also explicitly declare
+other than the step size. Therefore, you may also explicitly declare
 the optimizer, and pass the ``adorym.Optimizer``
-| object to the main fucntion ``reconstruct_ptychography``.
+object to the main fucntion ``reconstruct_ptychography``.
 
 For now, ``ScipyOptimizer`` can only be used for the object function.
 
@@ -412,9 +412,9 @@ Below is the API reference of the general ``Optimizer`` class:
 | ``ScipyOptimizer``\ \*   | ``step_size=1.e2, method='CG', options=None``\ \*\*                         |
 +--------------------------+-----------------------------------------------------------------------------+
 
-| \* ``ScipyOptimizer`` needs Hessian-vector product when method is one
+\* ``ScipyOptimizer`` needs Hessian-vector product when method is one
 of ``Newton-CG``, ``trust-ncg``, ``trust-krylov``,
-| and ``trust-constr``. In these cases, the HVP is approximated using
+and ``trust-constr``. In these cases, the HVP is approximated using
 Gauss-Newton method.
 
 \*\* For valid values of ``method`` and ``options``, refer to the
@@ -423,12 +423,12 @@ documentation of ``scipy.optimize.minimize``.
 Output
 ~~~~~~
 
-| During runtime, Adorym may create a folder named
-| ``arrsize_?_?_?_ntheta_?`` in the current working directory, which
+During runtime, Adorym may create a folder named
+``arrsize_?_?_?_ntheta_?`` in the current working directory, which
 saves
-| the precalculated coordinates for rotation transformation. Other than
-| that, all outputs will be written in ``<save_path>/<output_folder>``,
-| which is organized as shown in the chart below:
+the precalculated coordinates for rotation transformation. Other than
+that, all outputs will be written in ``<save_path>/<output_folder>``,
+which is organized as shown in the chart below:
 
 ::
 
@@ -459,6 +459,6 @@ saves
          |___ obj_checkpoint.npy // Exists if store_checkpoint is True.
          |___ opt_params_checkpoint.npy // Exists if store_checkpoint is True and optimizer has parameters.
 
-| By default, all image outputs are in 32-bit floating points which can
+By default, all image outputs are in 32-bit floating points which can
 be
-| opened and viewed with ImageJ.
+opened and viewed with ImageJ.

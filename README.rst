@@ -1,6 +1,8 @@
 Adorym: Automatic Differentiation-based Object Reconstruction with DynaMical Scattering
 =======================================================================================
 
+For a more comprehensive (and more detailed) documentation, please visit the official `documentation <https://adorym.readthedocs.io>`_.
+
 Table of contents
 -----------------
 
@@ -47,24 +49,24 @@ and then use PIP to build and install:
 
     pip install ./adorym
 
-| If you will modify internal functions of Adorym, *e.g.*, add new
+If you will modify internal functions of Adorym, *e.g.*, add new
 forward
-| models or refinable parameters, it is suggested to use the ``-e`` flag
+models or refinable parameters, it is suggested to use the ``-e`` flag
 to
-| enable editable mode so that you don't need to rebuild Adorym each
+enable editable mode so that you don't need to rebuild Adorym each
 time
-| you make changes to the source code:
+you make changes to the source code:
 
 ::
 
     pip install -e ./adorym
 
-| After installation, type ``python`` to open a Python console, and
+After installation, type ``python`` to open a Python console, and
 check
-| the installation status using ``import adorym``. If an ``ImportError``
+the installation status using ``import adorym``. If an ``ImportError``
 occurs,
-| you may need to manually install the missing dependencies. Most
-| dependencies are available on PIP and can be acquired with
+you may need to manually install the missing dependencies. Most
+dependencies are available on PIP and can be acquired with
 
 ::
 
@@ -77,40 +79,40 @@ Python:
 
     conda install <package_name>
 
-| In order to run Adorym using PyTorch backend with GPU support, please
-| make sure the right version of PyTorch that matches your CUDA version
-| is installed. The latter can be checked through ``nvidia-smi``.
+In order to run Adorym using PyTorch backend with GPU support, please
+make sure the right version of PyTorch that matches your CUDA version
+is installed. The latter can be checked through ``nvidia-smi``.
 
 Quick start guide
 -----------------
 
-| Adorym does 2D/3D ptychography, CDI, holography, and tomography all
-| using the ``reconstruct_ptychography`` function in
+Adorym does 2D/3D ptychography, CDI, holography, and tomography all
+using the ``reconstruct_ptychography`` function in
 ``ptychography.py``.
-| You can make use of the template scripts in ``demos`` or ``tests`` to
+You can make use of the template scripts in ``demos`` or ``tests`` to
 start
-| your reconstruction job.
+your reconstruction job.
 
 Running a demo script
 ~~~~~~~~~~~~~~~~~~~~~
 
-| Adorym comes with a few datasets and scripts for demonstration and
+Adorym comes with a few datasets and scripts for demonstration and
 testing,
-| but the raw data files of some of them are stored elsewhere due to the
+but the raw data files of some of them are stored elsewhere due to the
 size limit
-| on GitHub. If the folder in ``demos`` or ``tests`` corresponding to a
-| certain demo dataset
-| contains only a text file named ``raw_data_url.txt``, please download
+on GitHub. If the folder in ``demos`` or ``tests`` corresponding to a
+certain demo dataset
+contains only a text file named ``raw_data_url.txt``, please download
 the
-| dataset at the URL indicated in the file.
+dataset at the URL indicated in the file.
 
-| On your workstation, open a terminal in the ``demos`` folder in
+On your workstation, open a terminal in the ``demos`` folder in
 Adorym's
-| root directory, and run the desired script -- say,
+root directory, and run the desired script -- say,
 ``multislice_ptycho_256_theta.py``,
-| which will start a multislice ptychotomography reconstruction job that
-| solves for the 256x256x256 "cone" object demonstrated in the paper
-| (see *Publications*), with
+which will start a multislice ptychotomography reconstruction job that
+solves for the 256x256x256 "cone" object demonstrated in the paper
+(see *Publications*), with
 
 ::
 
@@ -125,30 +127,30 @@ To run the script with multiple processes, use
 Dataset format
 ~~~~~~~~~~~~~~
 
-| Adorym reads raw data contained an HDF5 file. The diffraction images
+Adorym reads raw data contained an HDF5 file. The diffraction images
 should be
-| stored in the ``exchange/data`` dataset as a 4D array, with a shape of
-| ``[n_rotation_angles, n_diffraction_spots, image_size_y, image_size_x]``.
-| In a large part, Adorym is blind to the type of experiment, which
+stored in the ``exchange/data`` dataset as a 4D array, with a shape of
+``[n_rotation_angles, n_diffraction_spots, image_size_y, image_size_x]``.
+In a large part, Adorym is blind to the type of experiment, which
 means
-| there no need to explicitly tell it the imaging technique used to
+there no need to explicitly tell it the imaging technique used to
 generate
-| the dataset. For imaging data collected from only one angle,
+the dataset. For imaging data collected from only one angle,
 ``n_rotation_angles = 1``.
-| For full-field imaging without scanning, ``n_diffraction_spots = 1``.
+For full-field imaging without scanning, ``n_diffraction_spots = 1``.
 For
-| 2D imaging, set the last dimension of the object size to 1 (this will
+2D imaging, set the last dimension of the object size to 1 (this will
 be
-| introduced further below).
+introduced further below).
 
-| Experimental metadata including beam energy, probe position, and pixel
-| size, may also be stored in the HDF5, but they can also be provided
+Experimental metadata including beam energy, probe position, and pixel
+size, may also be stored in the HDF5, but they can also be provided
 individually
-| as arguments to the function ``reconstruct_ptychography``. When these
+as arguments to the function ``reconstruct_ptychography``. When these
 arguments
-| are provided, Adorym uses the arguments rather than reads the metadata
+are provided, Adorym uses the arguments rather than reads the metadata
 from
-| the HDF5.
+the HDF5.
 
 The following is the full structure of the HDf5:
 
@@ -176,13 +178,13 @@ API references
 Parameter settings in main function
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| The scripts in ``demos`` and ``tests`` supply the
+The scripts in ``demos`` and ``tests`` supply the
 ``reconstruct_ptychography``
-| with parameters listed as a Python dictionary. You may find the
+with parameters listed as a Python dictionary. You may find the
 docstrings
-| of the function helpful, but here lists a collection of the most
+of the function helpful, but here lists a collection of the most
 crucial
-| parameters:
+parameters:
 
 Backend
 ^^^^^^^
@@ -484,17 +486,17 @@ Other settings
 Optimizers
 ~~~~~~~~~~
 
-| When setting the optimizer for the object function, users can provide
+When setting the optimizer for the object function, users can provide
 the name of the optimizer (see
-| `Object optimizer options <#object-optimizer-options>`__) and the step
+`Object optimizer options <#object-optimizer-options>`__) and the step
 size of that parameter as the only hyperparameter.
-| For other refinable parameters, users may use the default optimizer
+For other refinable parameters, users may use the default optimizer
 type, only specifying the step size. This can
-| be limited when one wants to try different types of optimizers for
+be limited when one wants to try different types of optimizers for
 non-object variables or to tune optimizer hyperparameters
-| other than the step size. Therefore, you may also explicitly declare
+other than the step size. Therefore, you may also explicitly declare
 the optimizer, and pass the ``adorym.Optimizer``
-| object to the main fucntion ``reconstruct_ptychography``.
+object to the main fucntion ``reconstruct_ptychography``.
 
 For now, ``ScipyOptimizer`` can only be used for the object function.
 
@@ -536,9 +538,9 @@ Below is the API reference of the general ``Optimizer`` class:
 | ``ScipyOptimizer``\ \*   | ``step_size=1.e2, method='CG', options=None``\ \*\*                         |
 +--------------------------+-----------------------------------------------------------------------------+
 
-| \* ``ScipyOptimizer`` needs Hessian-vector product when method is one
+\* ``ScipyOptimizer`` needs Hessian-vector product when method is one
 of ``Newton-CG``, ``trust-ncg``, ``trust-krylov``,
-| and ``trust-constr``. In these cases, the HVP is approximated using
+and ``trust-constr``. In these cases, the HVP is approximated using
 Gauss-Newton method.
 
 \*\* For valid values of ``method`` and ``options``, refer to the
@@ -547,12 +549,12 @@ documentation of ``scipy.optimize.minimize``.
 Output
 ~~~~~~
 
-| During runtime, Adorym may create a folder named
-| ``arrsize_?_?_?_ntheta_?`` in the current working directory, which
+During runtime, Adorym may create a folder named
+``arrsize_?_?_?_ntheta_?`` in the current working directory, which
 saves
-| the precalculated coordinates for rotation transformation. Other than
-| that, all outputs will be written in ``<save_path>/<output_folder>``,
-| which is organized as shown in the chart below:
+the precalculated coordinates for rotation transformation. Other than
+that, all outputs will be written in ``<save_path>/<output_folder>``,
+which is organized as shown in the chart below:
 
 ::
 
@@ -583,9 +585,9 @@ saves
          |___ obj_checkpoint.npy // Exists if store_checkpoint is True.
          |___ opt_params_checkpoint.npy // Exists if store_checkpoint is True and optimizer has parameters.
 
-| By default, all image outputs are in 32-bit floating points which can
+By default, all image outputs are in 32-bit floating points which can
 be
-| opened and viewed with ImageJ.
+opened and viewed with ImageJ.
 
 Customization
 -------------
@@ -593,35 +595,35 @@ Customization
 Adding your own forward model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| You can create additional forward models beyond the existing ones. To
+You can create additional forward models beyond the existing ones. To
 begin with, in ``adorym/forward_model.py``,
-| create a class inheriting ``ForwardModel`` (*i.e.*,
+create a class inheriting ``ForwardModel`` (*i.e.*,
 ``class MyNovelModel(ForwardModel)``). Each forward model class
-| should contain 4 essential methods: ``predict``, ``get_data``,
+should contain 4 essential methods: ``predict``, ``get_data``,
 ``loss``, and ``get_loss_function``. ``predict`` maps input variables
-| to predicted quantities (usually the real-numbered magnitude of the
+to predicted quantities (usually the real-numbered magnitude of the
 detected wavefield). ``get_data`` reads from
-| the HDF5 file the raw data corresponding to the minibatch currently
+the HDF5 file the raw data corresponding to the minibatch currently
 being processed. ``loss`` is the last-layer
-| loss node that computes the (regularized)
-| loss values from the predicted data and the experimental measurement
+loss node that computes the (regularized)
+loss values from the predicted data and the experimental measurement
 for the current minibatch. ``get_loss_function``
-| concatenates the above methods and return the end-to-end loss
+concatenates the above methods and return the end-to-end loss
 function. If your ``predict`` returns the real-numbered
-| magnitude of the detected wavefield, you can use ``loss`` inherented
+magnitude of the detected wavefield, you can use ``loss`` inherented
 from the parent class, although you still need to
-| make a copy of ``get_loss_function`` and explicitly change its
+make a copy of ``get_loss_function`` and explicitly change its
 arguments to match those of ``predict`` (do not use
-| implicit argument tuples or dictionaries like ``*args`` and
+implicit argument tuples or dictionaries like ``*args`` and
 ``**kwargs``, as that won't work with Autograd!). If your ``predict``
-| returns something else, you may also need to override ``loss``. Also
+returns something else, you may also need to override ``loss``. Also
 make sure your new forward model class contains
-| a ``self.argument_ls`` attribute, which should be a list of argument
+a ``self.argument_ls`` attribute, which should be a list of argument
 strings that exactly matches the signature of ``predict``.
 
-| To use your forward model, pass your forward model class to the
+To use your forward model, pass your forward model class to the
 ``forward_model`` argument of ``reconstruct_ptychography``.
-| For example, in the script that you execute with Python, do the
+For example, in the script that you execute with Python, do the
 following:
 
 ::
@@ -637,11 +639,11 @@ following:
 Adding refinable parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| Whenever possible, users who want to create new forward models with
+Whenever possible, users who want to create new forward models with
 new refinable parameters are always
-| recommended to make use of parameter variables existing in the
+recommended to make use of parameter variables existing in the
 program, because they all have optimizers
-| already linked to them. These include the following:
+already linked to them. These include the following:
 
 +----------------------------+-----------------------------------------+
 | **Var name**               | **Shape**                               |
@@ -667,9 +669,9 @@ program, because they all have optimizers
 | ``ctf_lg_kappa``           | ``[1]``                                 |
 +----------------------------+-----------------------------------------+
 
-| Adding new refinable parameters (at the current stage) involves some
+Adding new refinable parameters (at the current stage) involves some
 hard coding. To do that, take the following
-| steps:
+steps:
 
 #. in ``ptychography.py``, find the code block labeled by
    ``"Create variables and optimizers for other parameters (probe, probe defocus, probe positions, etc.)."``
@@ -701,7 +703,7 @@ The early version of Adorym, which was used to demonstrate 3D
 reconstruction of continuous object beyond the depth of focus, is
 published as
 
-| Du, M., Nashed, Y. S. G., Kandel, S., Gürsoy, D. & Jacobsen, C. Three
-| dimensions, two microscopes, one code: Automatic differentiation for
-| x-ray nanotomography beyond the depth of focus limit. *Sci Adv* **6**,
-| eaay3700 (2020).
+Du, M., Nashed, Y. S. G., Kandel, S., Gürsoy, D. & Jacobsen, C. Three
+dimensions, two microscopes, one code: Automatic differentiation for
+x-ray nanotomography beyond the depth of focus limit. *Sci Adv* **6**,
+eaay3700 (2020).
