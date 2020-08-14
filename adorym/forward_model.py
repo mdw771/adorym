@@ -11,6 +11,18 @@ from adorym.propagate import multislice_propagate_batch, get_kernel
 class ForwardModel(object):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+        """
+        The parent forward model class.
+
+        :param loss_function_type: String. Can be ``'lsq'`` or ``'poisson'``. Type of loss function.
+        :param distribution_mode: ``None``, ``'distributed_object'``, or ``'shared_file'``. Mode of parallelization.
+        :param device: ``None`` or device object. Use ``None`` for computations on CPU only.
+        :param common_vars_dict: Dict. A dictionary of variables that are static (i.e., won't be optimized and won't
+            change with different minibatches). When the ForwardModel class is declared in ``reconstruct_ptycho``, it
+            can simply be the local namespace of the main module, i.e., ``locals()``.
+        :param raw_data_type: String. Can be ``'magnitude'`` or ``'intensity'``. Type of raw data in HDF5. For line-projection
+            tomography reconstruction where raw data have already been minus-logged, always use ``'magnitude'``.
+        """
         self.loss_function_type = loss_function_type
         self.argument_ls = []
         self.regularizer_dict = {}
@@ -176,7 +188,23 @@ class PtychographyModel(ForwardModel):
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, tilt_ls):
+        """
+        Calculated predicted measurment. The signature of this function exactly matches the function returned
+        by the ``get_loss_function`` method.
 
+        :param obj: Array with shape [obj_size_y, obj_size_x, obj_size_z, 2]. Object function.
+        :param probe_real: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Preal part of the probe.
+        :param probe_imag: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Imaginary part of the probe.
+        :param probe_defocus_mm: Probe defocus in mm.
+        :param probe_pos_offset: Array with shape [n_theta, 2]. Probe position offset for each angle, in pixels.
+        :param this_i_theta: Int. Current angle index.
+        :param this_pos_batch: Array with shape [minibatch_size, 2]. Current batch of probe positions.
+        :param prj: HDF5 measurement dataset handler.
+        :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
+        :param this_ind_batch: List of Int. Current batch of tile indices.
+        :param tilt_ls: Array with shape [3, n_theta]. 3-axis tilt to be applied before propagation.
+        :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
+        """
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']
         voxel_nm = self.common_vars['voxel_nm']
@@ -382,6 +410,23 @@ class SingleBatchFullfieldModel(PtychographyModel):
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, tilt_ls):
+        """
+        Calculated predicted measurment. The signature of this function exactly matches the function returned
+        by the ``get_loss_function`` method.
+
+        :param obj: Array with shape [obj_size_y, obj_size_x, obj_size_z, 2]. Object function.
+        :param probe_real: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Preal part of the probe.
+        :param probe_imag: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Imaginary part of the probe.
+        :param probe_defocus_mm: Probe defocus in mm.
+        :param probe_pos_offset: Array with shape [n_theta, 2]. Probe position offset for each angle, in pixels.
+        :param this_i_theta: Int. Current angle index.
+        :param this_pos_batch: Array with shape [minibatch_size, 2]. Current batch of probe positions.
+        :param prj: HDF5 measurement dataset handler.
+        :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
+        :param this_ind_batch: List of Int. Current batch of tile indices.
+        :param tilt_ls: Array with shape [3, n_theta]. 3-axis tilt to be applied before propagation.
+        :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
+        """
 
         device_obj = self.common_vars['device_obj']
         probe_size = self.common_vars['probe_size']
@@ -462,6 +507,23 @@ class SingleBatchPtychographyModel(PtychographyModel):
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, tilt_ls):
+        """
+        Calculated predicted measurment. The signature of this function exactly matches the function returned
+        by the ``get_loss_function`` method.
+
+        :param obj: Array with shape [obj_size_y, obj_size_x, obj_size_z, 2]. Object function.
+        :param probe_real: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Preal part of the probe.
+        :param probe_imag: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Imaginary part of the probe.
+        :param probe_defocus_mm: Probe defocus in mm.
+        :param probe_pos_offset: Array with shape [n_theta, 2]. Probe position offset for each angle, in pixels.
+        :param this_i_theta: Int. Current angle index.
+        :param this_pos_batch: Array with shape [minibatch_size, 2]. Current batch of probe positions.
+        :param prj: HDF5 measurement dataset handler.
+        :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
+        :param this_ind_batch: List of Int. Current batch of tile indices.
+        :param tilt_ls: Array with shape [3, n_theta]. 3-axis tilt to be applied before propagation.
+        :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
+        """
 
         device_obj = self.common_vars['device_obj']
         probe_size = self.common_vars['probe_size']
@@ -552,6 +614,23 @@ class SparseMultisliceModel(ForwardModel):
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
+        """
+        Calculated predicted measurment. The signature of this function exactly matches the function returned
+        by the ``get_loss_function`` method.
+
+        :param obj: Array with shape [obj_size_y, obj_size_x, obj_size_z, 2]. Object function.
+        :param probe_real: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Preal part of the probe.
+        :param probe_imag: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Imaginary part of the probe.
+        :param probe_defocus_mm: Probe defocus in mm.
+        :param probe_pos_offset: Array with shape [n_theta, 2]. Probe position offset for each angle, in pixels.
+        :param this_i_theta: Int. Current angle index.
+        :param this_pos_batch: Array with shape [minibatch_size, 2]. Current batch of probe positions.
+        :param prj: HDF5 measurement dataset handler.
+        :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
+        :param this_ind_batch: List of Int. Current batch of tile indices.
+        :param slice_pos_cm_ls: Array of Float. Positions of object slices in cm.
+        :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
+        """
 
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']
@@ -745,6 +824,26 @@ class MultiDistModel(ForwardModel):
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
                 probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls, ctf_lg_kappa):
+        """
+        Calculated predicted measurment. The signature of this function exactly matches the function returned
+        by the ``get_loss_function`` method.
+
+        :param obj: Array with shape [obj_size_y, obj_size_x, obj_size_z, 2]. Object function.
+        :param probe_real: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Preal part of the probe.
+        :param probe_imag: Array with shape [n_probe_modes, len_probe_y, len_probe_x]. Imaginary part of the probe.
+        :param probe_defocus_mm: Probe defocus in mm.
+        :param probe_pos_offset: Array with shape [n_theta, 2]. Probe position offset for each angle, in pixels.
+        :param this_i_theta: Int. Current angle index.
+        :param this_pos_batch: Array with shape [minibatch_size, 2]. Current batch of probe positions.
+        :param prj: HDF5 measurement dataset handler.
+        :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
+        :param this_ind_batch: List of Int. Current batch of tile indices.
+        :param free_prop_cm: Array of Float. Propagation distances for all holograms.
+        :param safe_zone_width: Int. Width of safe zone to be padded to probes before propagation to prevent fringe wrapping.
+        :param prj_affine_ls: Array with shape [n_dists, 2, 3]. Affine transform matrices for each hologram.
+        :param ctf_lg_kappa: Log10 of kappa, the relation coefficient between delta and beta. If homogeneous assumption is not used, set as None.
+        :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
+        """
 
         device_obj = self.common_vars['device_obj']
         lmbda_nm = self.common_vars['lmbda_nm']

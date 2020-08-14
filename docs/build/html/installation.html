@@ -84,8 +84,9 @@
 <ul class="current">
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quick_start_guide.html">Quick start guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_references.html">API references</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1"><a class="reference internal" href="customization.html">Customization</a></li>
+<li class="toctree-l1"><a class="reference internal" href="adorym.html">API references</a></li>
 <li class="toctree-l1"><a class="reference internal" href="publications.html">Publications</a></li>
 </ul>
 
@@ -161,26 +162,22 @@
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">./</span><span class="n">adorym</span>
 </pre></div>
 </div>
-<div class="line-block">
-<div class="line">If you will modify internal functions of Adorym, <em>e.g.</em>, add new</div>
-</div>
-<p>forward
-| models or refinable parameters, it is suggested to use the <code class="docutils literal notranslate"><span class="pre">-e</span></code> flag
+<p>If you will modify internal functions of Adorym, <em>e.g.</em>, add new
+forward
+models or refinable parameters, it is suggested to use the <code class="docutils literal notranslate"><span class="pre">-e</span></code> flag
 to
-| enable editable mode so that you don’t need to rebuild Adorym each
+enable editable mode so that you don’t need to rebuild Adorym each
 time
-| you make changes to the source code:</p>
+you make changes to the source code:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">-</span><span class="n">e</span> <span class="o">./</span><span class="n">adorym</span>
 </pre></div>
 </div>
-<div class="line-block">
-<div class="line">After installation, type <code class="docutils literal notranslate"><span class="pre">python</span></code> to open a Python console, and</div>
-</div>
-<p>check
-| the installation status using <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">adorym</span></code>. If an <code class="docutils literal notranslate"><span class="pre">ImportError</span></code>
+<p>After installation, type <code class="docutils literal notranslate"><span class="pre">python</span></code> to open a Python console, and
+check
+the installation status using <code class="docutils literal notranslate"><span class="pre">import</span> <span class="pre">adorym</span></code>. If an <code class="docutils literal notranslate"><span class="pre">ImportError</span></code>
 occurs,
-| you may need to manually install the missing dependencies. Most
-| dependencies are available on PIP and can be acquired with</p>
+you may need to manually install the missing dependencies. Most
+dependencies are available on PIP and can be acquired with</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">pip</span> <span class="n">install</span> <span class="o">&lt;</span><span class="n">package_name</span><span class="o">&gt;</span>
 </pre></div>
 </div>
@@ -189,11 +186,9 @@ Python:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="n">conda</span> <span class="n">install</span> <span class="o">&lt;</span><span class="n">package_name</span><span class="o">&gt;</span>
 </pre></div>
 </div>
-<div class="line-block">
-<div class="line">In order to run Adorym using PyTorch backend with GPU support, please</div>
-<div class="line">make sure the right version of PyTorch that matches your CUDA version</div>
-<div class="line">is installed. The latter can be checked through <code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code>.</div>
-</div>
+<p>In order to run Adorym using PyTorch backend with GPU support, please
+make sure the right version of PyTorch that matches your CUDA version
+is installed. The latter can be checked through <code class="docutils literal notranslate"><span class="pre">nvidia-smi</span></code>.</p>
 </div>
 
 

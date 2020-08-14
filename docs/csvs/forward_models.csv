@@ -1,0 +1,2 @@
+**Name**, **escription**, **Arguments**
+PtychographyModel, """The generalized ptychography model; supports multi-angle, multi-tile, far/near-field and 2D/3D reconstruction.""", |obj |probe_real

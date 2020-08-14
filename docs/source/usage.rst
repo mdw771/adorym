@@ -1,5 +1,5 @@
-API references
---------------
+Usage
+-----
 
 Dataset format
 ~~~~~~~~~~~~~~
@@ -356,6 +356,42 @@ Other settings
 +--------------------+---------------------+---------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
 | ``t_max_min``      | Float or ``None``   | None          | At the end of a batch, terminate the program with s tatus 0 if total time exceeds the set value. Useful for working with supercomputers' job dependency system, where the dependent may start only if the parent job exits with status 0.   |
 +--------------------+---------------------+---------------+---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+
+Forward models
+~~~~~~~~~~~~~~
+
+Forward models are defined as ``ForwardModel`` classes in ``forward_model.py``.
+Currently, the following forward models are built in with Adorym:
+
+.. autoclass:: adorym.forward_model.PtychographyModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: adorym.forward_model.SingleBatchFullfieldModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: adorym.forward_model.SingleBatchPtychographyModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: adorym.forward_model.SparseMultisliceModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+.. autoclass:: adorym.forward_model.MultiDistModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
+For all forward models, ``this_i_theta``, ``this_pos_batch``, and ``this_ind_batch``
+are essential since they inform the program the right data to read for the current minibatch.
+Some static variables, like the basic probe positions (but not the correction values to
+probe positions), are not included as an argument, but are directly fetched from ``common_vars_dict``.
 
 Optimizers
 ~~~~~~~~~~

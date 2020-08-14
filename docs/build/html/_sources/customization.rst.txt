@@ -4,35 +4,35 @@ Customization
 Adding your own forward model
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| You can create additional forward models beyond the existing ones. To
+You can create additional forward models beyond the existing ones. To
 begin with, in ``adorym/forward_model.py``,
-| create a class inheriting ``ForwardModel`` (*i.e.*,
+create a class inheriting ``ForwardModel`` (*i.e.*,
 ``class MyNovelModel(ForwardModel)``). Each forward model class
-| should contain 4 essential methods: ``predict``, ``get_data``,
+should contain 4 essential methods: ``predict``, ``get_data``,
 ``loss``, and ``get_loss_function``. ``predict`` maps input variables
-| to predicted quantities (usually the real-numbered magnitude of the
+to predicted quantities (usually the real-numbered magnitude of the
 detected wavefield). ``get_data`` reads from
-| the HDF5 file the raw data corresponding to the minibatch currently
+the HDF5 file the raw data corresponding to the minibatch currently
 being processed. ``loss`` is the last-layer
-| loss node that computes the (regularized)
-| loss values from the predicted data and the experimental measurement
+loss node that computes the (regularized)
+loss values from the predicted data and the experimental measurement
 for the current minibatch. ``get_loss_function``
-| concatenates the above methods and return the end-to-end loss
+concatenates the above methods and return the end-to-end loss
 function. If your ``predict`` returns the real-numbered
-| magnitude of the detected wavefield, you can use ``loss`` inherented
+magnitude of the detected wavefield, you can use ``loss`` inherented
 from the parent class, although you still need to
-| make a copy of ``get_loss_function`` and explicitly change its
+make a copy of ``get_loss_function`` and explicitly change its
 arguments to match those of ``predict`` (do not use
-| implicit argument tuples or dictionaries like ``*args`` and
+implicit argument tuples or dictionaries like ``*args`` and
 ``**kwargs``, as that won't work with Autograd!). If your ``predict``
-| returns something else, you may also need to override ``loss``. Also
+returns something else, you may also need to override ``loss``. Also
 make sure your new forward model class contains
-| a ``self.argument_ls`` attribute, which should be a list of argument
+a ``self.argument_ls`` attribute, which should be a list of argument
 strings that exactly matches the signature of ``predict``.
 
-| To use your forward model, pass your forward model class to the
+To use your forward model, pass your forward model class to the
 ``forward_model`` argument of ``reconstruct_ptychography``.
-| For example, in the script that you execute with Python, do the
+For example, in the script that you execute with Python, do the
 following:
 
 ::
@@ -48,11 +48,11 @@ following:
 Adding refinable parameters
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-| Whenever possible, users who want to create new forward models with
+Whenever possible, users who want to create new forward models with
 new refinable parameters are always
-| recommended to make use of parameter variables existing in the
+recommended to make use of parameter variables existing in the
 program, because they all have optimizers
-| already linked to them. These include the following:
+already linked to them. These include the following:
 
 +----------------------------+-----------------------------------------+
 | **Var name**               | **Shape**                               |
@@ -78,9 +78,9 @@ program, because they all have optimizers
 | ``ctf_lg_kappa``           | ``[1]``                                 |
 +----------------------------+-----------------------------------------+
 
-| Adding new refinable parameters (at the current stage) involves some
+Adding new refinable parameters (at the current stage) involves some
 hard coding. To do that, take the following
-| steps:
+steps:
 
 #. in ``ptychography.py``, find the code block labeled by
    ``"Create variables and optimizers for other parameters (probe, probe defocus, probe positions, etc.)."``

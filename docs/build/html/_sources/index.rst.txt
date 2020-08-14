@@ -14,7 +14,8 @@ Adorym, (\ **A**\ utomatic \ **D**\ ifferentiation-based \ **O**\ bject \ **R**\
    
    installation
    quick_start_guide
-   api_references
+   usage
    customization
+   adorym
    publications
 

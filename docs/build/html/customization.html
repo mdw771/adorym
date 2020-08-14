@@ -35,8 +35,8 @@
   <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
     <link rel="index" title="Index" href="genindex.html" />
     <link rel="search" title="Search" href="search.html" />
-    <link rel="next" title="Publications" href="publications.html" />
-    <link rel="prev" title="API references" href="api_references.html" /> 
+    <link rel="next" title="API references" href="adorym.html" />
+    <link rel="prev" title="Usage" href="usage.html" /> 
 </head>
 
 <body class="wy-body-for-nav">
@@ -84,12 +84,13 @@
 <ul class="current">
 <li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
 <li class="toctree-l1"><a class="reference internal" href="quick_start_guide.html">Quick start guide</a></li>
-<li class="toctree-l1"><a class="reference internal" href="api_references.html">API references</a></li>
+<li class="toctree-l1"><a class="reference internal" href="usage.html">Usage</a></li>
 <li class="toctree-l1 current"><a class="current reference internal" href="#">Customization</a><ul>
 <li class="toctree-l2"><a class="reference internal" href="#adding-your-own-forward-model">Adding your own forward model</a></li>
 <li class="toctree-l2"><a class="reference internal" href="#adding-refinable-parameters">Adding refinable parameters</a></li>
 </ul>
 </li>
+<li class="toctree-l1"><a class="reference internal" href="adorym.html">API references</a></li>
 <li class="toctree-l1"><a class="reference internal" href="publications.html">Publications</a></li>
 </ul>
 
@@ -159,38 +160,34 @@
 <h1>Customization<a class="headerlink" href="#customization" title="Permalink to this headline">¶</a></h1>
 <div class="section" id="adding-your-own-forward-model">
 <h2>Adding your own forward model<a class="headerlink" href="#adding-your-own-forward-model" title="Permalink to this headline">¶</a></h2>
-<div class="line-block">
-<div class="line">You can create additional forward models beyond the existing ones. To</div>
-</div>
-<p>begin with, in <code class="docutils literal notranslate"><span class="pre">adorym/forward_model.py</span></code>,
-| create a class inheriting <code class="docutils literal notranslate"><span class="pre">ForwardModel</span></code> (<em>i.e.</em>,
+<p>You can create additional forward models beyond the existing ones. To
+begin with, in <code class="docutils literal notranslate"><span class="pre">adorym/forward_model.py</span></code>,
+create a class inheriting <code class="docutils literal notranslate"><span class="pre">ForwardModel</span></code> (<em>i.e.</em>,
 <code class="docutils literal notranslate"><span class="pre">class</span> <span class="pre">MyNovelModel(ForwardModel)</span></code>). Each forward model class
-| should contain 4 essential methods: <code class="docutils literal notranslate"><span class="pre">predict</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>,
+should contain 4 essential methods: <code class="docutils literal notranslate"><span class="pre">predict</span></code>, <code class="docutils literal notranslate"><span class="pre">get_data</span></code>,
 <code class="docutils literal notranslate"><span class="pre">loss</span></code>, and <code class="docutils literal notranslate"><span class="pre">get_loss_function</span></code>. <code class="docutils literal notranslate"><span class="pre">predict</span></code> maps input variables
-| to predicted quantities (usually the real-numbered magnitude of the
+to predicted quantities (usually the real-numbered magnitude of the
 detected wavefield). <code class="docutils literal notranslate"><span class="pre">get_data</span></code> reads from
-| the HDF5 file the raw data corresponding to the minibatch currently
+the HDF5 file the raw data corresponding to the minibatch currently
 being processed. <code class="docutils literal notranslate"><span class="pre">loss</span></code> is the last-layer
-| loss node that computes the (regularized)
-| loss values from the predicted data and the experimental measurement
+loss node that computes the (regularized)
+loss values from the predicted data and the experimental measurement
 for the current minibatch. <code class="docutils literal notranslate"><span class="pre">get_loss_function</span></code>
-| concatenates the above methods and return the end-to-end loss
+concatenates the above methods and return the end-to-end loss
 function. If your <code class="docutils literal notranslate"><span class="pre">predict</span></code> returns the real-numbered
-| magnitude of the detected wavefield, you can use <code class="docutils literal notranslate"><span class="pre">loss</span></code> inherented
+magnitude of the detected wavefield, you can use <code class="docutils literal notranslate"><span class="pre">loss</span></code> inherented
 from the parent class, although you still need to
-| make a copy of <code class="docutils literal notranslate"><span class="pre">get_loss_function</span></code> and explicitly change its
+make a copy of <code class="docutils literal notranslate"><span class="pre">get_loss_function</span></code> and explicitly change its
 arguments to match those of <code class="docutils literal notranslate"><span class="pre">predict</span></code> (do not use
-| implicit argument tuples or dictionaries like <code class="docutils literal notranslate"><span class="pre">*args</span></code> and
+implicit argument tuples or dictionaries like <code class="docutils literal notranslate"><span class="pre">*args</span></code> and
 <code class="docutils literal notranslate"><span class="pre">**kwargs</span></code>, as that won’t work with Autograd!). If your <code class="docutils literal notranslate"><span class="pre">predict</span></code>
-| returns something else, you may also need to override <code class="docutils literal notranslate"><span class="pre">loss</span></code>. Also
+returns something else, you may also need to override <code class="docutils literal notranslate"><span class="pre">loss</span></code>. Also
 make sure your new forward model class contains
-| a <code class="docutils literal notranslate"><span class="pre">self.argument_ls</span></code> attribute, which should be a list of argument
+a <code class="docutils literal notranslate"><span class="pre">self.argument_ls</span></code> attribute, which should be a list of argument
 strings that exactly matches the signature of <code class="docutils literal notranslate"><span class="pre">predict</span></code>.</p>
-<div class="line-block">
-<div class="line">To use your forward model, pass your forward model class to the</div>
-</div>
-<p><code class="docutils literal notranslate"><span class="pre">forward_model</span></code> argument of <code class="docutils literal notranslate"><span class="pre">reconstruct_ptychography</span></code>.
-| For example, in the script that you execute with Python, do the
+<p>To use your forward model, pass your forward model class to the
+<code class="docutils literal notranslate"><span class="pre">forward_model</span></code> argument of <code class="docutils literal notranslate"><span class="pre">reconstruct_ptychography</span></code>.
+For example, in the script that you execute with Python, do the
 following:</p>
 <div class="highlight-default notranslate"><div class="highlight"><pre><span></span><span class="kn">import</span> <span class="nn">adorym</span>
 <span class="kn">from</span> <span class="nn">adorym.ptychography</span> <span class="k">import</span> <span class="n">reconstruct_ptychography</span>
@@ -204,13 +201,11 @@ following:</p>
 </div>
 <div class="section" id="adding-refinable-parameters">
 <h2>Adding refinable parameters<a class="headerlink" href="#adding-refinable-parameters" title="Permalink to this headline">¶</a></h2>
-<div class="line-block">
-<div class="line">Whenever possible, users who want to create new forward models with</div>
-</div>
-<p>new refinable parameters are always
-| recommended to make use of parameter variables existing in the
+<p>Whenever possible, users who want to create new forward models with
+new refinable parameters are always
+recommended to make use of parameter variables existing in the
 program, because they all have optimizers
-| already linked to them. These include the following:</p>
+already linked to them. These include the following:</p>
 <table class="docutils align-default">
 <colgroup>
 <col style="width: 41%" />
@@ -254,11 +249,9 @@ program, because they all have optimizers
 </tr>
 </tbody>
 </table>
-<div class="line-block">
-<div class="line">Adding new refinable parameters (at the current stage) involves some</div>
-</div>
-<p>hard coding. To do that, take the following
-| steps:</p>
+<p>Adding new refinable parameters (at the current stage) involves some
+hard coding. To do that, take the following
+steps:</p>
 <ol class="arabic simple">
 <li><p>in <code class="docutils literal notranslate"><span class="pre">ptychography.py</span></code>, find the code block labeled by
 <code class="docutils literal notranslate"><span class="pre">&quot;Create</span> <span class="pre">variables</span> <span class="pre">and</span> <span class="pre">optimizers</span> <span class="pre">for</span> <span class="pre">other</span> <span class="pre">parameters</span> <span class="pre">(probe,</span> <span class="pre">probe</span> <span class="pre">defocus,</span> <span class="pre">probe</span> <span class="pre">positions,</span> <span class="pre">etc.).&quot;</span></code>
@@ -291,10 +284,10 @@ or outputted, you will also need to explicitly modify
   
     <div class="rst-footer-buttons" role="navigation" aria-label="footer navigation">
       
-        <a href="publications.html" class="btn btn-neutral float-right" title="Publications" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
+        <a href="adorym.html" class="btn btn-neutral float-right" title="API references" accesskey="n" rel="next">Next <span class="fa fa-arrow-circle-right"></span></a>
       
       
-        <a href="api_references.html" class="btn btn-neutral float-left" title="API references" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
+        <a href="usage.html" class="btn btn-neutral float-left" title="Usage" accesskey="p" rel="prev"><span class="fa fa-arrow-circle-left"></span> Previous</a>
       
     </div>
   
