@@ -1,2 +1,7 @@
 numpy
+scipy
 h5py
+six
+tifffile    
+pandas
+matplotlib

@@ -34,6 +34,8 @@ class Optimizer(object):
     def __init__(self, name, output_folder='.', params_list=(), distribution_mode=None,
                  options_dict=None, forward_model=None):
         """
+        Parent class of optimizers.
+		
         :param name:  Name of the optimizer. It is currently used to (1) match the optimizer to special handling rules
                       defined in optimizers.update_parameters, optimizers.update_parameter_gradients, 
                       optimizers.create_parameter_output_folders, and optimizers.output_intermediate_parameters, and (2) to
