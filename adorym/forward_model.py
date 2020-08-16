@@ -9,20 +9,19 @@ from adorym.util import *
 from adorym.propagate import multislice_propagate_batch, get_kernel
 
 class ForwardModel(object):
+    """
+    The parent forward model class.
 
+    :param loss_function_type: String. Can be ``'lsq'`` or ``'poisson'``. Type of loss function.
+    :param distribution_mode: ``None``, ``'distributed_object'``, or ``'shared_file'``. Mode of parallelization.
+    :param device: ``None`` or device object. Use ``None`` for computations on CPU only.
+    :param common_vars_dict: Dict. A dictionary of variables that are static (i.e., won't be optimized and won't
+        change with different minibatches). When the ForwardModel class is declared in ``reconstruct_ptycho``, it
+        can simply be the local namespace of the main module, i.e., ``locals()``.
+    :param raw_data_type: String. Can be ``'magnitude'`` or ``'intensity'``. Type of raw data in HDF5. For line-projection
+        tomography reconstruction where raw data have already been minus-logged, always use ``'magnitude'``.
+    """
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        """
-        The parent forward model class.
-
-        :param loss_function_type: String. Can be ``'lsq'`` or ``'poisson'``. Type of loss function.
-        :param distribution_mode: ``None``, ``'distributed_object'``, or ``'shared_file'``. Mode of parallelization.
-        :param device: ``None`` or device object. Use ``None`` for computations on CPU only.
-        :param common_vars_dict: Dict. A dictionary of variables that are static (i.e., won't be optimized and won't
-            change with different minibatches). When the ForwardModel class is declared in ``reconstruct_ptycho``, it
-            can simply be the local namespace of the main module, i.e., ``locals()``.
-        :param raw_data_type: String. Can be ``'magnitude'`` or ``'intensity'``. Type of raw data in HDF5. For line-projection
-            tomography reconstruction where raw data have already been minus-logged, always use ``'magnitude'``.
-        """
         self.loss_function_type = loss_function_type
         self.argument_ls = []
         self.regularizer_dict = {}

@@ -360,7 +360,14 @@ Other settings
 Forward models
 ~~~~~~~~~~~~~~
 
-Forward models are defined as ``ForwardModel`` classes in ``forward_model.py``.
+Forward models are defined as ``ForwardModel`` classes in ``forward_model.py``. All forward model
+classes inherent from the parent ``ForwardModel`` class:
+
+.. autoclass:: adorym.forward_model.ForwardModel
+    :members:
+    :undoc-members:
+    :show-inheritance:
+
 Currently, the following forward models are built in with Adorym:
 
 .. autoclass:: adorym.forward_model.PtychographyModel
@@ -417,6 +424,9 @@ Below is the API reference of the general ``Optimizer`` class:
     :undoc-members:
     :show-inheritance:
 
+The acceptable values of ``options_dict`` varies with different optimizer types.
+The table below lists the available options:
+
 +--------------------------+-----------------------------------------------------------------------------+
 | **Optimizer**            | **``options_dict`` and default values**                                     |
 +==========================+=============================================================================+
@@ -440,6 +450,15 @@ Gauss-Newton method.
 
 \*\* For valid values of ``method`` and ``options``, refer to the
 documentation of ``scipy.optimize.minimize``.
+
+Generally, the ``apply_gradient`` method in each optimizer class is called to update
+the variable. Some Special optimizers, like ``CurveballOptimizer``, may require additional
+calls to other methods in order to compute intermediate parameters.
+
+.. autoclass:: adorym.optimizers.CurveballOptimizer
+    :members:
+    :undoc-members:
+    :show-inheritance:
 
 Output
 ~~~~~~
