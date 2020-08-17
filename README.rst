@@ -9,29 +9,9 @@ Table of contents
 #. `Installation <#installation>`__
 #. `Quick start guide <#quick-start-guide>`__
 #. `Running a demo script <#running-a-demo-script>`__
+#. `Running your own jobs <#running-your-own-jobs>`__
 #. `Data format <#dataset-format>`__
-#. `API references <#api-references>`__
-#. `Parameter settings in main
-   function <#parameter-settings-in-main-function>`__
-
-   #. `Backend <#backend>`__
-   #. `Raw data and experimental
-      parameters <#raw-data-and-experimental-parameters>`__
-   #. `Reconstruction parameters <#reconstruction-parameters>`__
-   #. `Object optimizer options <#object-optimizer-options>`__
-   #. `Finite support constraint <#finite-support-constraint>`__
-   #. `Object contraints <#object-contraints>`__
-   #. `Forward model <#forward-model>`__
-   #. `I/O <#io>`__
-   #. `Performance <#performance>`__
-   #. `Other (non-object) optimizers <#other-non-object-optimizers>`__
-   #. `Other settings <#other-settings>`__
-
-#. `Optimizers <#optimizers>`__
-#. `Output <#output>`__
 #. `Customization <#customization>`__
-#. `Adding your own forward model <#adding-your-own-forward-model>`__
-#. `Adding refinable parameters <#adding-refinable-parameters>`__
 #. `Publications <#publications>`__
 
 Installation
@@ -124,6 +104,9 @@ To run the script with multiple processes, use
 
     mpirun -n <num_procs> python multislice_ptycho_256_theta.py
 
+Running your own jobs
+~~~~~~~~~~~~~~~~~~~~~
+
 You can use the scripts in ``demos`` and ``tests`` as templates to create the
 scripts for your own jobs. While the major API is the function ``reconstruct_ptychography``
 itself, you may also explicitly declare optimizers to be used for the object, the
@@ -184,6 +167,8 @@ for 2D fly-scan ptychography reconstruction with probe position refinement:
 
     reconstruct_ptychography(**params_ptych)
 
+To learn the settings of the ``reconstruct_ptychography`` function, please visit
+the `documentation <https://adorym.readthedocs.io>`_.
 
 Dataset format
 ~~~~~~~~~~~~~~
