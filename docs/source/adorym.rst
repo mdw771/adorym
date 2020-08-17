@@ -1,9 +1,6 @@
 API references
 ==============
 
-Submodules
-----------
-
 adorym.array\_ops module
 ------------------------
 
@@ -40,6 +37,14 @@ adorym.forward\_model module
 ----------------------------
 
 .. automodule:: adorym.forward_model
+   :members:
+   :undoc-members:
+   :show-inheritance:
+
+adorym.regularizers module
+----------------------------
+
+.. automodule:: adorym.regularizers
    :members:
    :undoc-members:
    :show-inheritance:

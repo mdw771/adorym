@@ -12,7 +12,7 @@ class Regularizer(object):
     def __init__(self, unknown_type='delta_beta'):
         self.unknown_type = unknown_type
 
-    def get_value(self, obj, device=None):
+    def get_value(self, obj, device=None, **kwargs):
         pass
 
 
@@ -29,7 +29,7 @@ class L1Regularizer(Regularizer):
         self.alpha_d = alpha_d
         self.alpha_b = alpha_b
 
-    def get_value(self, obj, device=None):
+    def get_value(self, obj, device=None, **kwargs):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
@@ -64,7 +64,7 @@ class ReweightedL1Regularizer(Regularizer):
     def update_l1_weight(self, weight_l1):
         self.weight_l1 = weight_l1
 
-    def get_value(self, obj, device=None):
+    def get_value(self, obj, device=None, **kwargs):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
@@ -96,7 +96,7 @@ class TVRegularizer(Regularizer):
         super().__init__(unknown_type)
         self.gamma = gamma
 
-    def get_value(self, obj, distribution_mode=None, device=None):
+    def get_value(self, obj, distribution_mode=None, device=None, **kwargs):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
@@ -111,4 +111,48 @@ class TVRegularizer(Regularizer):
             axis_offset = 0 if distribution_mode is None else 1
             reg = reg + self.gamma * total_variation_3d(r ** 2 + i ** 2, axis_offset=axis_offset)
             reg = reg + self.gamma * total_variation_3d(w.arctan2(i, r), axis_offset=axis_offset)
+        return reg
+
+
+class CorrRegularizer(Regularizer):
+    """
+    Pearson correlation regularizer along z axis of object.
+
+    :param gamma: Weight of correlation term.
+    """
+    def __init__(self, gamma, unknown_type='delta_beta'):
+        super().__init__(unknown_type)
+        self.gamma = gamma
+
+    def get_value(self, obj, distribution_mode=None, device=None, **kwargs):
+        slicer = [slice(None)] * (len(obj.shape) - 1)
+        slicer_z = [slice(None)] * (len(obj.shape) - 2)
+        reg = w.create_variable(0., device=device)
+        if self.unknown_type == 'delta_beta':
+            o1 = obj[slicer + [0]]
+            o2 = obj[slicer + [1]]
+            axis_offset = 2 if distribution_mode is None else 3
+        elif self.unknown_type == 'real_imag':
+            r = obj[slicer + [0]]
+            i = obj[slicer + [1]]
+            axis_offset = 0 if distribution_mode is None else 1
+            o1 = r ** 2 + i ** 2
+            o2 = w.arctan2(i, r)
+        else:
+            raise ValueError('Invalid value for unknown_type.')
+        for i_slice in range(o1.shape[axis_offset]):
+            if i_slice == 0:
+                nom_1 = o1[slicer_z + [i_slice]] - w.mean(o1[slicer_z + [i_slice]])
+                nom_2 = o2[slicer_z + [i_slice]] - w.mean(o2[slicer_z + [i_slice]])
+                denom_1 = w.std(o1[slicer_z + [i_slice]])
+                denom_2 = w.std(o2[slicer_z + [i_slice]])
+            else:
+                nom_1 = nom_1 * (o1[slicer_z + [i_slice]] - w.mean(o1[slicer_z + [i_slice]]))
+                nom_2 = nom_2 * (o2[slicer_z + [i_slice]] - w.mean(o2[slicer_z + [i_slice]]))
+                denom_1 = denom_1 * w.std(o1[slicer_z + [i_slice]])
+                denom_2 = denom_2 * w.std(o2[slicer_z + [i_slice]])
+        nom_1 = w.sum(nom_1)
+        nom_2 = w.sum(nom_2)
+        reg = reg + self.gamma * nom_1 / denom_1
+        reg = reg + self.gamma * nom_2 / denom_2
         return reg

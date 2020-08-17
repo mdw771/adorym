@@ -44,6 +44,7 @@ class ForwardModel(object):
         self.common_probe_pos = common_vars_dict['common_probe_pos']
         self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
         self.loss_args = {}
+        self.reg_list = []
 
     def update_loss_args(self, kwargs):
         self.loss_args = kwargs
@@ -54,10 +55,7 @@ class ForwardModel(object):
     def get_regularization_value(self, obj, device=None):
         reg = w.create_variable(0., device=self.device)
         for r in self.reg_list:
-            if isinstance(r, TVRegularizer):
-                reg = reg + r.get_value(obj, distribution_mode=self.distribution_mode, device=device)
-            else:
-                reg = reg + r.get_value(obj, device=device)
+            reg = reg + r.get_value(obj, distribution_mode=self.distribution_mode, device=device)
         print_flush('  Reg term = {}.'.format(w.to_numpy(reg)), 0, rank, **self.stdout_options)
         return reg
 

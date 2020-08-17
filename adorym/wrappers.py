@@ -623,6 +623,13 @@ def mean(var, axis=None):
         return tc.mean(var, **args)
 
 
+def std(var):
+    if global_settings.backend == 'autograd':
+        return anp.std(var)
+    elif global_settings.backend == 'pytorch':
+        return tc.std(var)
+
+
 def max(var, return_number=True, axis=None):
     if global_settings.backend == 'autograd':
         a = anp.max(var, axis=axis)
