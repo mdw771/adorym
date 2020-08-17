@@ -17,6 +17,7 @@ from adorym.differentiator import *
 import adorym.wrappers as w
 import adorym.global_settings as global_settings
 from adorym.forward_model import *
+from adorym.regularizers import *
 from adorym.conventional import *
 
 project_config = check_config_indept_mpi()
@@ -44,8 +45,11 @@ def reconstruct_ptychography(
         slice_pos_cm_ls=None,
         # ___________________________
         # |Reconstruction parameters|___________________________________________
-        n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200, alpha_d=None, alpha_b=None,
-        gamma=1e-6, minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
+        n_epochs='auto', crit_conv_rate=0.03, max_nepochs=200,
+        # Either pre-declare all regularizers and pass them as a list, or specify values of alpha and gamma
+        regularizers=None,
+        alpha_d=None, alpha_b=None, gamma=1e-6,
+        minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
         initial_guess=None,
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
         # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
@@ -512,11 +516,22 @@ def reconstruct_ptychography(
             forward_model = forward_model(**forwardmodel_args)
             print_flush('Specified forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
 
-        if reweighted_l1:
-            forward_model.add_reweighted_l1_norm(alpha_d, alpha_b, None)
-        else:
-            if alpha_d not in [0, None]: forward_model.add_l1_norm(alpha_d, alpha_b)
-        if gamma not in [0, None]: forward_model.add_tv(gamma)
+        if regularizers is None:
+            regularizers = []
+            if alpha_d not in [0, None]:
+                if reweighted_l1:
+                    regularizers.append(ReweightedL1Regularizer(alpha_d, alpha_b, unknown_type=unknown_type))
+                else:
+                    regularizers.append(L1Regularizer(alpha_d, alpha_b, unknown_type=unknown_type))
+            if gamma not in [0, None]:
+                regularizers.append(TVRegularizer(gamma, unknown_type=unknown_type))
+        forward_model.add_regularizers(regularizers)
+        reg_rwl1 = None
+        reweighted_l1 = False
+        for r in regularizers:
+            if isinstance(r, ReweightedL1Regularizer):
+                reg_rwl1 = r
+                reweighted_l1 = True
 
         # ================================================================================
         # Create gradient class.
@@ -936,7 +951,7 @@ def reconstruct_ptychography(
                             weight_l1 = w.max(obj.chunks) / (w.abs(obj.chunks) + 1e-4 * w.mean(obj.chunks))
                         else:
                             if i_batch % 10 == 0: weight_l1 = w.max(obj.arr) / (w.abs(obj.arr) + 1e-4 * w.mean(obj.arr))
-                        forward_model.update_l1_weight(weight_l1)
+                        reg_rwl1.update_l1_weight(weight_l1)
 
                 # ================================================================================
                 # Calculate object gradients.

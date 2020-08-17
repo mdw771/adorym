@@ -1,3 +1,4 @@
+import adorym
 from adorym.ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
@@ -32,18 +33,15 @@ else:
         print(os.path.join(args.save_path, args.output_folder, 'epoch_{}/delta_ds_1.tiff'.format(epoch - 1)))
         init = [np.array(init_delta[...]), np.array(init_beta[...])]
 
+reg_l1 = adorym.L1Regularizer(alpha_d=1.e-9 * 64 ** 3, alpha_b=1.e-10 * 64 ** 3)
 
 params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
                   'theta_downsample': 10,
                   'n_epochs': 10,
+                  'regularizers': [reg_l1],
                   'obj_size': (64, 64, 64),
-                  'alpha_d': 1.e-9 * 64 ** 3,
-                  # 'alpha_d': 0,
-                  'alpha_b': 1.e-10 * 64 ** 3,
-                  # 'alpha_b': 0,
-                  'gamma': 0,
                   'probe_size': (64, 64),
                   # 'learning_rate': 1., # for non-shared file mode gd
                   'learning_rate': 1e-7, # for non-shared-file mode adam

@@ -5,6 +5,7 @@ import gc
 import time
 
 import adorym.wrappers as w
+from adorym.regularizers import *
 from adorym.util import *
 from adorym.propagate import multislice_propagate_batch, get_kernel
 
@@ -47,47 +48,16 @@ class ForwardModel(object):
     def update_loss_args(self, kwargs):
         self.loss_args = kwargs
 
-    def add_regularizer(self, name, reg_dict):
-        self.regularizer_dict[name] = reg_dict
+    def add_regularizers(self, reg_list):
+        self.reg_list = reg_list
 
-    def add_l1_norm(self, alpha_d, alpha_b):
-        d = {'alpha_d': alpha_d,
-             'alpha_b': alpha_b}
-        self.add_regularizer('l1_norm', d)
-
-    def add_reweighted_l1_norm(self, alpha_d, alpha_b, weight_l1):
-        d = {'alpha_d': alpha_d,
-             'alpha_b': alpha_b,
-             'weight_l1': weight_l1}
-        self.add_regularizer('reweighted_l1_norm', d)
-
-    def add_tv(self, gamma):
-        d = {'gamma': gamma}
-        self.add_regularizer('tv', d)
-
-    def update_l1_weight(self, weight_l1):
-        self.regularizer_dict['reweighted_l1_norm']['weight_l1'] = weight_l1
-
-    def get_regularization_value(self, obj):
+    def get_regularization_value(self, obj, device=None):
         reg = w.create_variable(0., device=self.device)
-        for name in list(self.regularizer_dict):
-            if name == 'l1_norm':
-                reg = reg + l1_norm_term(obj,
-                                    self.regularizer_dict[name]['alpha_d'],
-                                    self.regularizer_dict[name]['alpha_b'],
-                                    device=self.device,
-                                    unknown_type=self.unknown_type)
-            elif name == 'reweighted_l1_norm':
-                reg = reg + reweighted_l1_norm_term(obj,
-                                               self.regularizer_dict[name]['alpha_d'],
-                                               self.regularizer_dict[name]['alpha_b'],
-                                               self.regularizer_dict[name]['weight_l1'],
-                                               device=self.device, unknown_type=self.unknown_type)
-            elif name == 'tv':
-                reg = reg + tv(obj,
-                          self.regularizer_dict[name]['gamma'],
-                          self.distribution_mode, device=self.device,
-                          unknown_type=self.unknown_type)
+        for r in self.reg_list:
+            if isinstance(r, TVRegularizer):
+                reg = reg + r.get_value(obj, distribution_mode=self.distribution_mode, device=device)
+            else:
+                reg = reg + r.get_value(obj, device=device)
         print_flush('  Reg term = {}.'.format(w.to_numpy(reg)), 0, rank, **self.stdout_options)
         return reg
 
@@ -148,7 +118,8 @@ class ForwardModel(object):
             this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
             print_flush('  {} valid pixels remain after applying beamstop mask.'.format(this_pred_batch.shape[1]), 0, rank)
         loss = self.get_mismatch_loss(this_pred_batch, this_prj_batch)
-        loss = loss + self.get_regularization_value(obj)
+        if len(self.reg_list) > 0:
+            loss = loss + self.get_regularization_value(obj, device=self.device)
         loss_val = w.to_numpy(loss)
         try:
             loss_val = float(loss_val)
