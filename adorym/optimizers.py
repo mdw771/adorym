@@ -737,8 +737,8 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
 
     if kwargs['optimize_probe_pos_offset']:
         assert kwargs['optimize_all_probe_pos'] == False
-        if kwargs['optimizer_all_probe_pos'] is not None:
-            opt_probe_pos_offset = kwargs['optimizer_all_probe_pos']
+        if kwargs['optimizer_probe_pos_offset'] is not None:
+            opt_probe_pos_offset = kwargs['optimizer_probe_pos_offset']
             opt_probe_pos_offset.name = 'probe_pos_offset'
         else:
             # optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate']}
@@ -752,6 +752,20 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_offset'))
         opt_ls.append(opt_probe_pos_offset)
+
+    if kwargs['optimize_prj_pos_offset']:
+        if kwargs['optimizer_prj_pos_offset'] is not None:
+            opt_prj_pos_offset = kwargs['optimizer_prj_pos_offset']
+            opt_prj_pos_offset.name = 'prj_pos_offset'
+        else:
+            optimizer_options_prj_pos_offset = {'step_size': kwargs['prj_pos_offset_learning_rate'],
+                                                  'dynamic_rate': False}
+            opt_prj_pos_offset = GDOptimizer('prj_pos_offset', output_folder=output_folder,
+                                               options_dict=optimizer_options_prj_pos_offset)
+        opt_prj_pos_offset.create_param_arrays(optimizable_params['prj_pos_offset'].shape, device=device_obj)
+        opt_prj_pos_offset.set_index_in_grad_return(len(opt_args_ls))
+        opt_args_ls.append(forward_model.get_argument_index('prj_pos_offset'))
+        opt_ls.append(opt_prj_pos_offset)
 
     if kwargs['optimize_all_probe_pos']:
         assert kwargs['optimize_probe_pos_offset'] == False
@@ -961,9 +975,6 @@ def create_parameter_output_folders(opt_ls, output_folder):
         elif opt.name == 'probe':
             create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe'))
 
-        elif opt.name == 'probe_pos_offset':
-            create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos_offset'))
-
         elif opt.name == 'probe_pos_correction':
             create_directory_multirank(os.path.join(output_folder, 'intermediate', 'probe_pos'))
 
@@ -996,6 +1007,12 @@ def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
             f_offset = open(os.path.join(output_folder, 'intermediate', 'probe_pos_offset',
                                          'probe_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
             f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(optimizable_params['probe_pos_offset']).flatten())))
+            f_offset.close()
+
+        elif opt.name == 'prj_pos_offset':
+            f_offset = open(os.path.join(output_folder, 'intermediate', 'prj_pos_offset',
+                                         'prj_pos_offset.txt'), 'a' if i_batch > 0 or i_epoch > 0 else 'w')
+            f_offset.write('{:4d}, {:4d}, {}\n'.format(i_epoch, i_batch, list(w.to_numpy(optimizable_params['prj_pos_offset']).flatten())))
             f_offset.close()
 
         elif opt.name == 'probe_pos_correction':

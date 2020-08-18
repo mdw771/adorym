@@ -128,6 +128,7 @@ def reconstruct_ptychography(
         probe_update_delay=0, probe_update_limit=None,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
+        optimize_prj_pos_offset=False, probe_prj_offset_learning_rate=1e-2, optimizer_prj_pos_offset=None,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2, optimizer_all_probe_pos=None,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4, optimizer_slice_pos=None,
         optimize_free_prop=False, free_prop_learning_rate=1e-2, optimizer_free_prop=None,
@@ -658,6 +659,7 @@ def reconstruct_ptychography(
 
             optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
             optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
+            optimizable_params['prj_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
 
             if is_multi_dist:
                 optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),

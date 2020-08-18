@@ -151,11 +151,11 @@ class PtychographyModel(ForwardModel):
         # ==========================================================================================
         self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'tilt_ls']
+                            'probe_pos_correction', 'this_ind_batch', 'tilt_ls', 'prj_pos_offset']
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, tilt_ls):
+                probe_pos_correction, this_ind_batch, tilt_ls, prj_pos_offset):
         """
         Calculated predicted measurment. The signature of this function exactly matches the function returned
         by the ``get_loss_function`` method.
@@ -171,6 +171,8 @@ class PtychographyModel(ForwardModel):
         :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
         :param this_ind_batch: List of Int. Current batch of tile indices.
         :param tilt_ls: Array with shape [3, n_theta]. 3-axis tilt to be applied before propagation.
+        :param prj_pos_offset: Array with shape [n_theta, 2]. Projection position offset for each angle, in pixels. Note
+            that this is different from probe_pos_offset - shifting is applied after passing through the object.
         :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
         """
         device_obj = self.common_vars['device_obj']
@@ -190,6 +192,7 @@ class PtychographyModel(ForwardModel):
         free_prop_cm = self.common_vars['free_prop_cm']
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
+        optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
         optimize_tilt = self.common_vars['optimize_tilt']
         debug = self.common_vars['debug']
@@ -222,10 +225,14 @@ class PtychographyModel(ForwardModel):
             probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_probe_real,
                                                                        h_probe_imag)
 
+        if optimize_prj_pos_offset:
+            this_prj_offset = prj_pos_offset[this_i_theta]
+        else:
+            this_prj_offset = None
+
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
-        else:
-            this_offset = None
+            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(1, 2), device=device_obj)
 
         if not two_d_mode and not self.distribution_mode:
             if not optimize_tilt and self.common_vars['initial_tilt'] is None:
@@ -315,7 +322,7 @@ class PtychographyModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_offset)
+                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
                 ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
                 for i_mode in range(n_probe_modes):
@@ -333,7 +340,7 @@ class PtychographyModel(ForwardModel):
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_offset)
+                                pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
                     if i_mode == 0:
                         ex_int = temp_real ** 2 + temp_imag ** 2
                     else:
@@ -355,12 +362,12 @@ class PtychographyModel(ForwardModel):
     def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, tilt_ls):
+                           probe_pos_correction, this_ind_batch, tilt_ls, prj_pos_offset):
             theta_downsample = self.common_vars['theta_downsample']
             ds_level = self.common_vars['ds_level']
             this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                           probe_pos_correction, this_ind_batch, tilt_ls)
+                                           probe_pos_correction, this_ind_batch, tilt_ls, prj_pos_offset)
             this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
             loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
@@ -377,7 +384,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, tilt_ls):
+                probe_pos_correction, this_ind_batch, tilt_ls, prj_pos_offset):
         """
         Calculated predicted measurment. The signature of this function exactly matches the function returned
         by the ``get_loss_function`` method.
@@ -405,6 +412,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
         energy_ev = self.common_vars['energy_ev']
         psize_cm = self.common_vars['psize_cm']
         h = self.common_vars['h']
+        optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
         pure_projection = self.common_vars['pure_projection']
         free_prop_cm = self.common_vars['free_prop_cm']
         unknown_type = self.common_vars['unknown_type']
@@ -434,6 +442,11 @@ class SingleBatchFullfieldModel(PtychographyModel):
         if self.distribution_mode is None:
             obj_rot = w.reshape(obj_rot, [1, *obj_rot.shape])
 
+        if optimize_prj_pos_offset:
+            this_prj_offset = prj_pos_offset[this_i_theta]
+        else:
+            this_prj_offset = None
+
         ex_real, ex_imag = multislice_propagate_batch(
             obj_rot,
             probe_real, probe_imag,
@@ -442,26 +455,10 @@ class SingleBatchFullfieldModel(PtychographyModel):
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-            pure_projection_return_sqrt=flag_pp_sqrt)
+            pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
         ex_mag_ls = w.norm(ex_real, ex_imag)
 
         return ex_mag_ls
-
-    def get_loss_function(self):
-        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, tilt_ls):
-            theta_downsample = self.common_vars['theta_downsample']
-            ds_level = self.common_vars['ds_level']
-            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                           probe_pos_correction, this_ind_batch, tilt_ls)
-            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample,
-                                           ds_level=ds_level)
-            loss = self.loss(this_pred_batch, this_prj_batch, obj)
-            return loss
-
-        return calculate_loss
 
 
 class SingleBatchPtychographyModel(PtychographyModel):
@@ -474,7 +471,7 @@ class SingleBatchPtychographyModel(PtychographyModel):
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, tilt_ls):
+                probe_pos_correction, this_ind_batch, tilt_ls, prj_pos_offset):
         """
         Calculated predicted measurment. The signature of this function exactly matches the function returned
         by the ``get_loss_function`` method.
@@ -508,6 +505,7 @@ class SingleBatchPtychographyModel(PtychographyModel):
         n_theta = self.common_vars['n_theta']
         precalculate_rotation_coords = self.common_vars['precalculate_rotation_coords']
         theta_ls = self.common_vars['theta_ls']
+        optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
 
         if precalculate_rotation_coords:
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
@@ -533,6 +531,11 @@ class SingleBatchPtychographyModel(PtychographyModel):
         else:
             pad_arr = np.array([[0, 0], [0, 0]])
 
+        if optimize_prj_pos_offset:
+            this_prj_offset = prj_pos_offset[this_i_theta]
+        else:
+            this_prj_offset = None
+
         if self.distribution_mode is None:
             pos = this_pos_batch[0]
             pos_y = pos[0] + pad_arr[0, 0]
@@ -548,24 +551,10 @@ class SingleBatchPtychographyModel(PtychographyModel):
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
-            pure_projection_return_sqrt=flag_pp_sqrt)
+            pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
         ex_mag_ls = w.norm(ex_real, ex_imag)
 
         return ex_mag_ls
-
-    def get_loss_function(self):
-        def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
-                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, tilt_ls):
-            theta_downsample = self.common_vars['theta_downsample']
-            ds_level = self.common_vars['ds_level']
-            this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
-                                           probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                           probe_pos_correction, this_ind_batch, tilt_ls)
-            this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
-            loss = self.loss(this_pred_batch, this_prj_batch, obj)
-            return loss
-        return calculate_loss
 
 
 class SparseMultisliceModel(ForwardModel):
@@ -577,11 +566,12 @@ class SparseMultisliceModel(ForwardModel):
         # ==========================================================================================
         self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'slice_pos_cm_ls']
+                            'probe_pos_correction', 'this_ind_batch', 'slice_pos_cm_ls', 'prj_pos_offset']
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
+                probe_pos_correction, this_ind_batch, slice_pos_cm_ls,
+                prj_pos_offset):
         """
         Calculated predicted measurment. The signature of this function exactly matches the function returned
         by the ``get_loss_function`` method.
@@ -597,6 +587,8 @@ class SparseMultisliceModel(ForwardModel):
         :param probe_pos_correction: Array with shape [n_probes, 2]. Additive correction values of probe positions.
         :param this_ind_batch: List of Int. Current batch of tile indices.
         :param slice_pos_cm_ls: Array of Float. Positions of object slices in cm.
+        :param prj_pos_offset: Array with shape [n_theta, 2]. Projection position offset for each angle, in pixels. Note
+            that this is different from probe_pos_offset - shifting is applied after passing through the object.
         :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
         """
 
@@ -617,6 +609,7 @@ class SparseMultisliceModel(ForwardModel):
         free_prop_cm = self.common_vars['free_prop_cm']
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
+        optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
         debug = self.common_vars['debug']
         output_folder = self.common_vars['output_folder']
@@ -646,10 +639,14 @@ class SparseMultisliceModel(ForwardModel):
             probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_probe_real,
                                                                        h_probe_imag)
 
+        if optimize_prj_pos_offset:
+            this_prj_offset = prj_pos_offset[this_i_theta]
+        else:
+            this_prj_offset = None
+
         if optimize_probe_pos_offset:
             this_offset = probe_pos_offset[this_i_theta]
-        else:
-            this_offset = None
+            probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, this_offset, axes=(1, 2), device=device_obj)
 
         if not two_d_mode and not self.distribution_mode:
             if not self.rotate_out_of_loop:
@@ -726,7 +723,7 @@ class SparseMultisliceModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_offset)
+                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_prj_offset)
                 ex_mag_ls.append(w.norm(ex_real, ex_imag))
             else:
                 for i_mode in range(n_probe_modes):
@@ -743,7 +740,7 @@ class SparseMultisliceModel(ForwardModel):
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
-                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_offset)
+                                scale_ri_by_k=self.scale_ri_by_k, shift_exit_wave=this_prj_offset)
                     if i_mode == 0:
                         ex_int = temp_real ** 2 + temp_imag ** 2
                     else:
@@ -766,12 +763,12 @@ class SparseMultisliceModel(ForwardModel):
     def get_loss_function(self):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls):
+                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls, prj_pos_offset):
             theta_downsample = self.common_vars['theta_downsample']
             ds_level = self.common_vars['ds_level']
             this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls)
+                                           probe_pos_correction, this_ind_batch, slice_pos_cm_ls, prj_pos_offset)
             this_prj_batch = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample, ds_level=ds_level)
             loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
@@ -787,11 +784,13 @@ class MultiDistModel(ForwardModel):
         # ==========================================================================================
         self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
                             'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width', 'prj_affine_ls', 'ctf_lg_kappa']
+                            'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width',
+                            'prj_affine_ls', 'ctf_lg_kappa', 'prj_pos_offset']
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
-                probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls, ctf_lg_kappa):
+                probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width, prj_affine_ls, ctf_lg_kappa,
+                prj_pos_offset):
         """
         Calculated predicted measurment. The signature of this function exactly matches the function returned
         by the ``get_loss_function`` method.
@@ -810,6 +809,8 @@ class MultiDistModel(ForwardModel):
         :param safe_zone_width: Int. Width of safe zone to be padded to probes before propagation to prevent fringe wrapping.
         :param prj_affine_ls: Array with shape [n_dists, 2, 3]. Affine transform matrices for each hologram.
         :param ctf_lg_kappa: Log10 of kappa, the relation coefficient between delta and beta. If homogeneous assumption is not used, set as None.
+        :param prj_pos_offset: Array with shape [n_theta, 2]. Projection position offset for each angle, in pixels. Note
+            that this is different from probe_pos_offset - shifting is applied after passing through the object.
         :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
         """
 
@@ -830,6 +831,7 @@ class MultiDistModel(ForwardModel):
         n_dp_batch = self.common_vars['n_dp_batch']
         optimize_probe_defocusing = self.common_vars['optimize_probe_defocusing']
         optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
+        optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
         optimize_all_probe_pos = self.common_vars['optimize_all_probe_pos']
         optimize_free_prop = self.common_vars['optimize_free_prop']
         debug = self.common_vars['debug']
@@ -858,6 +860,12 @@ class MultiDistModel(ForwardModel):
             h_probe_real, h_probe_imag = w.real(h_probe), w.imag(h_probe)
             probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_probe_real,
                                                                        h_probe_imag)
+
+        if optimize_prj_pos_offset:
+            this_prj_offset = prj_pos_offset[this_i_theta]
+        else:
+            this_prj_offset = None
+
         # Allocate subbatches.
         probe_pos_batch_ls = []
         i_dp = 0
@@ -970,7 +978,7 @@ class MultiDistModel(ForwardModel):
                             obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                             type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
-                            u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, kappa=kappa)
+                            u_free=u_free, v_free=v_free, scale_ri_by_k=self.scale_ri_by_k, kappa=kappa, shift_exit_wave=this_prj_offset)
                     elif self.forward_algorithm == 'ctf':
                         temp_real, temp_imag = modulate_and_get_ctf(subobj_ls_ls[k], energy_ev, this_dist, u_free, v_free, kappa=10 ** ctf_lg_kappa[0])
                     else:
@@ -1003,7 +1011,7 @@ class MultiDistModel(ForwardModel):
         def calculate_loss(obj, probe_real, probe_imag, probe_defocus_mm,
                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
-                           prj_affine_ls, ctf_lg_kappa):
+                           prj_affine_ls, ctf_lg_kappa, prj_pos_offset):
             theta_downsample = self.common_vars['theta_downsample']
             ds_level = self.common_vars['ds_level']
             optimize_probe_pos_offset = self.common_vars['optimize_probe_pos_offset']
@@ -1013,7 +1021,7 @@ class MultiDistModel(ForwardModel):
             this_pred_batch = self.predict(obj, probe_real, probe_imag, probe_defocus_mm,
                                            probe_pos_offset, this_i_theta, this_pos_batch, prj,
                                            probe_pos_correction, this_ind_batch, free_prop_cm, safe_zone_width,
-                                           prj_affine_ls, ctf_lg_kappa)
+                                           prj_affine_ls, ctf_lg_kappa, prj_pos_offset)
 
             if theta_downsample is None: theta_downsample = 1 
             n_dists = len(free_prop_cm)
@@ -1037,7 +1045,7 @@ class MultiDistModel(ForwardModel):
             if optimize_probe_pos_offset:
                 this_offset = probe_pos_offset[this_i_theta]
                 this_prj_batch, _ = realign_image_fourier(this_prj_batch, w.zeros_like(this_prj_batch), this_offset, axes=(0, 1),
-                                                               device=device_obj)
+                                                               device=self.device)
 
             if optimize_all_probe_pos:
                 shifted_prj_ls = []
@@ -1046,67 +1054,10 @@ class MultiDistModel(ForwardModel):
                     this_prj_batch_idist = this_prj_batch[len(this_ind_batch) * i:len(this_ind_batch) * (i + 1)]
                     this_prj_batch_idist, _ = realign_image_fourier(this_prj_batch_idist, w.zeros_like(this_prj_batch_idist),
                                                                   this_shift, axes=(1, 2),
-                                                                  device=device_obj)
+                                                                  device=self.device)
                     shifted_prj_ls.append(this_prj_batch_idist)
                 this_prj_batch = w.concatenate(shifted_prj_ls)
 
             loss = self.loss(this_pred_batch, this_prj_batch, obj)
             return loss
         return calculate_loss
-
-
-def l1_norm_term(obj, alpha_d, alpha_b, device=None, unknown_type='delta_beta'):
-    slicer = [slice(None)] * (len(obj.shape) - 1)
-    reg = w.create_variable(0., device=device)
-    if unknown_type == 'delta_beta':
-        if alpha_d not in [None, 0]:
-            reg = reg + alpha_d * w.mean(w.abs(obj[slicer + [0]]))
-        if alpha_b not in [None, 0]:
-            reg = reg + alpha_b * w.mean(w.abs(obj[slicer + [1]]))
-    elif unknown_type == 'real_imag':
-        r = obj[slicer + [0]]
-        i = obj[slicer + [1]]
-        if alpha_d not in [None, 0]:
-            om = w.sqrt(r ** 2 + i ** 2)
-            reg = reg + alpha_d * w.mean(w.abs(om - w.mean(om)))
-        if alpha_b not in [None, 0]:
-            reg = reg + alpha_b * w.mean(w.abs(w.arctan2(i, r)))
-    return reg
-
-def reweighted_l1_norm_term(obj, alpha_d, alpha_b, weight_l1, device=None, unknown_type='delta_beta'):
-    slicer = [slice(None)] * (len(obj.shape) - 1)
-    reg = w.create_variable(0., device=device)
-    if unknown_type == 'delta_beta':
-        if alpha_d not in [None, 0]:
-            reg = reg + alpha_d * w.mean(weight_l1[slicer + [0]] * w.abs(obj[slicer + [0]]))
-        if alpha_b not in [None, 0]:
-            reg = reg + alpha_b * w.mean(weight_l1[slicer + [1]] * w.abs(obj[slicer + [1]]))
-    elif unknown_type == 'real_imag':
-        r = obj[slicer + [0]]
-        i = obj[slicer + [1]]
-        wr = weight_l1[slicer + [0]]
-        wi = weight_l1[slicer + [1]]
-        wm = wr ** 2 + wi ** 2
-        if alpha_d not in [None, 0]:
-            om = w.sqrt(r ** 2 + i ** 2)
-            reg = reg + alpha_d * w.mean(wm * w.abs(om - w.mean(om)))
-        if alpha_b not in [None, 0]:
-            reg = reg + alpha_b * w.mean(wm * w.abs(w.arctan2(i, r)))
-    return reg
-
-def tv(obj, gamma, distribution_mode, device=None, unknown_type='delta_beta'):
-    slicer = [slice(None)] * (len(obj.shape) - 1)
-    reg = w.create_variable(0., device=device)
-    if unknown_type == 'delta_beta':
-        o1 = obj[slicer + [0]]
-        o2 = obj[slicer + [1]]
-        axis_offset = 0 if distribution_mode is None else 1
-        reg = reg + gamma * total_variation_3d(o1, axis_offset=axis_offset)
-        reg = reg + gamma * total_variation_3d(o2, axis_offset=axis_offset)
-    elif unknown_type == 'real_imag':
-        r = obj[slicer + [0]]
-        i = obj[slicer + [1]]
-        axis_offset = 0 if distribution_mode is None else 1
-        reg = reg + gamma * total_variation_3d(r ** 2 + i ** 2, axis_offset=axis_offset)
-        reg = reg + gamma * total_variation_3d(w.arctan2(i, r), axis_offset=axis_offset)
-    return reg
