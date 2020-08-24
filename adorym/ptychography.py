@@ -176,6 +176,7 @@ def reconstruct_ptychography(
     global_settings.backend = backend
     device_obj = None if cpu_only else gpu_index
     device_obj = w.get_device(device_obj)
+    w.set_device(device_obj)
 
     if rank == 0:
         timestr = str(datetime.datetime.today())

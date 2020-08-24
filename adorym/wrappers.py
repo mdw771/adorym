@@ -128,6 +128,17 @@ def get_device(index=None):
             return tc.device('cuda:{}'.format(index))
 
 
+def set_device(device):
+    """
+    Set device object. Not useful is backend is Autograd.
+    :param device: Device object. Set to None if the tensor is kept on host.
+    """
+    if global_settings.backend == 'autograd':
+        return None
+    elif global_settings.backend == 'pytorch':
+        tc.cuda.set_device(device)
+
+
 def prepare_loss_node(loss, opt_args_ls=None):
     if global_settings.backend == 'autograd':
         return ag.grad(loss, opt_args_ls)
