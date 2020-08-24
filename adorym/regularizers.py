@@ -136,7 +136,7 @@ class CorrRegularizer(Regularizer):
             r = obj[slicer + [0]]
             i = obj[slicer + [1]]
             axis_offset = 0 if distribution_mode is None else 1
-            o1 = r ** 2 + i ** 2
+            o1 = w.sqrt(r ** 2 + i ** 2)
             o2 = w.arctan2(i, r)
         else:
             raise ValueError('Invalid value for unknown_type.')
@@ -153,6 +153,6 @@ class CorrRegularizer(Regularizer):
                 denom_2 = denom_2 * w.std(o2[slicer_z + [i_slice]])
         nom_1 = w.sum(nom_1)
         nom_2 = w.sum(nom_2)
-        reg = reg + self.gamma * nom_1 / denom_1
-        reg = reg + self.gamma * nom_2 / denom_2
+        reg = reg + self.gamma * w.abs(nom_1 / denom_1)
+        reg = reg + self.gamma * w.abs(nom_2 / denom_2)
         return reg
