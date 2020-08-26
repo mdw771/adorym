@@ -1,5 +1,6 @@
 import numpy as np
 from scipy.ndimage import rotate as sp_rotate
+import inspect
 
 import gc
 import time
@@ -149,9 +150,9 @@ class PtychographyModel(ForwardModel):
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
-        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
-                            'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'tilt_ls', 'prj_pos_offset']
+        args = inspect.getfullargspec(self.predict).args
+        args.pop(0)
+        self.argument_ls = args
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -564,9 +565,9 @@ class SparseMultisliceModel(ForwardModel):
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
-        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
-                            'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'slice_pos_cm_ls', 'prj_pos_offset']
+        args = inspect.getfullargspec(self.predict).args
+        args.pop(0)
+        self.argument_ls = args
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -779,13 +780,9 @@ class MultiDistModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
         super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
-        # ==========================================================================================
-        # argument_ls must be in the same order as arguments in get_loss_function's function call!
-        # ==========================================================================================
-        self.argument_ls = ['obj', 'probe_real', 'probe_imag', 'probe_defocus_mm',
-                            'probe_pos_offset', 'this_i_theta', 'this_pos_batch', 'prj',
-                            'probe_pos_correction', 'this_ind_batch', 'free_prop_cm', 'safe_zone_width',
-                            'prj_affine_ls', 'ctf_lg_kappa', 'prj_pos_offset']
+        args = inspect.getfullargspec(self.predict).args
+        args.pop(0)
+        self.argument_ls = args
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,

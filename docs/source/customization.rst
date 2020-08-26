@@ -25,10 +25,7 @@ make a copy of ``get_loss_function`` and explicitly change its
 arguments to match those of ``predict`` (do not use
 implicit argument tuples or dictionaries like ``*args`` and
 ``**kwargs``, as that won't work with Autograd!). If your ``predict``
-returns something else, you may also need to override ``loss``. Also
-make sure your new forward model class contains
-a ``self.argument_ls`` attribute, which should be a list of argument
-strings that exactly matches the signature of ``predict``.
+returns something else, you may also need to override ``loss``.
 
 To use your forward model, pass your forward model class to the
 ``forward_model`` argument of ``reconstruct_ptychography``.
