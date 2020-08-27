@@ -3,8 +3,7 @@ from adorym.util import *
 
 
 class Regularizer(object):
-    """
-    Parent regularizer class.
+    """Parent regularizer class.
 
     :param unknown_type: String. Can be ``'delta_beta'`` or ``'real_imag'``.
     :param device: Device object or ``None``.
@@ -17,8 +16,7 @@ class Regularizer(object):
 
 
 class L1Regularizer(Regularizer):
-    """
-    L1-norm regularizer.
+    """L1-norm regularizer.
 
     :param alpha_d: Weight of l1-norm of delta or real part.
     :param alpha_b: Weight of l1-norm of beta or imaginary part.
@@ -49,8 +47,7 @@ class L1Regularizer(Regularizer):
 
 
 class ReweightedL1Regularizer(Regularizer):
-    """
-    Reweighted l1-norm regularizer.
+    """Reweighted l1-norm regularizer.
 
     :param alpha_d: Weight of l1-norm of delta or real part.
     :param alpha_b: Weight of l1-norm of beta or imaginary part.
@@ -87,8 +84,7 @@ class ReweightedL1Regularizer(Regularizer):
 
 
 class TVRegularizer(Regularizer):
-    """
-    Total variation regularizer.
+    """Total variation regularizer.
 
     :param gamma: Weight of TV term.
     """
@@ -115,8 +111,7 @@ class TVRegularizer(Regularizer):
 
 
 class CorrRegularizer(Regularizer):
-    """
-    Pearson correlation regularizer along z axis of object.
+    """Pearson correlation regularizer along z axis of object.
 
     :param gamma: Weight of correlation term.
     """
@@ -126,33 +121,49 @@ class CorrRegularizer(Regularizer):
 
     def get_value(self, obj, distribution_mode=None, device=None, **kwargs):
         slicer = [slice(None)] * (len(obj.shape) - 1)
-        slicer_z = [slice(None)] * (len(obj.shape) - 2)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
             o1 = obj[slicer + [0]]
             o2 = obj[slicer + [1]]
-            axis_offset = 2 if distribution_mode is None else 3
         elif self.unknown_type == 'real_imag':
             r = obj[slicer + [0]]
             i = obj[slicer + [1]]
-            axis_offset = 0 if distribution_mode is None else 1
             o1 = w.sqrt(r ** 2 + i ** 2)
             o2 = w.arctan2(i, r)
         else:
             raise ValueError('Invalid value for unknown_type.')
-        for i_slice in range(o1.shape[axis_offset]):
-            if i_slice == 0:
-                nom_1 = o1[slicer_z + [i_slice]] - w.mean(o1[slicer_z + [i_slice]])
-                nom_2 = o2[slicer_z + [i_slice]] - w.mean(o2[slicer_z + [i_slice]])
-                denom_1 = w.std(o1[slicer_z + [i_slice]])
-                denom_2 = w.std(o2[slicer_z + [i_slice]])
-            else:
-                nom_1 = nom_1 * (o1[slicer_z + [i_slice]] - w.mean(o1[slicer_z + [i_slice]]))
-                nom_2 = nom_2 * (o2[slicer_z + [i_slice]] - w.mean(o2[slicer_z + [i_slice]]))
-                denom_1 = denom_1 * w.std(o1[slicer_z + [i_slice]])
-                denom_2 = denom_2 * w.std(o2[slicer_z + [i_slice]])
-        nom_1 = w.sum(nom_1)
-        nom_2 = w.sum(nom_2)
-        reg = reg + self.gamma * w.abs(nom_1 / denom_1)
-        reg = reg + self.gamma * w.abs(nom_2 / denom_2)
+
+        reg = reg + self.gamma * w.pcc(o1)
+        reg = reg + self.gamma * w.pcc(o2)
+        return reg
+
+
+class GradCorrRegularizer(Regularizer):
+    """Pearson correlation regularizer of the gradients maps of all slices along z axis of object.
+
+    :param gamma: Weight of correlation term.
+    """
+
+    def __init__(self, gamma, unknown_type='delta_beta'):
+        super().__init__(unknown_type)
+        self.gamma = gamma
+
+    def get_value(self, obj, distribution_mode=None, device=None, **kwargs):
+        ndim = len(obj.shape)
+        slicer = [slice(None)] * (len(obj.shape) - 1)
+        reg = w.create_variable(0., device=device)
+        if self.unknown_type == 'delta_beta':
+            o1 = obj[slicer + [0]]
+            o2 = obj[slicer + [1]]
+        elif self.unknown_type == 'real_imag':
+            r = obj[slicer + [0]]
+            i = obj[slicer + [1]]
+            o1 = w.sqrt(r ** 2 + i ** 2)
+            o2 = w.arctan2(i, r)
+        else:
+            raise ValueError('Invalid value for unknown_type.')
+        o1 = image_gradient(o1, axes=[ndim - 4, ndim - 3])
+        o2 = image_gradient(o2, axes=[ndim - 4, ndim - 3])
+        reg = reg + self.gamma * w.pcc(o1)
+        reg = reg + self.gamma * w.pcc(o2)
         return reg

@@ -1277,9 +1277,27 @@ def calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_
     return pad_arr
 
 
-def total_variation_3d(arr, axis_offset=0):
+def total_variation(arr, axes=()):
+    """Calculate total variation of an array.
+
+    :param arr: 3D Tensor.
+    :return: Scalar.
     """
-    Calculate total variation of a 3D array.
+    arr_size = 1
+    for i in range(len(arr.shape)):
+        arr_size = arr_size * arr.shape[i]
+    for i, axis in enumerate(axes):
+        if i == 0:
+            res = w.sum(w.abs(w.roll(arr, 1, axes=axis) - arr))
+        else:
+            res = res + w.sum(w.abs(w.roll(arr, 1, axes=axis) - arr))
+    res = res / arr_size
+    return res
+
+
+def total_variation_3d(arr, axis_offset=0):
+    """Calculate total variation of a 3D array.
+
     :param arr: 3D Tensor.
     :return: Scalar.
     """
@@ -1291,6 +1309,21 @@ def total_variation_3d(arr, axis_offset=0):
     res = res + w.sum(w.abs(w.roll(arr, 1, axes=2 + axis_offset) - arr))
     res = res / arr_size
     return res
+
+
+def image_gradient(arr, axes=()):
+    """Calculate the squared magnitude of image gradient in specified axes.
+
+    :param arr: Tensor.
+    :param axes: List.
+    :return: Gradient map.
+    """
+    for i, axis in enumerate(axes):
+        if i == 0:
+            g = (w.roll(arr, 1, axes=axis) - arr) ** 2
+        else:
+            g = g + (w.roll(arr, 1, axes=axis) - arr) ** 2
+    return g
 
 
 def generate_sphere(shape, radius, anti_aliasing=5):

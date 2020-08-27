@@ -898,3 +898,20 @@ def rotate(arr, theta, axis=0, override_backend=None, device=None):
         return arr
 
 
+def pcc(obj):
+    """
+    Calculate the Pearson correlation coefficient of images in an array along the last dimension.
+    
+    :param obj: Tensor. 
+    :return: Pearson correlation coefficient.
+    """
+    slicer_z = [slice(None)] * (len(obj.shape) - 1)
+    for i_slice in range(obj.shape[-1]):
+        if i_slice == 0:
+            nom = obj[slicer_z + [i_slice]] - mean(obj[slicer_z + [i_slice]])
+            denom = std(obj[slicer_z + [i_slice]])
+        else:
+            nom = nom * (obj[slicer_z + [i_slice]] - mean(obj[slicer_z + [i_slice]]))
+            denom = denom * std(obj[slicer_z + [i_slice]])
+    nom = sum(nom)
+    return abs(nom / denom)
