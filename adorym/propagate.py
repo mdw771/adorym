@@ -63,12 +63,8 @@ def gen_freq_mesh(voxel_nm, shape):
 def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True, sign_convention=1):
     """Get unshifted Fresnel propagation kernel for TF algorithm.
 
-    Parameters:
-    -----------
-    simulator : :class:`acquisition.Simulator`
-        The Simulator object.
-    dist : float
-        Propagation distance in cm.
+    :param u, v: Reciprocal space meshgrids.
+    :param dist_nm: Propagation distance in nm.
     """
     u, v = gen_freq_mesh(voxel_nm, grid_shape[0:2])
     if fresnel_approx:
@@ -79,21 +75,18 @@ def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True, sig
         # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
         # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
         quad = 1 - lmbda_nm ** 2 * (u**2 + v**2)
-        quad_inner = np.clip(quad, a_min=0, a_max=None)
+        quad_inner = np.clip(quad, 0, None)
+        quad_mask = (quad > 0)
         H = np.exp(sign_convention * 1j * 2 * PI * dist_nm / lmbda_nm * np.sqrt(quad_inner))
-
+        H = H * quad_mask
     return H
 
 
 def get_kernel_wrapped(u, v, dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True, device=None, sign_convention=1):
     """Get unshifted Fresnel propagation kernel for TF algorithm.
 
-    Parameters:
-    -----------
-    simulator : :class:`acquisition.Simulator`
-        The Simulator object.
-    dist : float
-        Propagation distance in cm.
+    :param u, v: Reciprocal space meshgrids.
+    :param dist_nm: Propagation distance in nm.
     """
     if fresnel_approx:
         # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
@@ -104,8 +97,10 @@ def get_kernel_wrapped(u, v, dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_ap
         # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
         quad = 1 - lmbda_nm ** 2 * (u**2 + v**2)
         quad_inner = w.clip(quad, 0, None)
+        quad_mask = (quad > 0)
         h_real, h_imag  = w.exp_complex(0., sign_convention * 2 * PI * dist_nm / lmbda_nm * np.sqrt(quad_inner))
-
+        h_real = h_real * quad_mask
+        h_imag = h_imag * quad_mask
     return h_real, h_imag
 
 
