@@ -581,7 +581,11 @@ class CGOptimizer(Optimizer):
 
         def _loss_and_update_fn(x, y):
             update = x + y
-            loss_kwargs[self.name] = update
+            if self.name == 'probe':
+                loss_kwargs['probe_real'] = update[:, :, :, 0]
+                loss_kwargs['probe_imag'] = update[:, :, :, 1]
+            else:
+                loss_kwargs[self.name] = update
             loss = loss_fn(**loss_kwargs)
             return loss, update
 

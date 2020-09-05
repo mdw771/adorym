@@ -313,8 +313,12 @@ def sparse_multislice_propagate_batch(u, v, grid_batch, probe_real, probe_imag, 
         probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
 
         if i < n_slices - 1:
+            # pr, pi = w.to_numpy(probe_real), w.to_numpy(probe_imag)
+            # dxchange.write_tiff(pr ** 2 + pi ** 2, 'debug/probe0', dtype='float32')
             probe_real, probe_imag = fresnel_propagate_wrapped(u, v, probe_real, probe_imag, slice_pos_nm_ls[i + 1] - slice_pos_nm_ls[i],
                                                                lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+            # pr, pi = w.to_numpy(probe_real), w.to_numpy(probe_imag)
+            # dxchange.write_tiff(pr ** 2 + pi ** 2, 'debug/probe1', dtype='float32')
 
     if shift_exit_wave is not None:
         probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, shift_exit_wave, axes=(1, 2), device=device)
