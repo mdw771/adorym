@@ -108,11 +108,10 @@ class ForwardModel(object):
         """
         beamstop = self.common_vars['beamstop']
         if beamstop is not None:
-            beamstop_mask, beamstop_value = beamstop
-            beamstop_mask[beamstop_mask >= 1e-5] = 1
-            beamstop_mask[beamstop_mask < 1e-5] = 0
-            beamstop_mask = w.cast(beamstop_mask, 'bool')
-            beamstop_mask_stack = w.tile(beamstop_mask, [len(this_pred_batch), 1, 1])
+            beamstop[beamstop >= 1e-5] = 1
+            beamstop[beamstop < 1e-5] = 0
+            beamstop = w.cast(beamstop, 'bool')
+            beamstop_mask_stack = w.tile(beamstop, [len(this_pred_batch), 1, 1])
             this_pred_batch = w.reshape(this_pred_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
             this_prj_batch = w.reshape(this_prj_batch[beamstop_mask_stack], [beamstop_mask_stack.shape[0], -1])
             print_flush('  {} valid pixels remain after applying beamstop mask.'.format(this_pred_batch.shape[1]), 0, rank)
