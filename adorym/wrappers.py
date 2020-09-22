@@ -136,7 +136,10 @@ def set_device(device):
     if global_settings.backend == 'autograd':
         return None
     elif global_settings.backend == 'pytorch':
-        tc.cuda.set_device(device)
+        try:
+            tc.cuda.set_device(device)
+        except:
+            pass
 
 
 def prepare_loss_node(loss, opt_args_ls=None):
