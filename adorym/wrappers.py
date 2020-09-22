@@ -300,6 +300,7 @@ def zeros(shape, dtype=None, device=None, requires_grad=True):
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros'][global_settings.backend])
     if global_settings.backend == 'pytorch':
+        kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(shape, **kwargs)
@@ -311,6 +312,7 @@ def ones(shape, dtype=None, device=None, requires_grad=True):
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones'][global_settings.backend])
     if global_settings.backend == 'pytorch':
+        kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(shape, **kwargs)
@@ -325,6 +327,7 @@ def zeros_like(var, dtype=None, device=None, requires_grad=True):
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros_like'][global_settings.backend])
     if global_settings.backend == 'pytorch':
+        kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(var, **kwargs)
@@ -339,6 +342,7 @@ def ones_like(var, dtype=None, device=None, requires_grad=True):
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones_like'][global_settings.backend])
     if global_settings.backend == 'pytorch':
+        kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
     else:
         arr = func(var, **kwargs)
