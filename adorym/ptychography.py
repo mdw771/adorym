@@ -1024,6 +1024,7 @@ def reconstruct_ptychography(
                                                            theta_ls[this_i_theta], reverse=True)
                         else:
                             coord_new = -theta_ls[this_i_theta]
+                        # TODO: the rotated gradient should not be accumulated if rotate_out_of_loop
                         gradient.rotate_array(coord_new, interpolation=interpolation,
                                               precalculate_rotation_coords=precalculate_rotation_coords,
                                               override_device=device_obj, overwrite_arr=True)
