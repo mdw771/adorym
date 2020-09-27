@@ -201,43 +201,48 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
         h_real = w.create_variable(h_real, requires_grad=False, device=device)
         h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
 
-        i_bin = 0
         t_tot = 0
-        for i in range(n_slices):
+        n_steps = int(np.ceil(n_slices / binning))
+        for i_step in range(n_steps):
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
+            i_slice = i_step * binning
             # At the start of bin, initialize slice array.
+            this_step = min([binning, n_slices - i_slice])
             if repeating_slice is None:
-                delta_slice = grid_batch[:, :, :, i, 0]
+                delta_slice = grid_batch[:, :, :, i_slice:i_slice + this_step, 0] if this_step > 1 else grid_batch[:, :, :, i_slice, 0]
             else:
-                delta_slice = grid_batch[:, :, :, 0, 0]
+                delta_slice = grid_batch[:, :, :, 0:1, 0]
             if kappa is not None:
                 # In sign = +1 convention, phase (delta) should be positive, and kappa is positive too.
                 beta_slice = delta_slice * kappa
             else:
                 if repeating_slice is None:
-                    beta_slice = grid_batch[:, :, :, i, 1]
+                    beta_slice = grid_batch[:, :, :, i_slice:i_slice + this_step, 1] if this_step > 1 else grid_batch[:, :, :, i_slice, 1]
                 else:
-                    beta_slice = grid_batch[:, :, :, 0, 1]
+                    beta_slice = grid_batch[:, :, :, 0:1, 1]
             t0 = time.time()
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+                if this_step > 1:
+                    delta_slice = w.sum(delta_slice, axis=3)
+                    beta_slice = w.sum(beta_slice, axis=3)
                 c_real, c_imag = w.exp_complex(-k1 * beta_slice, -sign_convention * k1 * delta_slice)
             elif type == 'real_imag':
+                if this_step > 1:
+                    delta_slice = w.prod(delta_slice, axis=3)
+                    beta_slice = w.prod(beta_slice, axis=3)
                 c_real, c_imag = delta_slice, beta_slice
             else:
                 raise ValueError('unknown_type must be delta_beta or real_imag.')
             probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
-            i_bin += 1
 
             # When arriving at the last slice of bin or object, do propagation.
-            if i_bin == binning or i == n_slices - 1:
-                if i < n_slices - 1:
-                    if i_bin == binning:
-                        probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
-                    else:
-                        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * i_bin, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
-                i_bin = 0
+            if i_step < n_steps - 1:
+                if this_step == binning:
+                    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+                else:
+                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * this_step, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
             t_tot += (time.time() - t0)
 
     if shift_exit_wave is not None:

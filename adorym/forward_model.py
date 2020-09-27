@@ -43,6 +43,7 @@ class ForwardModel(object):
         self.stdout_options = common_vars_dict['stdout_options']
         self.poisson_multiplier = common_vars_dict['poisson_multiplier']
         self.common_probe_pos = common_vars_dict['common_probe_pos']
+        self.binning = common_vars_dict['binning']
         self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
         self.loss_args = {}
         self.reg_list = []
@@ -317,7 +318,7 @@ class PtychographyModel(ForwardModel):
                 ex_real, ex_imag = multislice_propagate_batch(
                                 subobj_ls,
                                 this_probe_real_ls, this_probe_imag_ls,
-                                energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+                                energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm, binning=self.binning,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
@@ -335,7 +336,7 @@ class PtychographyModel(ForwardModel):
                     temp_real, temp_imag = multislice_propagate_batch(
                                 subobj_ls,
                                 this_probe_real_ls, this_probe_imag_ls,
-                                energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
+                                energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm, binning=self.binning,
                                 obj_batch_shape=[len(pos_batch), *probe_size, this_obj_size[-1]],
                                 fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                                 type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
@@ -451,7 +452,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
             obj_rot,
             probe_real, probe_imag,
             energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
-            obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
+            obj_batch_shape=[1, *probe_size, this_obj_size[-1]], binning=self.binning,
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
@@ -547,7 +548,7 @@ class SingleBatchPtychographyModel(PtychographyModel):
             obj_rot,
             probe_real, probe_imag,
             energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=free_prop_cm,
-            obj_batch_shape=[1, *probe_size, this_obj_size[-1]],
+            obj_batch_shape=[1, *probe_size, this_obj_size[-1]], binning=self.binning,
             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
             type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
             scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
@@ -970,7 +971,7 @@ class MultiDistModel(ForwardModel):
                         temp_real, temp_imag = multislice_propagate_batch(
                             subobj_ls_ls[k],
                             subprobe_real_ls_ls[k][:, i_mode, :, :], subprobe_imag_ls_ls[k][i_mode, :, :],
-                            energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist,
+                            energy_ev, psize_cm * ds_level, kernel=h, free_prop_cm=this_dist, binning=self.binning,
                             obj_batch_shape=[len(pos_batch), subprobe_size[0] + 2 * safe_zone_width, subprobe_size[1] + 2 * safe_zone_width, this_obj_size[-1]],
                             fresnel_approx=fresnel_approx, pure_projection=pure_projection, device=device_obj,
                             type=unknown_type, sign_convention=self.sign_convention, optimize_free_prop=optimize_free_prop,
