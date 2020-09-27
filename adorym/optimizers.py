@@ -162,7 +162,7 @@ class Optimizer(object):
             np.save(os.path.join(path, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
         return
 
-    def save_distributed_param_arrays_to_checkpoint(self, use_numpy=False):
+    def save_distributed_param_arrays_to_checkpoint(self, use_numpy=True):
         malias = np if use_numpy else w
         path = os.path.join(self.output_folder, 'checkpoint')
         if not os.path.exists(path):
