@@ -1004,7 +1004,7 @@ def reconstruct_ptychography(
                     print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
                                 **stdout_options)
                 elif distribution_mode == 'distributed_object':
-                    obj_grads = grads[0]
+                    obj_grads = w.to_numpy(grads[0])
                     t_grad_write_0 = time.time()
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
                                                                minibatch_size, probe_size, dtype=cache_dtype, n_split=n_split_mpi_ata)
