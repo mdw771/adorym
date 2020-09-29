@@ -115,6 +115,7 @@ class Optimizer(object):
     def create_param_arrays(self, whole_object_size, device=None, use_numpy=False):
         self.whole_object_size = whole_object_size
         malias = np if use_numpy else w
+        kwargs = {} if use_numpy else {'device': device}
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
@@ -696,6 +697,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     device_obj = kwargs['device_obj']
     n_probe_modes = kwargs['n_probe_modes']
     probe_size = kwargs['probe_size']
+    distribution_mode = kwargs['distribution_mode']
 
     opt_args_ls = [0]
     # ====================================================================================
@@ -855,25 +857,35 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     return opt_ls, opt_args_ls
 
 
-def initialize_parameter_gradients(opt_ls, device=None):
+def initialize_parameter_gradients(opt_ls, device=None, use_numpy=False):
 
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
         else:
-            opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device)
+            if not use_numpy:
+                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device)
+            else:
+                opt.grads = np.zeros(opt.whole_object_size)
     return opt_ls
 
 
-def update_parameter_gradients(opt_ls, grads):
+def update_parameter_gradients(opt_ls, grads, use_numpy=False):
 
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
         elif opt.name == 'probe':
-            opt.grads += w.stack(grads[1:3], axis=-1)
+            if not use_numpy:
+                opt.grads += w.stack(grads[1:3], axis=-1)
+            else:
+                g = w.to_numpy(w.stack(grads[1:3], axis=-1))
+                opt.grads = opt.grads + g
         else:
-            opt.grads += grads[opt.index_in_grad_returns]
+            if not use_numpy:
+                opt.grads += grads[opt.index_in_grad_returns]
+            else:
+                opt.grads += w.to_numpy(grads[opt.index_in_grad_returns])
     return opt_ls
 
 
@@ -888,6 +900,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
     i_full_angle = kwargs['i_opt_batch']
     stdout_options = kwargs['stdout_options']
     forward_model = kwargs['forward_model']
+    device = kwargs['device_obj']
 
     if probe_update_limit is None:
         probe_update_limit = np.inf
@@ -908,7 +921,8 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
         elif opt.name == 'probe':
             if i_batch + i_epoch * n_batch >= probe_update_delay and i_batch + i_epoch * n_batch < probe_update_limit:
                 with w.no_grad():
-                    opt.grads = comm.allreduce(opt.grads)
+                    opt.grads = comm.allreduce(w.to_numpy(opt.grads))
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
                     probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
                                                           i_full_angle, **opt.options_dict)
                     optimizable_params['probe_real'], optimizable_params['probe_imag'] = w.split_channel(probe_temp)
@@ -916,14 +930,15 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 w.reattach(optimizable_params['probe_real'])
                 w.reattach(optimizable_params['probe_imag'])
             else:
-                print_flush('Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
+                print_flush('  Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
                     probe_update_delay, probe_update_limit), 0, rank, **stdout_options)
 
         elif i_batch + i_epoch * n_batch >= other_params_update_delay:
 
             if opt.name == 'probe_pos_correction':
                 with w.no_grad():
-                    opt.grads = comm.allreduce(opt.grads)
+                    opt.grads = comm.allreduce(w.to_numpy(opt.grads))
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
                     probe_pos_correction = optimizable_params['probe_pos_correction']
                     probe_pos_correction = opt.apply_gradient(probe_pos_correction, opt.grads, i_full_angle,
                                                                         **opt.options_dict)
@@ -934,7 +949,8 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
 
             elif opt.name == 'slice_pos_cm_ls':
                 with w.no_grad():
-                    opt.grads = comm.allreduce(opt.grads)
+                    opt.grads = comm.allreduce(w.to_numpy(opt.grads))
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
                     slice_pos_cm_ls = optimizable_params['slice_pos_cm_ls']
                     slice_pos_cm_ls = opt.apply_gradient(slice_pos_cm_ls, opt.grads, i_full_angle,
                                                                    **opt.options_dict)
@@ -944,7 +960,8 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
 
             elif opt.name == 'prj_affine_ls':
                 with w.no_grad():
-                    opt.grads = comm.allreduce(opt.grads)
+                    opt.grads = comm.allreduce(w.to_numpy(opt.grads))
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
                     optimizable_params['prj_affine_ls'] = opt.apply_gradient(optimizable_params['prj_affine_ls'], opt.grads, i_full_angle,
                                                                   **opt.options_dict)
                     # Regularize transformation of image 0.
@@ -958,7 +975,8 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
 
             else:
                 with w.no_grad():
-                    opt.grads = comm.allreduce(opt.grads)
+                    opt.grads = comm.allreduce(w.to_numpy(opt.grads))
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
                     var = optimizable_params[opt.name]
                     optimizable_params[opt.name] = opt.apply_gradient(var, opt.grads, i_full_angle, **opt.options_dict)
                 w.reattach(optimizable_params[opt.name])
