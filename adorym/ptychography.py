@@ -1154,7 +1154,7 @@ def reconstruct_ptychography(
                     del obj.arr_rot
                     obj.arr_rot = None
                     gc.collect()
-                    print_flush('Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), sto_rank, rank)
+                    print_flush('  Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), sto_rank, rank)
 
                 # ================================================================================
                 # Apply finite support mask if specified.
