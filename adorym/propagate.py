@@ -134,8 +134,13 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                pure_projection=False, binning=1, device=None, type='delta_beta',
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
-                               kappa=None, repeating_slice=None, return_fft_time=False, shift_exit_wave=None):
+                               kappa=None, repeating_slice=None, return_fft_time=False, shift_exit_wave=None,
+                               return_intermediate_wavefields=False, return_binned_modulators=False):
 
+    intermediate_wavefield_real_ls = []
+    intermediate_wavefield_imag_ls = []
+    binned_modulator_real_ls = []
+    binned_modulator_imag_ls = []
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
     if delta_cm is not None:
@@ -243,6 +248,11 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
                 else:
                     probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * this_step, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+                if return_intermediate_wavefields:
+                    intermediate_wavefield_real_ls.append(probe_real)
+                    intermediate_wavefield_imag_ls.append(probe_imag)
+                    binned_modulator_real_ls.append(c_real)
+                    binned_modulator_imag_ls.append(c_imag)
             t_tot += (time.time() - t0)
 
     if shift_exit_wave is not None:
@@ -266,10 +276,14 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             elif not optimize_free_prop:
                 probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
                                                            device=device, sign_convention=sign_convention)
+    return_ls = [probe_real, probe_imag]
     if return_fft_time:
-        return probe_real, probe_imag, t_tot
-    else:
-        return probe_real, probe_imag
+        return_ls.append(t_tot)
+    if return_intermediate_wavefields:
+        return_ls = return_ls + [intermediate_wavefield_real_ls, intermediate_wavefield_real_ls]
+    if return_binned_modulators:
+        return_ls = return_ls + [binned_modulator_real_ls, binned_modulator_imag_ls]
+    return return_ls
 
 
 def modulate_and_get_ctf(grid_batch, energy_ev, free_prop_cm, u_free=None, v_free=None, kappa=50.):

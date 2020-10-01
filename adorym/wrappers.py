@@ -46,7 +46,8 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'sum':         {'autograd': 'sum',        'tensorflow': 'reduce_sum', 'pytorch': 'sum'},
                      'prod':        {'autograd': 'prod',       'tensorflow': 'prod',       'pytorch': 'prod'},
                      'arctan2':     {'autograd': 'arctan2',    'tensorflow': 'atan2',      'pytorch': 'atan2'},
-                     'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',      'pytorch': 'nonzero'},
+                     'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',    'pytorch': 'nonzero'},
+                     'sign':        {'autograd': 'sign',       'tensorflow': 'sign',       'pytorch': 'sign',       'numpy': 'sign'},
                      }
 
 dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
@@ -357,6 +358,12 @@ def exp(var):
 
 def log(var):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['log'][global_settings.backend])
+    arr = func(var)
+    return arr
+
+
+def sign(var):
+    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sign'][global_settings.backend])
     arr = func(var)
     return arr
 

@@ -89,6 +89,7 @@ def reconstruct_ptychography(
         probe_initial=None, # Give as [probe_mag, probe_phase]
         probe_extra_defocus_cm=None,
         n_probe_modes=1,
+        shared_probe_among_angles=True,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         poisson_multiplier = 1.,
@@ -615,6 +616,9 @@ def reconstruct_ptychography(
                     probe_imag = np.stack(probe_imag)
                 else:
                     raise RuntimeError('Length of supplied supplied probe does not match number of probe modes.')
+            if not shared_probe_among_angles:
+                probe_real = np.tile(probe_real, [n_theta] + [1] * len(probe_real.shape))
+                probe_imag = np.tile(probe_imag, [n_theta] + [1] * len(probe_imag.shape))
         else:
             probe_real = None
             probe_imag = None
@@ -972,7 +976,12 @@ def reconstruct_ptychography(
                 else:
                     obj_arr = obj.chunks
                 for arg in forward_model.argument_ls:
-                    if arg == 'obj': grad_func_args[arg] = obj_arr
+                    if arg == 'obj':
+                        grad_func_args[arg] = obj_arr
+                    if arg == 'probe_real' and not shared_probe_among_angles:
+                        grad_func_args[arg] = probe_real[this_i_theta]
+                    if arg == 'probe_imag' and not shared_probe_among_angles:
+                        grad_func_args[arg] = probe_imag[this_i_theta]
                     else:
                         try:
                             grad_func_args[arg] = optimizable_params[arg]

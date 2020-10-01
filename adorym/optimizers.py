@@ -831,7 +831,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     if kwargs['optimize_prj_affine']:
         if kwargs['optimizer_prj_affine'] is not None:
             opt_prj_affine = kwargs['optimizer_prj_affine']
-            opt_prj_affine.nmame = 'prj_affine_ls'
+            opt_prj_affine.name = 'prj_affine_ls'
         else:
             optimizer_options_prj_scale = {'step_size': kwargs['prj_affine_learning_rate']}
             opt_prj_affine = AdamOptimizer('prj_affine_ls', output_folder=output_folder,
