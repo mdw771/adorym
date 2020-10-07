@@ -379,7 +379,8 @@ class GDOptimizer(Optimizer):
                                           forward_model=forward_model)
         return
 
-    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92, use_numpy=False, **kwargs):
+    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, dynamic_rate=True, first_downrate_iteration=92,
+                       use_numpy=False, verbose=False, **kwargs):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -398,7 +399,8 @@ class GDOptimizer(Optimizer):
                 threshold_iteration += first_downrate_iteration * 2 ** i
                 i += 1
                 step_size /= 2.
-                print_flush('  -- Step size halved.', 0, comm.Get_rank(), save_stdout=False)
+                if verbose:
+                    print_flush('  -- Step size halved.', 0, comm.Get_rank(), save_stdout=False)
         x = x - step_size * g
 
         return x

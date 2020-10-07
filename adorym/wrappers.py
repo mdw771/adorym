@@ -63,7 +63,11 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
 if flag_pytorch_avail:
     try:
         pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
-                                            tc.float64: 'float64'}
+                                            tc.float64: 'float64',
+                                            'float32': 'float32',
+                                            'float64': 'float64',
+                                            'single': 'float32',
+                                            'double': 'float64'}
     except:
         pass
 # _____________
@@ -703,6 +707,18 @@ def tile(var, cp, override_backend=None):
         return var.repeat(*cp)
 
 
+def flip(var, axis=[0], override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        return anp.flip(var, axis=axis)
+    elif bn == 'pytorch':
+        try:
+            _ = len(axis)
+            return tc.flip(var, dims=axis)
+        except:
+            return tc.flip(var, dims=[axis])
+
+
 def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None):
     """
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
@@ -887,7 +903,11 @@ def rotate(arr, theta, axis=0, override_backend=None, device=None):
     if bn == 'autograd':
         raise NotImplementedError('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
     elif bn == 'pytorch':
-        theta = theta.view(1)
+        try:
+            theta = theta.view(1)
+        except:
+            theta = tc.tensor(theta, requires_grad=False, device=device)
+            theta = theta.view(1)
 
         axis_arrangement = [0, 1, 2, 3]
         # Move channel to the 2nd dimension.

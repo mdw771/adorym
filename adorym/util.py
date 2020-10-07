@@ -1459,14 +1459,21 @@ def upsample_2x(arr):
     return out_arr
 
 
-def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, output_folder='', timestamp='', **kwargs):
+def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_line=False,
+                output_folder='', timestamp='', **kwargs):
 
     a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
     if designate_rank is not None:
         if this_rank == designate_rank:
-            print(a)
+            if same_line:
+                print(a, '\r', end='')
+            else:
+                print(a)
     else:
-        print(a)
+        if same_line:
+            print(a, '\r', end='')
+        else:
+            print(a)
     if (designate_rank is None or this_rank == designate_rank) and save_stdout:
         try:
             f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')

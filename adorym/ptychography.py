@@ -344,7 +344,7 @@ def reconstruct_ptychography(
 
         dim_y, dim_x = prj_shape[-2:]
         if minibatch_size is None:
-            minibatch_size = n_pos
+            minibatch_size = len(probe_pos)
         comm.Barrier()
 
         # ================================================================================

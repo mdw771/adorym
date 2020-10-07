@@ -28,7 +28,6 @@ except:
 warnings.warn('Module under construction.')
 
 
-
 def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
@@ -83,6 +82,7 @@ def reconstruct_ptychography(
         probe_initial=None, # Give as [probe_mag, probe_phase]
         probe_extra_defocus_cm=None,
         n_probe_modes=1,
+        shared_probe_among_angles=True,
         rescale_probe_intensity=False,
         loss_function_type='lsq', # Choose from 'lsq' or 'poisson'
         poisson_multiplier = 1.,
@@ -144,26 +144,29 @@ def reconstruct_ptychography(
         # if the parent job exits with status 0.
         **kwargs,):
 
-    comm = MPI.COMM_WORLD
-    n_ranks = comm.Get_size()
-    rank = comm.Get_rank()
-    t_zero = time.time()
-    global_settings.backend = backend
-    device_obj = None if cpu_only else gpu_index
-    device_obj = w.get_device(device_obj)
-    w.set_device(device_obj)
-
-    stdout_options = {}
-    sto_rank = 0
-
-
     class Subproblem():
         def __init__(self, device):
             self.device = device
 
+        def set_dependencies(self, prev_sp=None, next_sp=None):
+            self.prev_sp = prev_sp
+            self.next_sp = next_sp
+            if isinstance(self, PhaseRetrievalSubproblem):
+                assert self.prev_sp is None
+                assert isinstance(self.next_sp, AlignmentSubproblem)
+            elif isinstance(self, AlignmentSubproblem):
+                assert isinstance(self.prev_sp, PhaseRetrievalSubproblem)
+                assert isinstance(self.next_sp, BackpropSubproblem)
+            elif isinstance(self, BackpropSubproblem):
+                assert isinstance(self.prev_sp, AlignmentSubproblem)
+                assert isinstance(self.next_sp, TomographySubproblem)
+            elif isinstance(self, TomographySubproblem):
+                assert isinstance(self.prev_sp, BackpropSubproblem)
+                assert self.next_sp is None
+
 
     class PhaseRetrievalSubproblem(Subproblem):
-        def __init__(self, whole_object_size, theta_ls, rho=1, optimizer=None, prev_sp=None, next_sp=None, device=None):
+        def __init__(self, whole_object_size, theta_ls, rho=1, theta_downsample=None, optimizer=None, device=None):
             """
             Phase retrieval subproblem solver.
 
@@ -173,21 +176,12 @@ def reconstruct_ptychography(
             :param rho: Weight of Lagrangian term.
             """
             super(PhaseRetrievalSubproblem, self).__init__(device)
-            forwardmodel_args = {'loss_function_type': 'lsq',
-                                 'distribution_mode': None,
-                                 'device': device,
-                                 'common_vars_dict': locals(),
-                                 'raw_data_type': 'intensity'}
-            self.forward_model = PtychographyModel(*forwardmodel_args)
             self.whole_object_size = whole_object_size
             self.theta_ls = theta_ls
             self.n_theta = len(theta_ls)
+            self.theta_downsample = theta_downsample
             self.rho = rho
             self.optimizer = optimizer
-            self.prev_sp = prev_sp
-            self.next_sp = next_sp
-            assert self.prev_sp is None
-            assert isinstance(self.next_sp, AlignmentSubproblem)
 
         def initialize(self, probe_init, prj, probe_pos=None, n_pos_ls=None, probe_pos_ls=None):
             """
@@ -203,20 +197,13 @@ def reconstruct_ptychography(
                                  angles, put None.
             """
             self.psi_theta_ls = []
-            self.w_theta_ls = []
-            self.lambda1_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                psi = initialize_object_for_dp([*self.whole_object_size[0:2], 2])
-                psi = np.squeeze(psi)
-                psi = w.create_variable(psi, requires_grad=False, device=self.device)
+                psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1])
+                psi_real = np.squeeze(psi_real)
+                psi_imag = np.squeeze(psi_imag)
+                psi = w.create_variable(np.stack([psi_real, psi_imag], axis=-1), requires_grad=False, device=self.device)
                 self.psi_theta_ls.append(psi)
-                w_ = initialize_object_for_dp([*self.whole_object_size[0:2], 2])
-                w_ = np.squeeze(w_)
-                w_ = w.create_variable(w_, requires_grad=False, device=self.device)
-                self.w_theta_ls.append(w_)
             self.psi_theta_ls = w.stack(self.psi_theta_ls)
-            self.w_theta_ls = w.stack(self.w_theta_ls)
-            self.lambda1_theta_ls = w.stack(self.lambda1_theta_ls)
             self.grad_psi = w.zeros_like(self.psi_theta_ls[0], requires_grad=False, device=self.device)
             self.probe_real = w.create_variable(probe_init[0], requires_grad=False, device=self.device)
             self.probe_imag = w.create_variable(probe_init[1], requires_grad=False, device=self.device)
@@ -235,22 +222,27 @@ def reconstruct_ptychography(
                 patch_real, patch_imag = realign_image_fourier(patch[:, :, 0], patch[:, :, 1], probe_pos_correction[i],
                                                                axes=(0, 1), device=self.device)
                 patch_ls_new.append(w.stack([patch_real, patch_imag], axis=-1))
+            patch_ls_new = w.stack(patch_ls_new)
             return patch_ls_new
 
-        def forward(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch, prj,
+        def forward(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                      probe_pos_correction, this_ind_batch):
             # Shift object function (instead of probe as in the 3D case of Adorym, so use negative pos_correction).
             pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
             patches = self.correction_shift(patches, -pos_correction_batch)
             ex_int = w.zeros([len(patches), *self.probe_size], requires_grad=False, device=self.device)
+            det_real_ls = []
+            det_imag_ls = []
             for i_mode in range(self.n_probe_modes):
                 this_probe_real = probe_real[i_mode, :, :]
                 this_probe_imag = probe_imag[i_mode, :, :]
                 wave_real, wave_imag = w.complex_mul(patches[:, :, :, 0], patches[:, :, :, 1], this_probe_real, this_probe_imag)
                 wave_real, wave_imag = w.fft2_and_shift(wave_real, wave_imag, axes=(1, 2))
+                det_real_ls.append(wave_real)
+                det_imag_ls.append(wave_imag)
                 ex_int = ex_int + wave_real ** 2 + wave_imag ** 2
             y_pred_ls = w.sqrt(ex_int)
-            return y_pred_ls
+            return y_pred_ls, det_real_ls, det_imag_ls
 
         def get_data(self, this_i_theta, this_ind_batch, theta_downsample=None, ds_level=1):
             if theta_downsample is None: theta_downsample = 1
@@ -262,24 +254,26 @@ def reconstruct_ptychography(
 
         def get_part1_loss(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                      probe_pos_correction, this_ind_batch):
-            y_pred_ls = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                                     probe_pos_correction, this_ind_batch)
-            y_ls = self.get_data(this_i_theta, this_ind_batch)
+            y_pred_ls, _, _ = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
+                                           probe_pos_correction, this_ind_batch)
+            y_ls = self.get_data(this_i_theta, this_ind_batch, self.theta_downsample)
             loss = w.mean((y_pred_ls - y_ls) ** 2)
             return loss
 
         def get_part1_grad(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                     probe_pos_correction, this_ind_batch):
+                     probe_pos_correction, this_ind_batch, epsilon=1e-9):
             """
             Calculate gradient of patches in a minibatch.
 
             :return: A stack of 2D gradients.
             """
-            y_pred_ls = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                                     probe_pos_correction, this_ind_batch)
-            y_ls = self.get_data(this_i_theta, this_ind_batch)
-            g = (y_pred_ls - y_ls) * w.sign(y_pred_ls)
-            g_real, g_imag = w.ishift_and_ifft2(w.real(g), w.imag(g))
+            y_pred_ls, y_real_ls, y_imag_ls = \
+                self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
+                             probe_pos_correction, this_ind_batch)
+            y_ls = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample)
+            g = (y_pred_ls - y_ls)
+            g_real, g_imag = g * y_real_ls[0] / (y_pred_ls + epsilon), g * y_imag_ls[0] / (y_pred_ls + epsilon)
+            g_real, g_imag = w.ishift_and_ifft2(g_real, g_imag)
             pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
             g = self.correction_shift(w.stack([g_real, g_imag], axis=-1), pos_correction_batch)
             g_real, g_imag = w.split_channel(g)
@@ -301,6 +295,7 @@ def reconstruct_ptychography(
             :param minibatch_size: Int. Number of diffraction patterns per batch.
             """
             self.lambda1_theta_ls = self.next_sp.lambda1_theta_ls
+            self.w_theta_ls = self.next_sp.w_theta_ls
             common_probe_pos = True if self.n_pos_ls is None else False
             if common_probe_pos:
                 probe_pos_int = np.round(self.probe_pos).astype(int)
@@ -370,8 +365,8 @@ def reconstruct_ptychography(
                     # ================================================================================
                     # Initialize batch.
                     # ================================================================================
-                    print_flush('Iter {}, batch {} of {} started.'.format(i_iteration, i_batch, n_batch), sto_rank, rank,
-                                **stdout_options)
+                    print_flush('  PHR: Iter {}, batch {} of {} started.'.format(i_iteration, i_batch, n_batch),
+                                sto_rank, rank, same_line=True, **stdout_options)
                     starting_batch = 0
 
                     # ================================================================================
@@ -402,13 +397,15 @@ def reconstruct_ptychography(
                                                                                **self.optimizer.options_dict)
                     # TODO: update probe
 
+
                     if is_last_batch_of_this_theta:
                         # Calculate gradient of the second term of the loss upon finishing each angle.
                         self.grad_psi = self.get_part2_grad(this_i_theta)
-                        self.psi_theta_ls[this_i_theta] = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta],
+                        a = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta],
                                                                                    self.grad_psi,
                                                                                    i_batch + n_batch * i_iteration,
                                                                                    **self.optimizer.options_dict)
+                        self.psi_theta_ls[this_i_theta] = a
 
         def get_patches(self, psi, this_pos_batch_int):
             """
@@ -450,12 +447,9 @@ def reconstruct_ptychography(
                                 pad_arr[1, 0]:pad_arr[1, 0] + init_shape[1]]
             return grad_psi
 
-        def update_dual(self):
-            self.lambda1_theta_ls = self.lambda1_theta_ls + self.rho * (self.psi_theta_ls - self.next_sp.w_theta_ls)
-
 
     class AlignmentSubproblem(Subproblem):
-        def __init__(self, whole_object_size, theta_ls, rho=1, optimizer=None, prev_sp=None, next_sp=None, device=None):
+        def __init__(self, whole_object_size, theta_ls, rho=1, optimizer=None, device=None):
             """
             Alignment subproblem solver.
 
@@ -470,10 +464,6 @@ def reconstruct_ptychography(
             self.n_theta = len(theta_ls)
             self.rho = rho
             self.optimizer = optimizer
-            self.prev_sp = prev_sp
-            self.next_sp = next_sp
-            assert isinstance(self.prev_sp, PhaseRetrievalSubproblem)
-            assert isinstance(self.next_sp, BackpropSubproblem)
 
         def initialize(self):
             """
@@ -483,13 +473,9 @@ def reconstruct_ptychography(
             self.w_theta_ls = []
             self.lambda1_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                w_ = initialize_object_for_dp([*self.whole_object_size[0:2], 2])
-                w_ = np.squeeze(w_)
-                w_ = w.create_variable(w_, requires_grad=False, device=self.device)
+                w_ = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
                 self.w_theta_ls.append(w_)
-                lmbda1 = initialize_object_for_dp([*self.whole_object_size[0:2], 2])
-                lmbda1 = np.squeeze(lmbda1)
-                lmbda1 = w.create_variable(lmbda1, requires_grad=False, device=self.device)
+                lmbda1 = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
                 self.lambda1_theta_ls.append(lmbda1)
             self.w_theta_ls = w.stack(self.w_theta_ls)
             self.lambda1_theta_ls = w.stack(self.lambda1_theta_ls)
@@ -507,10 +493,13 @@ def reconstruct_ptychography(
             self.psi_theta_ls = self.prev_sp.psi_theta_ls
             self.w_theta_ls = self.psi_theta_ls
 
+        def update_dual(self):
+            self.lambda1_theta_ls = self.lambda1_theta_ls + self.rho * (self.prev_sp.psi_theta_ls - self.forward(self.w_theta_ls))
+
 
     class BackpropSubproblem(Subproblem):
         def __init__(self, whole_object_size, theta_ls, binning, energy_ev, psize_cm,
-                     rho=1, optimizer=None, prev_sp=None, next_sp=None, device=None):
+                     rho=1, optimizer=None, device=None):
             """
             Alignment subproblem solver.
 
@@ -523,15 +512,11 @@ def reconstruct_ptychography(
             self.whole_object_size = whole_object_size
             self.theta_ls = theta_ls
             self.n_theta = len(theta_ls)
-            self.binnning = binning
+            self.binning = binning
             self.energy_ev = energy_ev
             self.psize_cm = psize_cm
             self.rho = rho
             self.optimizer = optimizer
-            self.prev_sp = prev_sp
-            self.next_sp = next_sp
-            assert isinstance(prev_sp, AlignmentSubproblem)
-            assert isinstance(next_sp, TomographySubproblem)
 
         def initialize(self):
             """
@@ -542,21 +527,18 @@ def reconstruct_ptychography(
             self.u_theta_ls = []
             self.lambda2_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                u = initialize_object_for_dp([*self.whole_object_size[0:3], 2])
-                u = np.squeeze(u)
-                u = w.create_variable(u, requires_grad=False, device=None) # Keep on RAM, not GPU
+                u_delta, u_beta = initialize_object_for_dp(self.whole_object_size)
+                u = w.create_variable(np.stack([u_delta, u_beta], axis=-1),
+                                      requires_grad=False, device=None) # Keep on RAM, not GPU
                 self.u_theta_ls.append(u)
-                lmbda2 = initialize_object_for_dp([*self.whole_object_size[0:2], 2])
-                lmbda2 = np.squeeze(lmbda2)
-                lmbda2 = w.create_variable(lmbda2, requires_grad=False, device=self.device)
+                lmbda2 = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
                 self.lambda2_theta_ls.append(lmbda2)
             self.u_theta_ls = w.stack(self.u_theta_ls)
             self.lambda2_theta_ls = w.stack(self.lambda2_theta_ls)
             self.optimizer.create_param_arrays([*self.whole_object_size, 2], device=self.device)
             self.optimizer.set_index_in_grad_return(0)
 
-        def forward(self, u_ls, energy_ev, psize_cm, return_intermediate_wavefields=False,
-                    return_binned_modulators=False):
+        def forward(self, u_ls, energy_ev, psize_cm, return_intermediate_wavefields=False):
             """
             Operator g.
 
@@ -564,13 +546,27 @@ def reconstruct_ptychography(
                          All chunks have to be from the same theta.
             :return: Exiting wavefields.
             """
-            patch_shape = u_ls[0].shape[:3]
-            probe_real = w.ones(patch_shape[:2], requires_grad=False, device=self.device)
-            probe_imag = w.zeros(patch_shape[:2], requires_grad=False, device=self.device)
+            patch_shape = u_ls[0].shape[1:4]
+            n_batch = len(u_ls)
+            probe_real = w.ones([n_batch, *patch_shape[:2]], requires_grad=False, device=self.device, dtype='float64')
+            probe_imag = w.zeros([n_batch, *patch_shape[:2]], requires_grad=False, device=self.device, dtype='float64')
             res = multislice_propagate_batch(u_ls, probe_real, probe_imag, energy_ev, psize_cm,
-                                             psize_cm, free_prop_cm=0, binning=self.binnning,
-                                             return_intermediate_wavefields=return_intermediate_wavefields,
-                                             return_binned_modulators=return_binned_modulators)
+                                             psize_cm, free_prop_cm=0, binning=self.binning,
+                                             return_intermediate_wavefields=return_intermediate_wavefields)
+            return res
+
+        def backprop(self, u_ls, probe_real, probe_imag, energy_ev, psize_cm, return_intermediate_wavefields=False):
+            """
+            Hermitian of operator g.
+
+            :param u_ls: Tensor. A stack of u_theta chunks in shape [n_chunks, chunk_y, chunk_x, chunk_z, 2].
+                         All chunks have to be from the same theta.
+            :return: Exiting wavefields.
+            """
+            patch_shape = u_ls[0].shape[1:4]
+            res = multislice_backpropagate_batch(u_ls, probe_real, probe_imag, energy_ev, psize_cm,
+                                                 psize_cm, free_prop_cm=0, binning=self.binning,
+                                                 return_intermediate_wavefields=return_intermediate_wavefields)
             return res
 
         def get_grad(self, u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, energy_ev, psize_cm):
@@ -578,47 +574,453 @@ def reconstruct_ptychography(
             delta_nm = psize_cm * 1e7
             k = 2. * PI * delta_nm / lmbda_nm
 
-            exit_real, exit_imag, psi_forward_real_ls, psi_forward_imag_ls, expu_real_ls, expu_imag_ls = \
-                self.forward(u_ls, energy_ev, psize_cm, return_intermediate_wavefields=True,
-                             return_binned_modulators=True)
+            # Forward pass, store psi'.
+            exit_real, exit_imag, psi_forward_real_ls, psi_forward_imag_ls = \
+                self.forward(u_ls, energy_ev, psize_cm, return_intermediate_wavefields=True)
+            psi_forward_real_ls = w.stack(psi_forward_real_ls, axis=3)
+            psi_forward_imag_ls = w.stack(psi_forward_imag_ls, axis=3)
+
+            # Calculate dL / dg = -rho * [w - g(u) + lambda/rho]
+            grad = -self.rho * (w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho)
+            grad_real, grad_imag = w.split_channel(grad)
+
+            # Back propagate and get psi''.
             _, _, psi_backward_real_ls, psi_backward_imag_ls = \
-                self.forward(w.stack([-u_ls[:, :, :, ::-1, 0], u_ls[:, :, :, ::-1, 1]], axis=-1),
-                             energy_ev, psize_cm, return_intermediate_wavefields=True)
-            grad_real, grad_imag = w.complex_mul(w.stack(psi_forward_real_ls),  w.stack(psi_forward_imag_ls),
-                                                 w.stack(psi_backward_real_ls[::-1]), w.stack(psi_backward_imag_ls[::-1]))
-            grad_real, grad_imag = w.complex_mul(grad_real, grad_imag, expu_real_ls, expu_imag_ls)
-            temp = w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho
-            temp_real, temp_imag = w.split_channel(temp)
-            grad_real, grad_imag = -self.rho * w.complex_mul(grad_real, grad_imag, temp_real, temp_imag)
-            grad_delta = -k * grad_imag
-            grad_beta = k * grad_real
+                self.backprop(u_ls, grad_real, grad_imag, energy_ev, psize_cm, return_intermediate_wavefields=True)
+            psi_backward_real_ls = w.stack(psi_backward_real_ls, axis=3)
+            psi_backward_imag_ls = w.stack(psi_backward_imag_ls, axis=3)
 
+            # Calculate dL / d[exp(iku)] = psi''psi'*.
+            grad_real, grad_imag = w.complex_mul(psi_backward_real_ls, psi_backward_imag_ls,
+                                                 psi_forward_real_ls, -psi_forward_imag_ls)
+            if self.binning > 1:
+                grad_real = w.tile(grad_real, [1, 1, 1, self.binning])
+                grad_imag = w.tile(grad_imag, [1, 1, 1, self.binning])
+
+            # Calculate first term of dL / d(delta/beta).
+            expu_herm_real, expu_herm_imag = w.exp_complex(-k * u_ls[:, :, :, :, 1], k * u_ls[:, :, :, :, 0])
+            grad_real, grad_imag = w.complex_mul(grad_real, grad_imag, expu_herm_real, expu_herm_imag)
+            grad_delta = grad_imag * k
+            grad_beta = -grad_real * k
+
+            # Calculate second term of dL / d(delta/beta).
             temp = self.next_sp.rho * (u_ls - self.next_sp.forward(x, theta) + lambda3_ls / self.next_sp.rho)
-            temp_real, temp_imag = w.split_channel(temp)
-            grad_delta = grad_delta - temp_real
-            grad_beta = grad_beta - temp_imag
+            temp_delta, temp_beta = w.split_channel(temp)
+            grad_delta = grad_delta + temp_delta
+            grad_beta = grad_beta + temp_beta
 
-            return grad_delta, grad_beta
+            return w.stack([grad_delta, grad_beta], axis=-1)
 
-        def solve(self, n_iterations=5):
-            self.w_theta_ls = self.prev_sp.w_theta_ls
-            self.lambda3_theta_ls = self.next_sp.lambda3_theta_ls
+        def solve(self, n_iterations=3):
+            w_theta_ls = self.prev_sp.w_theta_ls
+            lambda3_theta_ls = self.next_sp.lambda3_theta_ls
+            x = self.next_sp.x
 
             for i_iteration in range(n_iterations):
-                theta_ind_ls = range(self.n_theta)
+                theta_ind_ls = np.arange(self.n_theta).astype(int)
                 np.random.shuffle(theta_ind_ls)
                 for i, i_theta in enumerate(theta_ind_ls):
-                    u_ls = self.u_theta_ls[i_theta]
-                    w_ls = self.w_theta_ls[i_theta]
-                    x = self.next_sp.x
-                    lambda2_ls = self.lambda2_theta_ls[i_theta]
-                    lambda3_ls = self.lambda3_theta_ls[i_theta]
+                    u_ls = w.reshape(self.u_theta_ls[i_theta], [1, *self.u_theta_ls[i_theta].shape])
+                    w_ls = w.reshape(w_theta_ls[i_theta], [1, *w_theta_ls[i_theta].shape])
+                    lambda2_ls = w.reshape(self.lambda2_theta_ls[i_theta], [1, *self.lambda2_theta_ls[i_theta].shape])
+                    lambda3_ls = w.reshape(lambda3_theta_ls[i_theta], [1, *lambda3_theta_ls[i_theta].shape])
                     theta = self.theta_ls[i_theta]
                     grad_u = self.get_grad(u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, self.energy_ev, self.psize_cm)
                     self.u_theta_ls[i_theta] = self.optimizer.apply_gradient(self.u_theta_ls[i_theta], grad_u,
                                                                              i_iteration,
                                                                              **self.optimizer.options_dict)
 
+        def update_dual(self):
+            for i, theta in enumerate(self.theta_ls):
+                u_ls = w.reshape(self.u_theta_ls[i], [1, *self.u_theta_ls[i].shape])
+                gn_real, gn_imag = self.forward(u_ls, self.energy_ev, self.psize_cm,
+                                                return_intermediate_wavefields=False)
+                gn = w.stack([gn_real, gn_imag], axis=-1)
+                self.lambda2_theta_ls[i] = self.lambda2_theta_ls[i] + self.rho * (self.prev_sp.w_theta_ls[i] - gn)
 
     class TomographySubproblem(Subproblem):
-        pass
+        def __init__(self, whole_object_size, theta_ls, rho=1, optimizer=None, device=None):
+            """
+            Tomography subproblem solver.
+
+            :param whole_object_size: 3D shape of the object to be reconstructed.
+            :param theta_ls: List of rotation angles in radians.
+            :param device: Device object.
+            :param rho: Weight of Lagrangian term.
+            """
+            super(TomographySubproblem, self).__init__(device)
+            self.whole_object_size = whole_object_size
+            self.theta_ls = theta_ls
+            self.n_theta = len(theta_ls)
+            self.rho = rho
+            self.optimizer = optimizer
+
+        def initialize(self):
+            """
+            Initialize solver.
+
+            :param prev_sp: AlignmentSubproblem object.
+            """
+            obj_delta, obj_beta = initialize_object_for_dp(self.whole_object_size)
+            self.x = w.create_variable(np.stack([obj_delta, obj_beta], axis=-1), requires_grad=False, device=self.device)
+            self.lambda3_theta_ls = []
+            for i, theta in enumerate(self.theta_ls):
+                lmbda3 = w.zeros([*self.whole_object_size, 2])
+                lmbda3 = w.create_variable(lmbda3, requires_grad=False, device=self.device)
+                self.lambda3_theta_ls.append(lmbda3)
+            self.lambda3_theta_ls = w.stack(self.lambda3_theta_ls)
+            self.optimizer.create_param_arrays([*self.whole_object_size, 2], device=self.device)
+            self.optimizer.set_index_in_grad_return(0)
+
+        def forward(self, x, theta):
+            return w.rotate(x, theta, axis=0, device=self.device)
+
+        def get_grad(self, x, u, lambda3, theta):
+            grad = u - self.forward(x, theta) + lambda3 / self.rho
+            grad = self.forward(grad, -theta)
+            grad = -self.rho * grad
+            return grad
+
+        def solve(self, n_iterations=3):
+            theta_ind_ls = np.arange(self.n_theta).astype(int)
+            u_theta_ls = self.prev_sp.u_theta_ls
+            for i_iteration in range(n_iterations):
+                np.random.shuffle(theta_ind_ls)
+                for i, i_theta in enumerate(theta_ind_ls):
+                    u = u_theta_ls[i_theta]
+                    lambda3 = self.lambda3_theta_ls[i_theta]
+                    theta = self.theta_ls[i_theta]
+                    grad = self.get_grad(self.x, u, lambda3, theta)
+                    self.x = self.optimizer.apply_gradient(self.x, grad, i_iteration, **self.optimizer.options_dict)
+
+        def update_dual(self):
+            u_theta_ls = self.prev_sp.u_theta_ls
+            for i, theta in enumerate(self.theta_ls):
+                u = u_theta_ls[i]
+                self.lambda3_theta_ls[i] = self.lambda3_theta_ls[i] + self.rho * (u - self.forward(self.x, theta))
+
+    t_zero = time.time()
+
+    comm = MPI.COMM_WORLD
+    n_ranks = comm.Get_size()
+    rank = comm.Get_rank()
+    t_zero = time.time()
+    global_settings.backend = backend
+    device_obj = None if cpu_only else gpu_index
+    device_obj = w.get_device(device_obj)
+    w.set_device(device_obj)
+
+    if rank == 0:
+        timestr = str(datetime.datetime.today())
+        timestr = timestr[:timestr.find('.')]
+        for i in [':', '-', ' ']:
+            if i == ' ':
+                timestr = timestr.replace(i, '_')
+            else:
+                timestr = timestr.replace(i, '')
+    else:
+        timestr = None
+    timestr = comm.bcast(timestr, root=0)
+
+    # ================================================================================
+    # Set output folder name if not specified.
+    # ================================================================================
+    if output_folder is None:
+        output_folder = 'recon_{}'.format(timestr)
+    if save_path != '.':
+        output_folder = os.path.join(save_path, output_folder)
+
+    stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder,
+                      'timestamp': timestr}
+    sto_rank = 0 if not debug else rank
+    print_flush('Output folder is {}'.format(output_folder), sto_rank, rank, **stdout_options)
+
+    # ================================================================================
+    # Create pointer for raw data.
+    # ================================================================================
+    t0 = time.time()
+    print_flush('Reading data...', sto_rank, rank, **stdout_options)
+    f = h5py.File(os.path.join(save_path, fname), 'r')
+    prj = f['exchange/data']
+
+    # ================================================================================
+    # Get metadata.
+    # ================================================================================
+    if obj_size[-1] == 1:
+        two_d_mode = True
+    if n_theta is None:
+        n_theta = prj.shape[0]
+    if two_d_mode:
+        n_theta = 1
+    prj_theta_ind = np.arange(n_theta, dtype=int)
+
+    try:
+        theta_ls = f['metadata/theta'][...]
+        print_flush('Theta list read from HDF5.', sto_rank, rank, **stdout_options)
+    except:
+        theta_ls = np.linspace(theta_st, theta_end, n_theta, dtype='float32')
+    if theta_downsample is not None:
+        theta_ls = theta_ls[::theta_downsample]
+        prj_theta_ind = prj_theta_ind[::theta_downsample]
+        n_theta = len(theta_ls)
+
+    original_shape = [n_theta, *prj.shape[1:]]
+
+    # Probe position.
+    if probe_pos is None:
+        if common_probe_pos:
+            probe_pos = f['metadata/probe_pos_px']
+            probe_pos = np.array(probe_pos).astype(float)
+        else:
+            probe_pos_ls = []
+            n_pos_ls = []
+            for i in range(n_theta):
+                probe_pos_ls.append(f['metadata/probe_pos_px_{}'.format(i)])
+                n_pos_ls.append(len(f['metadata/probe_pos_px_{}'.format(i)]))
+    else:
+        probe_pos = np.array(probe_pos).astype(float)
+
+    # Energy.
+    if energy_ev is None:
+        energy_ev = float(f['metadata/energy_ev'][...])
+
+    # Pixel size on sample plane.
+    if psize_cm is None:
+        psize_cm = float(f['metadata/psize_cm'][...])
+
+    # Slice positions (sparse).
+    if slice_pos_cm_ls is None or len(slice_pos_cm_ls) == 1:
+        is_sparse_multislice = False
+    else:
+        is_sparse_multislice = True
+        u, v = gen_freq_mesh(np.array([psize_cm * 1e7] * 3), prj.shape[2:4])
+        u = w.create_variable(u, requires_grad=False, device=device_obj)
+        v = w.create_variable(v, requires_grad=False, device=device_obj)
+
+    # Sample to detector distance.
+    if free_prop_cm is None:
+        free_prop_cm = f['metadata/free_prop_cm'][...]
+    if np.array(free_prop_cm).size == 1:
+        is_multi_dist = False
+        if isinstance(free_prop_cm, np.ndarray):
+            try:
+                free_prop_cm = free_prop_cm[0]
+            except:
+                free_prop_cm = float(free_prop_cm)
+    else:
+        is_multi_dist = True
+
+    if is_multi_dist:
+        subdiv_probe = True
+    else:
+        subdiv_probe = False
+
+    if subdiv_probe:
+        probe_size = obj_size[:2]
+        subprobe_size = prj.shape[-2:]
+    else:
+        probe_size = prj.shape[-2:]
+        subprobe_size = probe_size
+
+    if is_multi_dist:
+        u_free, v_free = gen_freq_mesh(np.array([psize_cm * 1e7] * 3),
+                                       [subprobe_size[i] + 2 * safe_zone_width for i in range(2)])
+        u_free = w.create_variable(u_free, requires_grad=False, device=device_obj)
+        v_free = w.create_variable(v_free, requires_grad=False, device=device_obj)
+
+    print_flush('Data reading: {} s'.format(time.time() - t0), sto_rank, rank, **stdout_options)
+    print_flush('Data shape: {}'.format(original_shape), sto_rank, rank, **stdout_options)
+    comm.Barrier()
+
+    not_first_level = False
+
+    # ================================================================================
+    # Remove kwargs that may cause issue (removing args that were required in
+    # previous versions).
+    # ================================================================================
+    for kw in ['probe_size']:
+        if kw in kwargs.keys():
+            del kwargs[kw]
+
+    for ds_level in range(multiscale_level - 1, -1, -1):
+        # ================================================================================
+        # Set metadata.
+        # ================================================================================
+        ds_level = 2 ** ds_level
+        print_flush('Multiscale downsampling level: {}'.format(ds_level), sto_rank, rank, **stdout_options)
+        comm.Barrier()
+
+        prj_shape = original_shape
+
+        if ds_level > 1:
+            this_obj_size = [int(x / ds_level) for x in obj_size]
+        else:
+            this_obj_size = obj_size
+
+        dim_y, dim_x = prj_shape[-2:]
+        if minibatch_size is None:
+            minibatch_size = len(probe_pos)
+        comm.Barrier()
+
+        # ================================================================================
+        # Create output directory.
+        # ================================================================================
+        if rank == 0:
+            try:
+                os.makedirs(os.path.join(output_folder))
+            except:
+                print_flush('Target folder {} exists.'.format(output_folder), sto_rank, rank, **stdout_options)
+        comm.Barrier()
+
+        # ================================================================================
+        # generate Fresnel kernel.
+        # ================================================================================
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
+        lmbda_nm = 1240. / energy_ev
+        delta_nm = voxel_nm[-1]
+        h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx,
+                       sign_convention=sign_convention)
+
+        # ================================================================================
+        # Read or write rotation transformation coordinates.
+        # ================================================================================
+        if precalculate_rotation_coords:
+            if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
+                comm.Barrier()
+                if rank == 0:
+                    os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+                comm.Barrier()
+                print_flush('Saving rotation coordinates...', sto_rank, rank, **stdout_options)
+                save_rotation_lookup(this_obj_size, theta_ls)
+        comm.Barrier()
+
+        # ================================================================================
+        # Unify random seed for all threads.
+        # ================================================================================
+        comm.Barrier()
+        seed = int(time.time() / 60)
+        seed = comm.bcast(seed, root=0)
+        np.random.seed(seed)
+
+        # ================================================================================
+        # Initialize probe functions.
+        # ================================================================================
+        print_flush('Initialzing probe...', sto_rank, rank, **stdout_options)
+        if rank == 0:
+            probe_init_kwargs = kwargs
+            probe_init_kwargs['lmbda_nm'] = lmbda_nm
+            probe_init_kwargs['psize_cm'] = psize_cm
+            probe_init_kwargs['normalize_fft'] = normalize_fft
+            probe_init_kwargs['n_probe_modes'] = n_probe_modes
+            probe_real_init, probe_imag_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function,
+                                                                probe_initial=probe_initial,
+                                                                rescale_intensity=rescale_probe_intensity,
+                                                                save_path=save_path, fname=fname,
+                                                                extra_defocus_cm=probe_extra_defocus_cm,
+                                                                raw_data_type=raw_data_type, stdout_options=stdout_options,
+                                                                sign_convention=sign_convention, **probe_init_kwargs)
+            if n_probe_modes == 1:
+                probe_real = np.stack([np.squeeze(probe_real_init)])
+                probe_imag = np.stack([np.squeeze(probe_imag_init)])
+            else:
+                if len(probe_real_init.shape) == 3 and len(probe_real_init) == n_probe_modes:
+                    probe_real = probe_real_init
+                    probe_imag = probe_imag_init
+                elif len(probe_real_init.shape) == 2 or len(probe_real_init) == 1:
+                    probe_real = []
+                    probe_imag = []
+                    probe_real_init = np.squeeze(probe_real_init)
+                    probe_imag_init = np.squeeze(probe_imag_init)
+                    i_cum_factor = 0
+                    for i_mode in range(n_probe_modes):
+                        probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
+                        probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                        # if i_mode < n_probe_modes - 1:
+                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        #     i_cum_factor += (1 - i_cum_factor) * 0.85
+                        # else:
+                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
+                        #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
+                    probe_real = np.stack(probe_real)
+                    probe_imag = np.stack(probe_imag)
+                else:
+                    raise RuntimeError('Length of supplied supplied probe does not match number of probe modes.')
+            if not shared_probe_among_angles:
+                probe_real = np.tile(probe_real, [n_theta] + [1] * len(probe_real.shape))
+                probe_imag = np.tile(probe_imag, [n_theta] + [1] * len(probe_imag.shape))
+        else:
+            probe_real = None
+            probe_imag = None
+        probe_real = comm.bcast(probe_real, root=0)
+        probe_imag = comm.bcast(probe_imag, root=0)
+
+        # ================================================================================
+        # Declare and initialize subproblems.
+        # ================================================================================
+        optimizer = adorym.GDOptimizer('pr', options_dict={'learning_rate': 1e-4})
+        sp_phr = PhaseRetrievalSubproblem(obj_size, theta_ls, theta_downsample=theta_downsample,
+                                          rho=1, optimizer=optimizer, device=device_obj)
+        sp_phr.initialize([probe_real, probe_imag], prj, probe_pos=probe_pos)
+
+        optimizer = adorym.GDOptimizer('align', options_dict={'learning_rate': 1e-4})
+        sp_aln = AlignmentSubproblem(obj_size, theta_ls, rho=1, optimizer=optimizer, device=device_obj)
+        sp_aln.initialize()
+
+        optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-4})
+        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=8, energy_ev=energy_ev, psize_cm=psize_cm,
+                                   rho=1, optimizer=optimizer, device=device_obj)
+        sp_bkp.initialize()
+
+        optimizer = adorym.GDOptimizer('tomo', options_dict={'learning_rate': 1e-4})
+        sp_tmo = TomographySubproblem(obj_size, theta_ls, rho=1, optimizer=optimizer, device=device_obj)
+        sp_tmo.initialize()
+
+        sp_phr.set_dependencies(None, sp_aln)
+        sp_aln.set_dependencies(sp_phr, sp_bkp)
+        sp_bkp.set_dependencies(sp_aln, sp_tmo)
+        sp_tmo.set_dependencies(sp_bkp, None)
+
+        # ================================================================================
+        # Enter ADMM iterations.
+        # ================================================================================
+        for i_epoch in range(n_epochs):
+            t0 = time.time()
+            t00 = time.time()
+            sp_phr.solve(n_iterations=4, minibatch_size=minibatch_size)
+            print_flush('PHR done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            t00 = time.time()
+            sp_aln.solve()
+            print_flush('ALN done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            t00 = time.time()
+            sp_bkp.solve(n_iterations=3)
+            print_flush('BKP done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            t00 = time.time()
+            sp_tmo.solve(n_iterations=3)
+            print_flush('TMO done in {} s.'.format(time.time() - t00), sto_rank, rank)
+
+            t00 = time.time()
+            sp_aln.update_dual()
+            print_flush('ALN dual update done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            t00 = time.time()
+            sp_bkp.update_dual()
+            print_flush('BKP dual update done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            t00 = time.time()
+            sp_tmo.update_dual()
+            print_flush('TMO dual update done in {} s.'.format(time.time() - t00), sto_rank, rank)
+
+            # ================================================================================
+            # Save reconstruction after an epoch.
+            # ================================================================================
+            if rank == 0:
+                obj = adorym.ObjectFunction(obj_size)
+                obj.arr = sp_tmo.x
+                output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                              unknown_type, full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
+                output_probe(sp_phr.probe_real, sp_phr.probe_imag, os.path.join(output_folder, 'intermediate', 'object'),
+                             full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
+
+            print_flush(
+                'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
+                                                                                  time.time() - t0, time.time() - t_zero),
+                sto_rank, rank, **stdout_options)

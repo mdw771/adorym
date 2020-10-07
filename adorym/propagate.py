@@ -135,12 +135,10 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                                normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
                                scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
                                kappa=None, repeating_slice=None, return_fft_time=False, shift_exit_wave=None,
-                               return_intermediate_wavefields=False, return_binned_modulators=False):
+                               return_intermediate_wavefields=False):
 
     intermediate_wavefield_real_ls = []
     intermediate_wavefield_imag_ls = []
-    binned_modulator_real_ls = []
-    binned_modulator_imag_ls = []
     minibatch_size = grid_batch.shape[0]
     grid_shape = grid_batch.shape[1:-1]
     if delta_cm is not None:
@@ -209,6 +207,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
         t_tot = 0
         n_steps = int(np.ceil(n_slices / binning))
         for i_step in range(n_steps):
+            if return_intermediate_wavefields:
+                intermediate_wavefield_real_ls.append(probe_real)
+                intermediate_wavefield_imag_ls.append(probe_imag)
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             i_slice = i_step * binning
             # At the start of bin, initialize slice array.
@@ -248,11 +249,6 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
                 else:
                     probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, delta_nm * this_step, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
-                if return_intermediate_wavefields:
-                    intermediate_wavefield_real_ls.append(probe_real)
-                    intermediate_wavefield_imag_ls.append(probe_imag)
-                    binned_modulator_real_ls.append(c_real)
-                    binned_modulator_imag_ls.append(c_imag)
             t_tot += (time.time() - t0)
 
     if shift_exit_wave is not None:
@@ -280,9 +276,171 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
     if return_fft_time:
         return_ls.append(t_tot)
     if return_intermediate_wavefields:
-        return_ls = return_ls + [intermediate_wavefield_real_ls, intermediate_wavefield_real_ls]
-    if return_binned_modulators:
-        return_ls = return_ls + [binned_modulator_real_ls, binned_modulator_imag_ls]
+        # intermediate_wavefield_real_ls = w.stack(intermediate_wavefield_real_ls)
+        # intermediate_wavefield_imag_ls = w.stack(intermediate_wavefield_imag_ls)
+        return_ls = return_ls + [intermediate_wavefield_real_ls, intermediate_wavefield_imag_ls]
+    return return_ls
+
+
+def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev, psize_cm, delta_cm=None,
+                                   free_prop_cm=None, obj_batch_shape=None, kernel=None, fresnel_approx=True,
+                                   pure_projection=False, binning=1, device=None, type='delta_beta',
+                                   normalize_fft=False, sign_convention=1, optimize_free_prop=False, u_free=None, v_free=None,
+                                   scale_ri_by_k=True, is_minus_logged=False, pure_projection_return_sqrt=False,
+                                   kappa=None, repeating_slice=None, return_fft_time=False, shift_exit_wave=None,
+                                   return_intermediate_wavefields=False):
+
+    intermediate_wavefield_real_ls = []
+    intermediate_wavefield_imag_ls = []
+    minibatch_size = grid_batch.shape[0]
+    grid_shape = grid_batch.shape[1:-1]
+    if delta_cm is not None:
+        voxel_nm = np.array([psize_cm, psize_cm, delta_cm]) * 1.e7
+    else:
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7
+
+    lmbda_nm = 1240. / energy_ev
+    mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
+    size_nm = np.array(grid_shape) * voxel_nm
+
+    n_slices = grid_batch.shape[-2]
+    delta_nm = voxel_nm[-1]
+
+    if repeating_slice is not None:
+        n_slices = repeating_slice
+
+    if pure_projection:
+        k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
+        if type == 'delta_beta':
+            # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+            # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+            p = w.sum(grid_batch, axis=-2)
+            delta_slice = p[:, :, :, 0]
+            if kappa is not None:
+                beta_slice = delta_slice * kappa
+            else:
+                beta_slice = p[:, :, :, 1]
+            # In conventional tomography beta is interpreted as mu. If projection data is minus-logged,
+            # the line sum of beta (mu) directly equals image intensity. If raw_data_type is set to 'intensity',
+            # measured data will be taken square root at the loss calculation step. To match this, the summed
+            # beta must be square-rooted as well. Otherwise, set raw_data_type to 'magnitude' to avoid square-rooting
+            # the measured data, and skip sqrt to summed beta here accordingly.
+            if is_minus_logged:
+                if pure_projection_return_sqrt:
+                    c_real, c_imag = w.sqrt(beta_slice + 1e-10), delta_slice * 0
+                else:
+                    c_real, c_imag = beta_slice, delta_slice * 0
+            else:
+                # exp(-ikn*)
+                c_real, c_imag = w.exp_complex(-k1 * beta_slice, sign_convention * k1 * delta_slice)
+        elif type == 'real_imag':
+            raise NotImplementedError('Backprop not done for real_imag.')
+            p = w.prod(grid_batch, axis=-2)
+            delta_slice = p[:, :, :, 0]
+            beta_slice = p[:, :, :, 1]
+            c_real, c_imag = delta_slice, beta_slice
+            if is_minus_logged:
+                if pure_projection_return_sqrt:
+                    c_real, c_imag = w.sqrt(-w.log(c_real ** 2 + c_imag ** 2) + 1e-10), 0
+                else:
+                    c_real, c_imag = -w.log(c_real ** 2 + c_imag ** 2), 0
+        else:
+            raise ValueError('unknown_type must be real_imag or delta_beta.')
+        probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
+
+    else:
+        if kernel is not None:
+            h = kernel
+        else:
+            # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+            # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+            h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
+        h_real, h_imag = np.real(h), np.imag(h)
+        h_real = w.create_variable(h_real, requires_grad=False, device=device)
+        h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
+
+        t_tot = 0
+        n_steps = int(np.ceil(n_slices / binning))
+        i_slice = n_slices
+        for i_step in range(n_steps):
+            if return_intermediate_wavefields:
+                intermediate_wavefield_real_ls.append(probe_real)
+                intermediate_wavefield_imag_ls.append(probe_imag)
+            k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
+            # At the start of bin, initialize slice array.
+            if i_step == 0:
+                this_step = n_slices % binning if n_slices % binning != 0 else binning
+            else:
+                this_step = binning
+            if repeating_slice is None:
+                delta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 0] if this_step > 1 else grid_batch[:, :, :, i_slice, 0]
+            else:
+                delta_slice = grid_batch[:, :, :, 0:1, 0]
+            if kappa is not None:
+                # In sign = +1 convention, phase (delta) should be positive, and kappa is positive too.
+                beta_slice = delta_slice * kappa
+            else:
+                if repeating_slice is None:
+                    beta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 1] if this_step > 1 else grid_batch[:, :, :, i_slice, 1]
+                else:
+                    beta_slice = grid_batch[:, :, :, 0:1, 1]
+            t0 = time.time()
+            if type == 'delta_beta':
+                # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+                # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+                if this_step > 1:
+                    delta_slice = w.sum(delta_slice, axis=3)
+                    beta_slice = w.sum(beta_slice, axis=3)
+                # exp(-ikn*)
+                c_real, c_imag = w.exp_complex(-k1 * beta_slice, sign_convention * k1 * delta_slice)
+            elif type == 'real_imag':
+                raise NotImplementedError('Backprop not done for real_imag.')
+                if this_step > 1:
+                    delta_slice = w.prod(delta_slice, axis=3)
+                    beta_slice = w.prod(beta_slice, axis=3)
+                c_real, c_imag = delta_slice, beta_slice
+            else:
+                raise ValueError('unknown_type must be delta_beta or real_imag.')
+            probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
+
+            # When arriving at the last slice of bin or object, do propagation.
+            if i_step < n_steps - 1:
+                # Backpropagate over -z
+                if this_step == binning:
+                    probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
+                else:
+                    probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, -delta_nm * this_step, lmbda_nm, voxel_nm, device=device, sign_convention=sign_convention)
+            i_slice -= this_step
+            t_tot += (time.time() - t0)
+
+    if shift_exit_wave is not None:
+        probe_real, probe_imag = realign_image_fourier(probe_real, probe_imag, shift_exit_wave, axes=(1, 2), device=device)
+
+    if free_prop_cm not in [0, None]:
+        if isinstance(free_prop_cm, str) and free_prop_cm == 'inf':
+            # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
+            # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
+            if sign_convention == 1:
+                probe_real, probe_imag = w.fft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)
+            else:
+                probe_real, probe_imag = w.ifft2_and_shift(probe_real, probe_imag, axes=[1, 2], normalize=normalize_fft)
+        else:
+            dist_nm = free_prop_cm * 1e7
+            l = np.prod(size_nm)**(1. / 3)
+            if optimize_free_prop:
+                    probe_real, probe_imag = fresnel_propagate_wrapped(u_free, v_free, probe_real, probe_imag, dist_nm,
+                                                                       lmbda_nm, voxel_nm,
+                                                                       device=device, sign_convention=sign_convention)
+            elif not optimize_free_prop:
+                probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, dist_nm, lmbda_nm, voxel_nm,
+                                                           device=device, sign_convention=sign_convention)
+    return_ls = [probe_real, probe_imag]
+    if return_fft_time:
+        return_ls.append(t_tot)
+    if return_intermediate_wavefields:
+        # intermediate_wavefield_real_ls = w.stack(intermediate_wavefield_real_ls)
+        # intermediate_wavefield_imag_ls = w.stack(intermediate_wavefield_imag_ls)
+        return_ls = return_ls + [intermediate_wavefield_real_ls, intermediate_wavefield_imag_ls]
     return return_ls
 
 
