@@ -978,9 +978,9 @@ def reconstruct_ptychography(
                 for arg in forward_model.argument_ls:
                     if arg == 'obj':
                         grad_func_args[arg] = obj_arr
-                    if arg == 'probe_real' and not shared_probe_among_angles:
+                    elif arg == 'probe_real' and not shared_probe_among_angles:
                         grad_func_args[arg] = probe_real[this_i_theta]
-                    if arg == 'probe_imag' and not shared_probe_among_angles:
+                    elif arg == 'probe_imag' and not shared_probe_among_angles:
                         grad_func_args[arg] = probe_imag[this_i_theta]
                     else:
                         try:
