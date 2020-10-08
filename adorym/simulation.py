@@ -118,16 +118,17 @@ def simulate_ptychography(
         # or RAM depending on current device setting.
         # _________________________
         # |Other optimizer options|_____________________________________________
-        optimize_probe=False, probe_learning_rate=1e-5,
+        optimize_probe=False, probe_learning_rate=1e-5, optimizer_probe=None,
         probe_update_delay=0, probe_update_limit=None,
-        optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5,
-        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2,
-        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2,
-        optimize_slice_pos=False, slice_pos_learning_rate=1e-4,
-        optimize_free_prop=False, free_prop_learning_rate=1e-2,
-        optimize_prj_affine=False, prj_affine_learning_rate=1e-3,
-        optimize_tilt=False, tilt_learning_rate=1e-3,
-        optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3,
+        optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
+        optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
+        optimize_prj_pos_offset=False, probe_prj_offset_learning_rate=1e-2, optimizer_prj_pos_offset=None,
+        optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2, optimizer_all_probe_pos=None,
+        optimize_slice_pos=False, slice_pos_learning_rate=1e-4, optimizer_slice_pos=None,
+        optimize_free_prop=False, free_prop_learning_rate=1e-2, optimizer_free_prop=None,
+        optimize_prj_affine=False, prj_affine_learning_rate=1e-3, optimizer_prj_affine=None,
+        optimize_tilt=False, tilt_learning_rate=1e-3, optimizer_tilt=None, initial_tilt=None,
+        optimize_ctf_lg_kappa=False, ctf_lg_kappa_learning_rate=1e-3, optimizer_ctf_lg_kappa=None,
         other_params_update_delay=0,
         # _________________________
         # |Alternative algorithms |_____________________________________________
@@ -195,7 +196,7 @@ def simulate_ptychography(
     except:
         f = h5py.File(os.path.join(save_path, fname), 'a')
     try:
-        prj = f.create_group('exchange').create_dataset('data', shape=[n_theta, n_pos, *probe_size], dtype=np.float32)
+        prj = f.create_group('exchange').create_dataset('data', shape=[n_theta, n_pos, *probe_size], dtype=np.complex64)
     except:
         prj = f['exchange/data']
 
@@ -214,7 +215,7 @@ def simulate_ptychography(
     not_first_level = False
     this_obj_size = obj_size
     ds_level = 1
-    is_multi_dist = True if len(free_prop_cm) > 1 and free_prop_cm not in [None, 'inf'] else False
+    is_multi_dist = True if free_prop_cm not in [None, 'inf'] and len(free_prop_cm) > 1 else False
     is_sparse_multislice = True if slice_pos_cm_ls is not None else False
 
     if is_multi_dist:
@@ -316,7 +317,8 @@ def simulate_ptychography(
                          'distribution_mode': distribution_mode,
                          'device': device_obj,
                          'common_vars_dict': locals(),
-                         'raw_data_type': 'intensity'}
+                         'raw_data_type': 'intensity',
+                         'simulation_mode': True}
     if forward_model == 'auto':
         if is_multi_dist:
             forward_model = MultiDistModel(**forwardmodel_args)
@@ -646,11 +648,15 @@ def simulate_ptychography(
                 try:
                     grad_func_args[arg] = optimizable_params[arg]
                 except:
-                    grad_func_args[arg] = locals()[arg]
+                    try:
+                        grad_func_args[arg] = locals()[arg]
+                    except:
+                        grad_func_args[arg] = None
         comm.Barrier()
         print_flush('  Entering simulation loop...', sto_rank, rank, **stdout_options)
 
         this_pred_batch = forward_model.predict(**grad_func_args)
+        complex_output = True if isinstance(this_pred_batch, tuple) else False
         comm.Barrier()
         print_flush('  Batch simulation calculation done in {} s.'.format(time.time() - t_grad_0), sto_rank, rank,
                     **stdout_options)
@@ -658,7 +664,10 @@ def simulate_ptychography(
         # ================================================================================
         # Write data.
         # ================================================================================
-        prj[i_theta, this_ind_batch] = this_pred_batch
+        if complex_output:
+            prj[this_i_theta, this_ind_batch] = np.stack(this_pred_batch[0]) + 1j * np.stack(this_pred_batch[1])
+        else:
+            prj[this_i_theta, this_ind_batch] = this_pred_batch + 1j * 0
         f.flush()
 
         # ================================================================================
