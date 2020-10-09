@@ -198,9 +198,11 @@ def reconstruct_ptychography(
             """
             self.psi_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1])
-                psi_real = np.squeeze(psi_real)
-                psi_imag = np.squeeze(psi_imag)
+                psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
+                                                              random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+                                                              verbose=False)
+                psi_real = psi_real[:, :, 0]
+                psi_imag = psi_imag[:, :, 0]
                 psi = w.create_variable(np.stack([psi_real, psi_imag], axis=-1), requires_grad=False, device=self.device)
                 self.psi_theta_ls.append(psi)
             self.psi_theta_ls = w.stack(self.psi_theta_ls)
@@ -490,8 +492,8 @@ def reconstruct_ptychography(
             return w
 
         def solve(self):
-            self.psi_theta_ls = self.prev_sp.psi_theta_ls
-            self.w_theta_ls = self.psi_theta_ls
+            psi_theta_ls = self.prev_sp.psi_theta_ls
+            self.w_theta_ls = psi_theta_ls
 
         def update_dual(self):
             self.lambda1_theta_ls = self.lambda1_theta_ls + self.rho * (self.prev_sp.psi_theta_ls - self.forward(self.w_theta_ls))
@@ -527,7 +529,9 @@ def reconstruct_ptychography(
             self.u_theta_ls = []
             self.lambda2_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                u_delta, u_beta = initialize_object_for_dp(self.whole_object_size)
+                u_delta, u_beta = initialize_object_for_dp(self.whole_object_size,
+                                                           random_guess_means_sigmas=[8.7e-7, 5.1e-8, 1e-7, 1e-8],
+                                                           verbose=False)
                 u = w.create_variable(np.stack([u_delta, u_beta], axis=-1),
                                       requires_grad=False, device=None) # Keep on RAM, not GPU
                 self.u_theta_ls.append(u)
@@ -582,13 +586,15 @@ def reconstruct_ptychography(
 
             # Calculate dL / dg = -rho * [w - g(u) + lambda/rho]
             grad = -self.rho * (w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho)
+
+
             grad_real, grad_imag = w.split_channel(grad)
 
             # Back propagate and get psi''.
             _, _, psi_backward_real_ls, psi_backward_imag_ls = \
                 self.backprop(u_ls, grad_real, grad_imag, energy_ev, psize_cm, return_intermediate_wavefields=True)
-            psi_backward_real_ls = w.stack(psi_backward_real_ls, axis=3)
-            psi_backward_imag_ls = w.stack(psi_backward_imag_ls, axis=3)
+            psi_backward_real_ls = w.stack(psi_backward_real_ls[::-1], axis=3)
+            psi_backward_imag_ls = w.stack(psi_backward_imag_ls[::-1], axis=3)
 
             # Calculate dL / d[exp(iku)] = psi''psi'*.
             grad_real, grad_imag = w.complex_mul(psi_backward_real_ls, psi_backward_imag_ls,
@@ -600,7 +606,7 @@ def reconstruct_ptychography(
             # Calculate first term of dL / d(delta/beta).
             expu_herm_real, expu_herm_imag = w.exp_complex(-k * u_ls[:, :, :, :, 1], k * u_ls[:, :, :, :, 0])
             grad_real, grad_imag = w.complex_mul(grad_real, grad_imag, expu_herm_real, expu_herm_imag)
-            grad_delta = grad_imag * k
+            grad_delta = -grad_imag * k
             grad_beta = -grad_real * k
 
             # Calculate second term of dL / d(delta/beta).
@@ -626,6 +632,14 @@ def reconstruct_ptychography(
                     lambda3_ls = w.reshape(lambda3_theta_ls[i_theta], [1, *lambda3_theta_ls[i_theta].shape])
                     theta = self.theta_ls[i_theta]
                     grad_u = self.get_grad(u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, self.energy_ev, self.psize_cm)
+                    # if i_theta == 0:
+                    #     import matplotlib.pyplot as plt
+                    #     fig, axes = plt.subplots(1, 4)
+                    #     axes[0].imshow(grad_u[0, :, :, 0, 0])
+                    #     axes[1].imshow(grad_u[0, :, :, 32, 0])
+                    #     axes[2].imshow(grad_u[0, :, :, 63, 0])
+                    #     axes[3].imshow(grad_u[0, 23, :, :, 0])
+                    #     plt.show()
                     self.u_theta_ls[i_theta] = self.optimizer.apply_gradient(self.u_theta_ls[i_theta], grad_u,
                                                                              i_iteration,
                                                                              **self.optimizer.options_dict)
@@ -661,7 +675,9 @@ def reconstruct_ptychography(
 
             :param prev_sp: AlignmentSubproblem object.
             """
-            obj_delta, obj_beta = initialize_object_for_dp(self.whole_object_size)
+            obj_delta, obj_beta = initialize_object_for_dp(self.whole_object_size,
+                                                           random_guess_means_sigmas=[8.7e-7, 5.1e-8, 1e-7, 1e-8],
+                                                           verbose=False)
             self.x = w.create_variable(np.stack([obj_delta, obj_beta], axis=-1), requires_grad=False, device=self.device)
             self.lambda3_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
@@ -968,7 +984,7 @@ def reconstruct_ptychography(
         sp_aln.initialize()
 
         optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-4})
-        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=8, energy_ev=energy_ev, psize_cm=psize_cm,
+        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=1, energy_ev=energy_ev, psize_cm=psize_cm,
                                    rho=1, optimizer=optimizer, device=device_obj)
         sp_bkp.initialize()
 
@@ -987,11 +1003,33 @@ def reconstruct_ptychography(
         for i_epoch in range(n_epochs):
             t0 = time.time()
             t00 = time.time()
+
+            # ####### DEBUG #######
             sp_phr.solve(n_iterations=4, minibatch_size=minibatch_size)
             print_flush('PHR done in {} s.'.format(time.time() - t00), sto_rank, rank)
             t00 = time.time()
             sp_aln.solve()
             print_flush('ALN done in {} s.'.format(time.time() - t00), sto_rank, rank)
+            # ff = h5py.File('/home/beams/B282788/Data/programs/adorym_dev/demos/adhesin/data_adhesin_360_soft_4d.h5')
+            # dd = ff['exchange/data']
+            # w_ls = []
+            # for img in dd[::theta_downsample]:
+            #     ww = np.stack([img[0].real, img[0].imag], axis=-1)
+            #     w_ls.append(ww)
+            # sp_aln.w_theta_ls = w.create_variable(np.stack(w_ls), requires_grad=False)
+            #######################
+
+
+            # ####### DEBUG #######
+            # grid_delta = np.load('/home/beams/B282788/Data/programs/adorym_dev/demos/adhesin/phantom/grid_delta.npy')
+            # grid_beta = np.load('/home/beams/B282788/Data/programs/adorym_dev/demos/adhesin/phantom/grid_beta.npy')
+            # x = np.stack([grid_delta, grid_beta], axis=-1)
+            # x = w.create_variable(x, requires_grad=False)
+            # for i, theta in enumerate(sp_bkp.theta_ls):
+            #     sp_bkp.u_theta_ls[i] = w.rotate(x, theta, axis=0)
+            #######################
+
+
             t00 = time.time()
             sp_bkp.solve(n_iterations=3)
             print_flush('BKP done in {} s.'.format(time.time() - t00), sto_rank, rank)

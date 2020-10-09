@@ -23,12 +23,14 @@ class ForwardModel(object):
     :param raw_data_type: String. Can be ``'magnitude'`` or ``'intensity'``. Type of raw data in HDF5. For line-projection
         tomography reconstruction where raw data have already been minus-logged, always use ``'magnitude'``.
     """
-    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude', simulation_mode=False):
         self.loss_function_type = loss_function_type
         self.argument_ls = []
         self.regularizer_dict = {}
         self.distribution_mode = distribution_mode
         self.device = device
+        self.simulation_mode = simulation_mode
         self.current_loss = 0
         self.common_vars = common_vars_dict
         self.raw_data_type = raw_data_type
@@ -145,8 +147,10 @@ class ForwardModel(object):
 
 class PtychographyModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(PtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude', simulation_mode=False):
+        super(PtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
+                                                raw_data_type, simulation_mode=simulation_mode)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -379,9 +383,9 @@ class SingleBatchFullfieldModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(SingleBatchFullfieldModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type)
+                                                raw_data_type, simulation_mode=simulation_mode)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -403,7 +407,6 @@ class SingleBatchFullfieldModel(PtychographyModel):
         :param tilt_ls: Array with shape [3, n_theta]. 3-axis tilt to be applied before propagation.
         :return: Array with shape [minibatch_size, len_probe_y, len_probe_x]. Magnitude of detected wavefields.
         """
-
         device_obj = self.common_vars['device_obj']
         probe_size = self.common_vars['probe_size']
         fresnel_approx = self.common_vars['fresnel_approx']
@@ -459,16 +462,19 @@ class SingleBatchFullfieldModel(PtychographyModel):
             pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
         ex_mag_ls = w.norm(ex_real, ex_imag)
 
-        return ex_mag_ls
+        if self.simulation_mode:
+            return ex_real, ex_imag
+        else:
+            return ex_mag_ls
 
 
 class SingleBatchPtychographyModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(SingleBatchPtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type)
+                                                raw_data_type, simulation_mode=simulation_mode)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -560,8 +566,10 @@ class SingleBatchPtychographyModel(PtychographyModel):
 
 class SparseMultisliceModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(SparseMultisliceModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude', simulation_mode=False):
+        super(SparseMultisliceModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
+                                                    raw_data_type, simulation_mode=simulation_mode)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -778,8 +786,10 @@ class SparseMultisliceModel(ForwardModel):
 
 class MultiDistModel(ForwardModel):
 
-    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None, raw_data_type='magnitude'):
-        super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict, raw_data_type)
+    def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
+                 raw_data_type='magnitude', simulation_mode=False):
+        super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
+                                             raw_data_type, simulation_mode=simulation_mode)
         args = inspect.getfullargspec(self.predict).args
         args.pop(0)
         self.argument_ls = args

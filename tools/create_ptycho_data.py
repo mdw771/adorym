@@ -24,6 +24,29 @@ PI = 3.1415927
 #    path given in 'phantom_path'.                             #
 #==============================================================#
 
+params_adhesin_ff = {'fname': 'data_adhesin_360_soft_4d_2.h5',
+                  'theta_st': 0,
+                  'theta_end': 2 * np.pi,
+                  'n_theta': 500,
+                  'theta_downsample': 10,
+                  'obj_size': (64, 64, 64),
+                  'probe_size': (64, 64),
+                  'energy_ev': 800,
+                  'psize_cm': 0.67e-7,
+                  'phantom_path': '../demos/adhesin/phantom',
+                  'minibatch_size': 1,
+                  'cpu_only': True,
+                  'save_path': '../demos/adhesin',
+                  'probe_initial': None,
+                  'fresnel_approx': True,
+                  'probe_type': 'plane',
+                  'forward_algorithm': 'fresnel',
+                  'object_type': 'normal',
+                  'probe_pos': [(0, 0)],
+                  'free_prop_cm': None,
+                  'normalize_fft': False
+                  }
+
 params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um_2.h5',
                   'theta_st': 0,
                   'theta_end': 2 * np.pi,
@@ -189,6 +212,7 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 # params = params_cameraman_noisy_pos
 # params = params_cone_ff
 # params = params_adhesin_2
-params = params_cone_marc
+# params = params_cone_marc
+params = params_adhesin_ff
 
-create_ptychography_data_batch_numpy(**params)
+simulate_ptychography(**params)

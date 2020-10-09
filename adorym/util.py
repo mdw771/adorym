@@ -58,7 +58,7 @@ def timeit(fun):
 def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='normal', initial_guess=None,
                              output_folder=None, save_stdout=False, timestr='',
                              not_first_level=False, random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
-                             unknown_type='delta_beta', non_negativity=False):
+                             unknown_type='delta_beta', non_negativity=False, verbose=True):
 
     seed = int(time.time() / 60)
     seed = comm.bcast(seed, root=0)
@@ -66,18 +66,18 @@ def initialize_object_for_dp(this_obj_size, dset=None, ds_level=1, object_type='
 
     if not_first_level == False:
         if initial_guess is None:
-            print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
+            if verbose: print_flush('Initializing with Gaussian random.', designate_rank=0, this_rank=rank,
                         save_stdout=save_stdout, output_folder=output_folder, timestamp=timestr)
             obj_delta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[0], scale=random_guess_means_sigmas[2])
             obj_beta = np.random.normal(size=this_obj_size, loc=random_guess_means_sigmas[1], scale=random_guess_means_sigmas[3])
         else:
-            print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+            if verbose: print_flush('Using supplied initial guess.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                         output_folder=output_folder, timestamp=timestr)
             sys.stdout.flush()
             obj_delta = np.array(initial_guess[0])
             obj_beta = np.array(initial_guess[1])
     else:
-        print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
+        if verbose: print_flush('Initializing with previous pass.', designate_rank=0, this_rank=rank, save_stdout=save_stdout,
                     output_folder=output_folder, timestamp=timestr)
         if unknown_type == 'delta_beta':
             obj_delta = dxchange.read_tiff(os.path.join(output_folder, 'delta_ds_{}.tiff'.format(ds_level * 2)))

@@ -1,8 +1,6 @@
 import numpy as np
 import dxchange
 import h5py
-import matplotlib.pyplot as plt
-import matplotlib
 import warnings
 import time
 import datetime
@@ -210,6 +208,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             if return_intermediate_wavefields:
                 intermediate_wavefield_real_ls.append(probe_real)
                 intermediate_wavefield_imag_ls.append(probe_imag)
+            # ==========================================
+            # Sampling
+            # ==========================================
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             i_slice = i_step * binning
             # At the start of bin, initialize slice array.
@@ -227,6 +228,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
                 else:
                     beta_slice = grid_batch[:, :, :, 0:1, 1]
             t0 = time.time()
+            # ==========================================
+            # Modulation
+            # ==========================================
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -242,8 +246,9 @@ def multislice_propagate_batch(grid_batch, probe_real, probe_imag, energy_ev, ps
             else:
                 raise ValueError('unknown_type must be delta_beta or real_imag.')
             probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
-
+            # ==========================================
             # When arriving at the last slice of bin or object, do propagation.
+            # ==========================================
             if i_step < n_steps - 1:
                 if this_step == binning:
                     probe_real, probe_imag = w.convolve_with_transfer_function(probe_real, probe_imag, h_real, h_imag)
@@ -354,7 +359,8 @@ def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev
         else:
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-            h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
+            # Negative distance for backpropagation.
+            h = get_kernel(-delta_nm * binning, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
         h_real, h_imag = np.real(h), np.imag(h)
         h_real = w.create_variable(h_real, requires_grad=False, device=device)
         h_imag = w.create_variable(h_imag, requires_grad=False, device=device)
@@ -366,6 +372,9 @@ def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev
             if return_intermediate_wavefields:
                 intermediate_wavefield_real_ls.append(probe_real)
                 intermediate_wavefield_imag_ls.append(probe_imag)
+            # ==========================================
+            # Sampling
+            # ==========================================
             k1 = 2. * PI * delta_nm / lmbda_nm if scale_ri_by_k else 1.
             # At the start of bin, initialize slice array.
             if i_step == 0:
@@ -373,7 +382,10 @@ def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev
             else:
                 this_step = binning
             if repeating_slice is None:
-                delta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 0] if this_step > 1 else grid_batch[:, :, :, i_slice, 0]
+                if this_step > 1:
+                    delta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 0]
+                else:
+                    delta_slice = grid_batch[:, :, :, i_slice - 1, 0]
             else:
                 delta_slice = grid_batch[:, :, :, 0:1, 0]
             if kappa is not None:
@@ -381,10 +393,16 @@ def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev
                 beta_slice = delta_slice * kappa
             else:
                 if repeating_slice is None:
-                    beta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 1] if this_step > 1 else grid_batch[:, :, :, i_slice, 1]
+                    if this_step > 1:
+                        beta_slice = grid_batch[:, :, :, i_slice - this_step:i_slice, 1]
+                    else:
+                        beta_slice = grid_batch[:, :, :, i_slice - 1, 1]
                 else:
                     beta_slice = grid_batch[:, :, :, 0:1, 1]
             t0 = time.time()
+            # ==========================================
+            # Modulation
+            # ==========================================
             if type == 'delta_beta':
                 # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
                 # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
@@ -402,8 +420,9 @@ def multislice_backpropagate_batch(grid_batch, probe_real, probe_imag, energy_ev
             else:
                 raise ValueError('unknown_type must be delta_beta or real_imag.')
             probe_real, probe_imag = (probe_real * c_real - probe_imag * c_imag, probe_real * c_imag + probe_imag * c_real)
-
-            # When arriving at the last slice of bin or object, do propagation.
+            # ==========================================
+            # When arriving at the last slice of bin or object, do (back)propagation.
+            # ==========================================
             if i_step < n_steps - 1:
                 # Backpropagate over -z
                 if this_step == binning:
