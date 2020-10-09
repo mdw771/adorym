@@ -1242,6 +1242,24 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
     return obj_rot, pad_arr
 
 
+def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_backend=None):
+    """
+    Pad the object with 0 if any of the probes' extents go beyond the object boundary, using edge values.
+    :return: padded object and padding lengths.
+    """
+    pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta')
+    obj_rot = w.permute_axes(obj_rot, [2, 3, 0, 1])
+    if np.count_nonzero(pad_arr) > 0:
+        paap = [[0, 0]] * (len(obj_rot.shape) - 2)
+        args = {}
+        if global_settings.backend == 'autograd':
+            obj_rot = w.pad(obj_rot, paap + pad_arr.tolist(), mode='edge', override_backend=override_backend, **args)
+        elif global_settings.backend == 'pytorch':
+            obj_rot = w.pad(obj_rot, pad_arr.tolist(), mode='edge', override_backend=override_backend, **args)
+    obj_rot = w.permute_axes(obj_rot, [2, 3, 0, 1])
+    return obj_rot, pad_arr
+
+
 def calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta'):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
@@ -1905,21 +1923,22 @@ def output_object(obj, distribution_mode, output_folder, unknown_type='delta_bet
             dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32', overwrite=True)
 
 
-def output_probe(probe_real, probe_imag, output_folder,
-                  full_output=True, ds_level=1, i_epoch=0, i_batch=0, save_history=True):
+def output_probe(probe_real, probe_imag, output_folder, full_output=True, ds_level=1,
+                 i_epoch=0, i_batch=0, save_history=True, custom_name=None):
 
     probe_real = w.to_numpy(probe_real)
     probe_imag = w.to_numpy(probe_imag)
+    prefix = 'probe' if custom_name is None else custom_name
     if full_output:
-        fname0 = 'probe_mag_ds_{}'.format(ds_level)
-        fname1 = 'probe_phase_ds_{}'.format(ds_level)
+        fname0 = '{}_mag_ds_{}'.format(prefix, ds_level)
+        fname1 = '{}_phase_ds_{}'.format(prefix, ds_level)
     else:
         if save_history:
-            fname0 = 'probe_mag_{}_{}'.format(i_epoch, i_batch)
-            fname1 = 'probe_phase_{}_{}'.format(i_epoch, i_batch)
+            fname0 = '{}_mag_{}_{}'.format(prefix, i_epoch, i_batch)
+            fname1 = '{}_phase_{}_{}'.format(prefix, i_epoch, i_batch)
         else:
-            fname0 = 'probe_mag'.format(i_epoch, i_batch)
-            fname1 = 'probe_phase'.format(i_epoch, i_batch)
+            fname0 = '{}_mag'.format(prefix, i_epoch, i_batch)
+            fname1 = '{}_phase'.format(prefix, i_epoch, i_batch)
     dxchange.write_tiff(np.sqrt(probe_real ** 2 + probe_imag ** 2),
                         fname=os.path.join(output_folder, fname0), dtype='float32', overwrite=True)
     dxchange.write_tiff(np.arctan2(probe_imag, probe_real),

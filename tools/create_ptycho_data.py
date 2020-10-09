@@ -56,10 +56,10 @@ params_adhesin_2 = {'fname': 'data_adhesin_64_1nm_1um_2.h5',
                   'probe_size': (72, 72),
                   'energy_ev': 800,
                   'psize_cm': 0.67e-7,
-                  'phantom_path': 'adhesin/phantom',
+                  'phantom_path': '../demos/adhesin/phantom',
                   'minibatch_size': 23,
                   'cpu_only': True,
-                  'save_path': 'adhesin_ptycho_2',
+                  'save_path': '../demos/adhesin_ptycho_2',
                   'probe_initial': None,
                   'fresnel_approx': True,
                   'probe_type': 'gaussian',
@@ -211,8 +211,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 # params = params_adhesin_2_noisy_pos
 # params = params_cameraman_noisy_pos
 # params = params_cone_ff
-# params = params_adhesin_2
+params = params_adhesin_2
 # params = params_cone_marc
-params = params_adhesin_ff
+# params = params_adhesin_ff
 
 simulate_ptychography(**params)
