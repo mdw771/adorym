@@ -166,7 +166,8 @@ def reconstruct_ptychography(
 
 
     class PhaseRetrievalSubproblem(Subproblem):
-        def __init__(self, whole_object_size, theta_ls, rho=1., theta_downsample=None, optimizer=None, device=None):
+        def __init__(self, whole_object_size, theta_ls, rho=1., theta_downsample=None, optimizer=None, device=None,
+                     minibatch_size=23, optimize_probe=False, probe_optimizer=None, common_probe=True):
             """
             Phase retrieval subproblem solver.
 
@@ -174,6 +175,11 @@ def reconstruct_ptychography(
             :param theta_ls: List of rotation angles in radians.
             :param device: Device object.
             :param rho: Weight of Lagrangian term.
+            :param optimizer: adorym.Optimizer object for object function.
+            :param probe_optimizer: adorym.Optimizer object for probe functions.
+            :param common_probe: Whether to use the same exiting plane probe for all positions. Due to object-probe
+                                 coupling, allowing different probes for different positions is more physically
+                                 accurate for strongly scattering objects, but requires more memory.
             """
             super(PhaseRetrievalSubproblem, self).__init__(device)
             self.whole_object_size = whole_object_size
@@ -182,6 +188,10 @@ def reconstruct_ptychography(
             self.theta_downsample = theta_downsample
             self.rho = rho
             self.optimizer = optimizer
+            self.optimize_probe = optimize_probe
+            self.probe_optimizer = probe_optimizer
+            self.common_probe = common_probe
+            self.minibatch_size = minibatch_size
 
         def initialize(self, probe_init, prj, probe_pos=None, n_pos_ls=None, probe_pos_ls=None):
             """
@@ -196,10 +206,18 @@ def reconstruct_ptychography(
             :param probe_pos_ls: List of probe position lists for all angles. If probe positions are common for all
                                  angles, put None.
             """
+            self.probe_pos = probe_pos
+            self.n_pos_ls = n_pos_ls
+            self.probe_pos_ls = probe_pos_ls
+            if probe_pos is not None:
+                self.n_pos_ls = [len(probe_pos)] * self.n_theta
             self.psi_theta_ls = []
+            if not self.common_probe:
+                self.probe_real_ls = [[None] * self.n_pos_ls[i] for i in range(self.n_theta)]
+                self.probe_imag_ls = [[None] * self.n_pos_ls[i] for i in range(self.n_theta)]
             for i, theta in enumerate(self.theta_ls):
                 psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
-                                                              random_guess_means_sigmas=(1, 0, 1e-7, 1e-8),
+                                                              random_guess_means_sigmas=(1, 0, 0, 0),
                                                               verbose=False)
                 psi_real = psi_real[:, :, 0]
                 psi_imag = psi_imag[:, :, 0]
@@ -211,11 +229,14 @@ def reconstruct_ptychography(
             self.probe_size = probe_init[0].shape[1:]
             self.n_probe_modes = probe_init[0].shape[0]
             self.prj = prj
-            self.probe_pos = probe_pos
-            self.n_pos_ls = n_pos_ls
-            self.probe_pos_ls = probe_pos_ls
             self.optimizer.create_param_arrays(self.psi_theta_ls[0].shape, device=self.device)
             self.optimizer.set_index_in_grad_return(0)
+            if self.optimize_probe:
+                if self.common_probe:
+                    self.probe_optimizer.create_param_arrays([1, *self.probe_real.shape, 2], device=self.device)
+                else:
+                    self.probe_optimizer.create_param_arrays([self.minibatch_size, *self.probe_real.shape, 2], device=self.device)
+                self.probe_optimizer.set_index_in_grad_return(0)
 
         def correction_shift(self, patch_ls, probe_pos_correction):
             patch_ls_new = []
@@ -228,19 +249,31 @@ def reconstruct_ptychography(
 
         def forward(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                      probe_pos_correction, this_ind_batch):
+            """
+            Calculate diffraction pattern of patches in a minibatch.
+
+            :param: patches: A stack of psi patches in [n_batch, y, x, 2].
+            :param: probe_real: Real part of probe. If common_probe == True, this should be in shape [n_modes, y, x].
+                                Otherwise, it should be in [n_batch, n_modes, y, x].
+            :return: A list of diffraction magnitudes, a stack of real/imaginary far-field wavefield in
+                     [n_batch, n_modes, y, x].
+            """
             # Shift object function (instead of probe as in the 3D case of Adorym, so use negative pos_correction).
             pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
             patches = self.correction_shift(patches, -pos_correction_batch)
             ex_int = w.zeros([len(patches), *self.probe_size], requires_grad=False, device=self.device)
-            det_real_mode_ls = []
-            det_imag_mode_ls = []
+            det_real_mode_ls = w.zeros([len(patches), self.n_probe_modes, *self.probe_size],
+                                       requires_grad=False, device=self.device)
+            det_imag_mode_ls = w.zeros([len(patches), self.n_probe_modes, *self.probe_size],
+                                       requires_grad=False, device=self.device)
             for i_mode in range(self.n_probe_modes):
-                this_probe_real = probe_real[i_mode, :, :]
-                this_probe_imag = probe_imag[i_mode, :, :]
-                wave_real, wave_imag = w.complex_mul(patches[:, :, :, 0], patches[:, :, :, 1], this_probe_real, this_probe_imag)
+                slicer = [slice(None)] * (len(probe_real.shape) - 3) + [i_mode, slice(None), slice(None)]
+                this_probe_mode_real = probe_real[slicer]
+                this_probe_mode_imag = probe_imag[slicer]
+                wave_real, wave_imag = w.complex_mul(patches[:, :, :, 0], patches[:, :, :, 1], this_probe_mode_real, this_probe_mode_imag)
                 wave_real, wave_imag = w.fft2_and_shift(wave_real, wave_imag, axes=(1, 2))
-                det_real_mode_ls.append(wave_real)
-                det_imag_mode_ls.append(wave_imag)
+                det_real_mode_ls[:, i_mode, :, :] = wave_real
+                det_imag_mode_ls[:, i_mode, :, :] = wave_imag
                 ex_int = ex_int + wave_real ** 2 + wave_imag ** 2
             y_pred_ls = w.sqrt(ex_int)
             return y_pred_ls, det_real_mode_ls, det_imag_mode_ls
@@ -266,6 +299,9 @@ def reconstruct_ptychography(
             """
             Calculate gradient of patches in a minibatch.
 
+            :param: patches: A stack of psi patches in [n_batch, y, x, 2].
+            :param: probe_real: Real part of probe. If common_probe == True, this should be in shape [n_modes, y, x].
+                                Otherwise, it should be in [n_batch, n_modes, y, x].
             :return: A stack of 2D gradients.
             """
             y_pred_ls, y_real_mode_ls, y_imag_mode_ls = \
@@ -273,32 +309,43 @@ def reconstruct_ptychography(
                              probe_pos_correction, this_ind_batch)
             y_ls = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample)
             g = (y_pred_ls - y_ls)
-            g_real, g_imag = g * y_real_mode_ls[0] / (y_pred_ls + epsilon), g * y_imag_mode_ls[0] / (y_pred_ls + epsilon)
+            # TODO: implement multimode
+            g_real, g_imag = g * y_real_mode_ls[:, 0, :, :] / (y_pred_ls + epsilon), \
+                             g * y_imag_mode_ls[:, 0, :, :] / (y_pred_ls + epsilon)
             g_real, g_imag = w.ishift_and_ifft2(g_real, g_imag)
             pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
             g = self.correction_shift(w.stack([g_real, g_imag], axis=-1), pos_correction_batch)
             g_real, g_imag = w.split_channel(g)
             patches_real, patches_imag = w.split_channel(patches)
+            # [n_batch, y, x]
 
             #TODO: implement multimode
-            g_psi_real, g_psi_imag = w.complex_mul(g_real, g_imag, probe_real[0], -probe_imag[0])
+            slicer = [slice(None)] * (len(probe_real.shape) - 3) + [0, slice(None), slice(None)]
+            g_psi_real, g_psi_imag = w.complex_mul(g_real, g_imag, probe_real[slicer], -probe_imag[slicer])
             g_p_real, g_p_imag = w.complex_mul(g_real, g_imag, patches_real, -patches_imag)
+            if self.common_probe:
+                g_p_real = w.mean(g_p_real, axis=0)
+                g_p_imag = w.mean(g_p_imag, axis=0)
+                g_p_real = w.reshape(g_p_real, [1, *self.probe_size])
+                g_p_imag = w.reshape(g_p_imag, [1, *self.probe_size])
+            else:
+                g_p_real = w.reshape(g_p_real, [g_p_real.shape[0], 1, *self.probe_size])
+                g_p_imag = w.reshape(g_p_imag, [g_p_imag.shape[0], 1, *self.probe_size])
             return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag)
 
         def get_part2_grad(self, this_i_theta):
             return self.rho * (self.psi_theta_ls[this_i_theta] - self.w_theta_ls[this_i_theta] +
                                self.lambda1_theta_ls[this_i_theta] / self.rho)
 
-        def solve(self, n_iterations=5, minibatch_size=23, randomize_probe_pos=False):
+        def solve(self, n_iterations=5, randomize_probe_pos=False):
             """Solve subproblem.
 
             :param n_iterations: Int. Number of inner iterations.
-            :param minibatch_size: Int. Number of diffraction patterns per batch.
             """
             self.lambda1_theta_ls = self.next_sp.lambda1_theta_ls
             self.w_theta_ls = self.next_sp.w_theta_ls
             grad_psi = w.zeros_like(self.psi_theta_ls[0], requires_grad=False, device=self.device)
-            common_probe_pos = True if self.n_pos_ls is None else False
+            common_probe_pos = True if self.probe_pos_ls is None else False
             if common_probe_pos:
                 probe_pos_int = np.round(self.probe_pos).astype(int)
                 probe_pos_correction = w.create_variable(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
@@ -310,7 +357,7 @@ def reconstruct_ptychography(
                 for j, (probe_pos, probe_pos_int) in enumerate(zip(self.probe_pos_ls, probe_pos_int_ls)):
                     probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
                 probe_pos_correction = w.create_variable(probe_pos_correction, device=self.device)
-            n_tot_per_batch = minibatch_size * n_ranks
+            n_tot_per_batch = self.minibatch_size * n_ranks
             for i_iteration in range(n_iterations):
                 theta_ind_ls = np.arange(self.n_theta)
                 np.random.shuffle(theta_ind_ls)
@@ -329,11 +376,10 @@ def reconstruct_ptychography(
                     # When using shared file object, we must also ensure that all ranks deal with data at the
                     # same angle at a time.
                     # ================================================================================
-                    if n_pos % minibatch_size != 0:
-                        spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % minibatch_size],
-                                                                        minibatch_size - (n_pos % minibatch_size),
+                    if n_pos % self.minibatch_size != 0:
+                        spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % self.minibatch_size],
+                                                                        self.minibatch_size - (n_pos % self.minibatch_size),
                                                                         replace=False))
-
                     # ================================================================================
                     # Create task list for the current angle.
                     # ind_list_rand is in the format of [((5, 0), (5, 1), ...), ((17, 0), (17, 1), ..., (...))]
@@ -380,16 +426,31 @@ def reconstruct_ptychography(
                         ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
 
                     this_ind_batch_allranks = ind_list_rand[i_batch]
-                    this_i_theta = this_ind_batch_allranks[rank * minibatch_size, 0]
-                    this_ind_batch = np.sort(this_ind_batch_allranks[rank * minibatch_size:(rank + 1) * minibatch_size, 1])
+                    this_i_theta = this_ind_batch_allranks[rank * self.minibatch_size, 0]
+                    this_ind_batch = np.sort(this_ind_batch_allranks[rank * self.minibatch_size:(rank + 1) * self.minibatch_size, 1])
                     probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
                     this_pos_batch = probe_pos_int[this_ind_batch]
                     is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                     comm.Barrier()
 
+                    if not self.common_probe:
+                        this_probe_real = []
+                        this_probe_imag = []
+                        for ind in this_ind_batch:
+                            if self.probe_real_ls[this_i_theta][ind] is not None:
+                                this_probe_real.append(self.probe_real_ls[this_i_theta][ind])
+                                this_probe_imag.append(self.probe_imag_ls[this_i_theta][ind])
+                            else:
+                                this_probe_real.append(self.probe_real)
+                                this_probe_imag.append(self.probe_imag)
+                        this_probe_real = w.stack(this_probe_real)
+                        this_probe_imag = w.stack(this_probe_imag)
+                    else:
+                        this_probe_real = self.probe_real
+                        this_probe_imag = self.probe_imag
                     patch_ls = self.get_patches(self.psi_theta_ls[this_i_theta], this_pos_batch)
-                    (grad_psi_patch_real_ls, grad_psi_patch_imag_ls), (grad_p_real_ls, grad_p_imag_ls) = \
-                        self.get_part1_grad(patch_ls, self.probe_real, self.probe_imag, this_i_theta, this_pos_batch,
+                    (grad_psi_patch_real_ls, grad_psi_patch_imag_ls), (grad_p_real, grad_p_imag) = \
+                        self.get_part1_grad(patch_ls, this_probe_real, this_probe_imag, this_i_theta, this_pos_batch,
                                             probe_pos_correction, this_ind_batch)
                     grad_psi_patch_ls = w.stack([grad_psi_patch_real_ls, grad_psi_patch_imag_ls], axis=-1)
                     grad_psi[...] = 0
@@ -405,15 +466,26 @@ def reconstruct_ptychography(
                                                                                grad_psi,
                                                                                i_batch + n_batch * i_iteration,
                                                                                **self.optimizer.options_dict)
-                    # TODO: update probe
+                    # TODO: multimode probe
+                    if self.optimize_probe:
+                        p = w.stack([this_probe_real, this_probe_imag], axis=-1)
+                        grad_p = w.stack([grad_p_real, grad_p_imag], axis=-1)
+                        p = self.probe_optimizer.apply_gradient(p, grad_p, i_batch + n_batch * i_iteration,
+                                                                **self.optimizer.options_dict)
+                        if self.common_probe:
+                            self.probe_real, self.probe_imag = w.split_channel(p[0])
+                        else:
+                            pr, pi = w.split_channel(p)
+                            for i, ind in enumerate(this_ind_batch):
+                                self.probe_real_ls[this_i_theta][ind] = pr[i]
+                                self.probe_imag_ls[this_i_theta][ind] = pi[i]
 
                     if is_last_batch_of_this_theta:
                         # Calculate gradient of the second term of the loss upon finishing each angle.
                         self.grad_psi = self.get_part2_grad(this_i_theta)
-                        a = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta],
-                                                                                   self.grad_psi,
-                                                                                   i_batch + n_batch * i_iteration,
-                                                                                   **self.optimizer.options_dict)
+                        a = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta], self.grad_psi,
+                                                          i_batch + n_batch * i_iteration,
+                                                          **self.optimizer.options_dict)
                         self.psi_theta_ls[this_i_theta] = a
 
         def get_patches(self, psi, this_pos_batch_int):
@@ -642,14 +714,16 @@ def reconstruct_ptychography(
                     lambda3_ls = w.reshape(lambda3_theta_ls[i_theta], [1, *lambda3_theta_ls[i_theta].shape])
                     theta = self.theta_ls[i_theta]
                     grad_u = self.get_grad(u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, self.energy_ev, self.psize_cm)
-                    # if i_theta == 0:
+                    # if i_theta == 6 and i_iteration == 0:
                     #     import matplotlib.pyplot as plt
                     #     fig, axes = plt.subplots(1, 4)
                     #     axes[0].imshow(grad_u[0, :, :, 0, 0])
                     #     axes[1].imshow(grad_u[0, :, :, 32, 0])
                     #     axes[2].imshow(grad_u[0, :, :, 63, 0])
-                    #     axes[3].imshow(grad_u[0, 23, :, :, 0])
-                    #     plt.show()
+                    #     a = axes[3].imshow(grad_u[0, 23, :, :, 0])
+                    #     plt.colorbar(a)
+                    #     plt.savefig(os.path.join(output_folder, 'intermediate', 'bp_grad', 'bp_grad_{}_{}.png'.format(i_epoch, i_theta)), format='png')
+                    # # plt.show()
                     self.u_theta_ls[i_theta] = self.optimizer.apply_gradient(self.u_theta_ls[i_theta], grad_u,
                                                                              i_iteration,
                                                                              **self.optimizer.options_dict)
@@ -982,24 +1056,32 @@ def reconstruct_ptychography(
         probe_real = comm.bcast(probe_real, root=0)
         probe_imag = comm.bcast(probe_imag, root=0)
 
+        # Forward propagate probe to exiting plane.
+        voxel_nm = np.array([psize_cm] * 3) * 1.e7
+        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, psize_cm * this_obj_size[2] * 1e7,
+                                                   lmbda_nm, voxel_nm, override_backend='autograd')
+
         # ================================================================================
         # Declare and initialize subproblems.
         # ================================================================================
-        optimizer = adorym.GDOptimizer('pr', options_dict={'learning_rate': 1e-3})
+        optimizer = adorym.GDOptimizer('pr', options_dict={'learning_rate': 1e-1})
+        optimizer_probe = adorym.GDOptimizer('probe', options_dict={'learning_rate': 1e-2})
         sp_phr = PhaseRetrievalSubproblem(obj_size, theta_ls, theta_downsample=theta_downsample,
-                                          rho=0.25, optimizer=optimizer, device=device_obj)
+                                          rho=0.25, optimizer=optimizer, device=device_obj,
+                                          common_probe=False, minibatch_size=minibatch_size,
+                                          optimize_probe=True, probe_optimizer=optimizer_probe)
         sp_phr.initialize([probe_real, probe_imag], prj, probe_pos=probe_pos)
 
-        optimizer = adorym.GDOptimizer('align', options_dict={'learning_rate': 1e-1})
+        optimizer = adorym.GDOptimizer('align', options_dict={'learning_rate': 1e-2})
         sp_aln = AlignmentSubproblem(obj_size, theta_ls, rho=0.25, optimizer=optimizer, device=device_obj)
         sp_aln.initialize()
 
-        optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-1})
+        optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-2})
         sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=1, energy_ev=energy_ev, psize_cm=psize_cm,
                                    rho=0.25, optimizer=optimizer, device=device_obj)
         sp_bkp.initialize()
 
-        optimizer = adorym.GDOptimizer('tomo', options_dict={'learning_rate': 1e-1})
+        optimizer = adorym.GDOptimizer('tomo', options_dict={'learning_rate': 1e-2})
         sp_tmo = TomographySubproblem(obj_size, theta_ls, rho=0.25, optimizer=optimizer, device=device_obj)
         sp_tmo.initialize()
 
@@ -1023,8 +1105,20 @@ def reconstruct_ptychography(
             #     psi = np.stack([img[0].real, img[0].imag], axis=-1)
             #     psi_ls.append(psi)
             # sp_phr.psi_theta_ls = w.create_variable(np.stack(psi_ls), requires_grad=False)
+            ###
+            # psi_mag_ls = []
+            # psi_phase_ls = []
+            # for i in range(50):
+            #     psi_mag_ls.append(dxchange.read_tiff(os.path.join(output_folder, 'intermediate', 'ptycho',
+            #                                                       'psi_{}_mag_65_0.tiff'.format(i))))
+            #     psi_phase_ls.append(dxchange.read_tiff(os.path.join(output_folder, 'intermediate', 'ptycho',
+            #                                                       'psi_{}_phase_65_0.tiff'.format(i))))
+            # psi_mag_ls = np.stack(psi_mag_ls)
+            # psi_phase_ls = np.stack(psi_phase_ls)
+            # psi_real_ls, psi_imag_ls = mag_phase_to_real_imag(psi_mag_ls, psi_phase_ls)
+            # sp_phr.psi_theta_ls = w.create_variable(np.stack([psi_real_ls, psi_imag_ls], axis=-1), requires_grad=False)
 
-            sp_phr.solve(n_iterations=5, minibatch_size=minibatch_size)
+            sp_phr.solve(n_iterations=5)
             print_flush('PHR done in {} s.'.format(time.time() - t00), sto_rank, rank)
             t00 = time.time()
             # import matplotlib.pyplot as plt
