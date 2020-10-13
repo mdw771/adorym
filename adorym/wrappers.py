@@ -707,6 +707,14 @@ def tile(var, cp, override_backend=None):
         return var.repeat(*cp)
 
 
+def repeat(var, cp, axis=None, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        return anp.repeat(var, cp, axis=axis)
+    elif bn == 'pytorch':
+        return tc.repeat_interleave(var, cp, dim=axis)
+
+
 def flip(var, axis=[0], override_backend=None):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':

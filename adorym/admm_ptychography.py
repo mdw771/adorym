@@ -304,33 +304,47 @@ def reconstruct_ptychography(
                                 Otherwise, it should be in [n_batch, n_modes, y, x].
             :return: A stack of 2D gradients.
             """
+            # y_pred_ls is in [n_batch, y, x];
+            # y_real/imag_mode_ls is in [n_batch, n_modes, y, x].
             y_pred_ls, y_real_mode_ls, y_imag_mode_ls = \
                 self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                              probe_pos_correction, this_ind_batch)
             y_ls = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample)
             g = (y_pred_ls - y_ls)
-            # TODO: implement multimode
-            g_real, g_imag = g * y_real_mode_ls[:, 0, :, :] / (y_pred_ls + epsilon), \
-                             g * y_imag_mode_ls[:, 0, :, :] / (y_pred_ls + epsilon)
-            g_real, g_imag = w.ishift_and_ifft2(g_real, g_imag)
-            pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
-            g = self.correction_shift(w.stack([g_real, g_imag], axis=-1), pos_correction_batch)
-            g_real, g_imag = w.split_channel(g)
-            patches_real, patches_imag = w.split_channel(patches)
-            # [n_batch, y, x]
 
-            #TODO: implement multimode
-            slicer = [slice(None)] * (len(probe_real.shape) - 3) + [0, slice(None), slice(None)]
-            g_psi_real, g_psi_imag = w.complex_mul(g_real, g_imag, probe_real[slicer], -probe_imag[slicer])
-            g_p_real, g_p_imag = w.complex_mul(g_real, g_imag, patches_real, -patches_imag)
-            if self.common_probe:
-                g_p_real = w.mean(g_p_real, axis=0)
-                g_p_imag = w.mean(g_p_imag, axis=0)
-                g_p_real = w.reshape(g_p_real, [1, *self.probe_size])
-                g_p_imag = w.reshape(g_p_imag, [1, *self.probe_size])
-            else:
-                g_p_real = w.reshape(g_p_real, [g_p_real.shape[0], 1, *self.probe_size])
-                g_p_imag = w.reshape(g_p_imag, [g_p_imag.shape[0], 1, *self.probe_size])
+            g_psi_real = w.zeros(patches.shape[:-1], requires_grad=False, device=self.device)
+            g_psi_imag = w.zeros(patches.shape[:-1], requires_grad=False, device=self.device)
+            # g_p_real/imag[slicer] is in either [n_modes, y, x] or [n_batch, n_modes, y, x];
+            g_p_real = w.zeros(probe_real.shape, requires_grad=False, device=self.device)
+            g_p_imag = w.zeros(probe_imag.shape, requires_grad=False, device=self.device)
+            # patches_real/imag is in [n_batch, y, x].
+            patches_real, patches_imag = w.split_channel(patches)
+
+            for i_mode in range(self.n_probe_modes):
+                # g_real/imag is in [n_batch, y, x].
+                g_real, g_imag = g * y_real_mode_ls[:, i_mode, :, :] / (y_pred_ls + epsilon), \
+                                 g * y_imag_mode_ls[:, i_mode, :, :] / (y_pred_ls + epsilon)
+                g_real, g_imag = w.ishift_and_ifft2(g_real, g_imag)
+                pos_correction_batch = probe_pos_correction[this_i_theta, this_ind_batch]
+                g = self.correction_shift(w.stack([g_real, g_imag], axis=-1), pos_correction_batch)
+
+                g_real, g_imag = w.split_channel(g)
+                # g_p_m_real/imag is in [n_batch, y, x].
+                g_p_m_real, g_p_m_imag = w.complex_mul(g_real, g_imag, patches_real, -patches_imag)
+                if len(probe_real) == 4:
+                    g_p_real[:, i_mode, :, :] = g_p_m_real
+                    g_p_imag[:, i_mode, :, :] = g_p_m_imag
+                else:
+                    g_p_real[i_mode, :, :] = w.mean(g_p_m_real, axis=0)
+                    g_p_imag[i_mode, :, :] = w.mean(g_p_m_imag, axis=0)
+
+                slicer = [slice(None)] * (len(probe_real.shape) - 3) + [i_mode, slice(None), slice(None)]
+                # probe_real/imag[slicer] is in either [y, x] or [n_batch, y, x];
+                # g_psi_m_real/imag is always in [n_batch, y, x].
+                g_psi_m_real, g_psi_m_imag = w.complex_mul(g_real, g_imag, probe_real[slicer], -probe_imag[slicer])
+                g_psi_real = g_psi_real + g_psi_m_real
+                g_psi_imag = g_psi_imag + g_psi_m_imag
+
             return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag)
 
         def get_part2_grad(self, this_i_theta):
@@ -466,14 +480,13 @@ def reconstruct_ptychography(
                                                                                grad_psi,
                                                                                i_batch + n_batch * i_iteration,
                                                                                **self.optimizer.options_dict)
-                    # TODO: multimode probe
                     if self.optimize_probe:
                         p = w.stack([this_probe_real, this_probe_imag], axis=-1)
                         grad_p = w.stack([grad_p_real, grad_p_imag], axis=-1)
                         p = self.probe_optimizer.apply_gradient(p, grad_p, i_batch + n_batch * i_iteration,
                                                                 **self.optimizer.options_dict)
                         if self.common_probe:
-                            self.probe_real, self.probe_imag = w.split_channel(p[0])
+                            self.probe_real, self.probe_imag = w.split_channel(p)
                         else:
                             pr, pi = w.split_channel(p)
                             for i, ind in enumerate(this_ind_batch):
@@ -659,6 +672,7 @@ def reconstruct_ptychography(
             lmbda_nm = 1240. / energy_ev
             delta_nm = psize_cm * 1e7
             k = 2. * PI * delta_nm / lmbda_nm
+            n_slices = u_ls.shape[-2]
 
             # Forward pass, store psi'.
             exit_real, exit_imag, psi_forward_real_ls, psi_forward_imag_ls = \
@@ -682,8 +696,22 @@ def reconstruct_ptychography(
             grad_real, grad_imag = w.complex_mul(psi_backward_real_ls, psi_backward_imag_ls,
                                                  psi_forward_real_ls, -psi_forward_imag_ls)
             if self.binning > 1:
-                grad_real = w.tile(grad_real, [1, 1, 1, self.binning])
-                grad_imag = w.tile(grad_imag, [1, 1, 1, self.binning])
+                grad_real = w.repeat(grad_real, self.binning, axis=3)
+                grad_imag = w.repeat(grad_imag, self.binning, axis=3)
+                if grad_real.shape[-1] > n_slices:
+                    grad_real = grad_real[:, :, :, :n_slices]
+                    grad_imag = grad_imag[:, :, :, :n_slices]
+
+            # import matplotlib.pyplot as plt
+            # fig, axes = plt.subplots(1, 4)
+            # axes[0].imshow(grad_real[0, :, :, 0])
+            # axes[1].imshow(grad_real[0, :, :, 32])
+            # axes[2].imshow(grad_real[0, :, :, 63])
+            # a = axes[3].imshow(grad_real[0, 23, :, :])
+            # # plt.colorbar(a)
+            # # plt.savefig(os.path.join(output_folder, 'intermediate', 'bp_grad', 'bp_grad_{}_{}.png'.format(i_epoch, i_theta)), format='png')
+            # plt.show()
+
 
             # Calculate first term of dL / d(delta/beta).
             expu_herm_real, expu_herm_imag = w.exp_complex(-k * u_ls[:, :, :, :, 1], k * u_ls[:, :, :, :, 0])
@@ -722,8 +750,8 @@ def reconstruct_ptychography(
                     #     axes[2].imshow(grad_u[0, :, :, 63, 0])
                     #     a = axes[3].imshow(grad_u[0, 23, :, :, 0])
                     #     plt.colorbar(a)
-                    #     plt.savefig(os.path.join(output_folder, 'intermediate', 'bp_grad', 'bp_grad_{}_{}.png'.format(i_epoch, i_theta)), format='png')
-                    # # plt.show()
+                    #     # plt.savefig(os.path.join(output_folder, 'intermediate', 'bp_grad', 'bp_grad_{}_{}.png'.format(i_epoch, i_theta)), format='png')
+                    #     plt.show()
                     self.u_theta_ls[i_theta] = self.optimizer.apply_gradient(self.u_theta_ls[i_theta], grad_u,
                                                                              i_iteration,
                                                                              **self.optimizer.options_dict)
@@ -1077,7 +1105,7 @@ def reconstruct_ptychography(
         sp_aln.initialize()
 
         optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-2})
-        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=1, energy_ev=energy_ev, psize_cm=psize_cm,
+        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=8, energy_ev=energy_ev, psize_cm=psize_cm,
                                    rho=0.25, optimizer=optimizer, device=device_obj)
         sp_bkp.initialize()
 
@@ -1118,7 +1146,7 @@ def reconstruct_ptychography(
             # psi_real_ls, psi_imag_ls = mag_phase_to_real_imag(psi_mag_ls, psi_phase_ls)
             # sp_phr.psi_theta_ls = w.create_variable(np.stack([psi_real_ls, psi_imag_ls], axis=-1), requires_grad=False)
 
-            sp_phr.solve(n_iterations=5)
+            sp_phr.solve(n_iterations=3)
             print_flush('PHR done in {} s.'.format(time.time() - t00), sto_rank, rank)
             t00 = time.time()
             # import matplotlib.pyplot as plt
