@@ -145,9 +145,9 @@ try:
                         'probe_size': (72, 72),
                         'energy_ev': 5000,
                         'psize_cm': 1.e-7,
-                        'phantom_path': 'cone_256_foam_ptycho/phantom',
+                        'phantom_path': '/home/beams/B282788/Data/programs/adorym_tests/cone_256_foam_ptycho/phantom',
                         'minibatch_size': 1,
-                        'save_path': 'cone_256_foam_ptycho',
+                        'save_path': '../demos/cone_256_foam_ptycho',
                         'initial_guess': None,
                         'probe_type': 'gaussian',
                         'forward_algorithm': 'fresnel',
@@ -165,19 +165,19 @@ try:
                       'theta_st': 0,
                       'theta_end': 0,
                       'n_theta': 1,
-                      'theta_downsample': None,
+                      'theta_downsample': 100,
                       'obj_size': (256, 256, 256),
                       'probe_size': (256, 256),
                       'energy_ev': 5000,
                       'psize_cm': 1.e-7,
-                      'phantom_path': 'cone_256_foam/phantom',
+                      'phantom_path': '/home/beams/B282788/Data/programs/adorym_tests/cone_256_foam/phantom',
                       'minibatch_size': 1,
-                      'save_path': 'cone_256_foam',
+                      'save_path': '../demos/cone_256_foam',
                       'initial_guess': None,
                       'probe_type': 'plane',
                       'forward_algorithm': 'fresnel',
                       'probe_pos': [(0, 0)],
-                      'free_prop_cm': 1e-4
+                      'free_prop_cm': None
                         }
 except: pass
 
@@ -210,8 +210,8 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 # params = params_2d_cell
 # params = params_adhesin_2_noisy_pos
 # params = params_cameraman_noisy_pos
-# params = params_cone_ff
-params = params_adhesin_2
+params = params_cone_ff
+# params = params_adhesin_2
 # params = params_cone_marc
 # params = params_adhesin_ff
 
