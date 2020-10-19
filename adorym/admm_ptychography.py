@@ -42,6 +42,7 @@ def reconstruct_ptychography(
         # Either pre-declare all regularizers and pass them as a list, or specify values of alpha and gamma
         regularizers=None,
         alpha_d=None, alpha_b=None, gamma=1e-6,
+        rho_aln=1, rho_bkp=1, rho_tmo=1,
         minibatch_size=None, multiscale_level=1, n_epoch_final_pass=None,
         initial_guess=None,
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
@@ -120,6 +121,11 @@ def reconstruct_ptychography(
         # |Other optimizer options|_____________________________________________
         optimize_probe=False, probe_learning_rate=1e-5, optimizer_probe=None,
         probe_update_delay=0, probe_update_limit=None,
+        optimizer_phr=None,
+        optimizer_phr_probe=None,
+        optimizer_aln=None,
+        optimizer_bkp=None,
+        optimizer_tmo=None,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
         optimize_prj_pos_offset=False, probe_prj_offset_learning_rate=1e-2, optimizer_prj_pos_offset=None,
@@ -234,13 +240,14 @@ def reconstruct_ptychography(
             self.probe_size = probe_init[0].shape[1:]
             self.n_probe_modes = probe_init[0].shape[0]
             self.prj = prj
-            self.optimizer.create_param_arrays(self.psi_theta_ls[0].shape, device=self.device)
+            self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=self.device)
             self.optimizer.set_index_in_grad_return(0)
             if self.optimize_probe:
                 if self.common_probe:
-                    self.probe_optimizer.create_param_arrays([1, *self.probe_real.shape, 2], device=self.device)
+                    self.probe_optimizer.create_param_arrays([*self.probe_real.shape, 2], device=self.device)
                 else:
-                    self.probe_optimizer.create_param_arrays([self.minibatch_size, *self.probe_real.shape, 2], device=self.device)
+                    self.probe_optimizer.create_param_arrays([n_theta, max(self.n_pos_ls), *self.probe_real.shape, 2],
+                                                             device=self.device)
                 self.probe_optimizer.set_index_in_grad_return(0)
 
         def correction_shift(self, patch_ls, probe_pos_correction):
@@ -353,12 +360,10 @@ def reconstruct_ptychography(
 
             return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag), this_loss
 
-        def get_part2_grad(self, this_i_theta):
-            w_theta_ls = self.next_sp.w_theta_ls
-            grad = self.rho * (self.psi_theta_ls[this_i_theta] - w_theta_ls[this_i_theta] +
-                               self.lambda1_theta_ls[this_i_theta] / self.rho)
+        def get_part2_grad(self, psi_ls, w_ls, lambda1_ls):
+            grad = self.next_sp.rho * (psi_ls - w_ls + lambda1_ls / self.next_sp.rho)
             l_real, l_imag = w.split_channel(grad)
-            this_loss = w.mean(l_real ** 2 + l_imag ** 2) / self.rho
+            this_loss = w.mean(l_real ** 2 + l_imag ** 2) / self.next_sp.rho
             return grad, this_loss
 
         def solve(self, n_iterations=5, randomize_probe_pos=False):
@@ -368,7 +373,8 @@ def reconstruct_ptychography(
             """
             self.last_iter_part1_loss = 0
             self.last_iter_part2_loss = 0
-            self.lambda1_theta_ls = self.next_sp.lambda1_theta_ls
+            lambda1_theta_ls = self.next_sp.lambda1_theta_ls
+            w_theta_ls = self.next_sp.w_theta_ls
             grad_psi = w.zeros_like(self.psi_theta_ls[0], requires_grad=False, device=self.device)
             common_probe_pos = True if self.probe_pos_ls is None else False
             if common_probe_pos:
@@ -481,8 +487,9 @@ def reconstruct_ptychography(
                     grad_psi[...] = 0
                     grad_psi = self.replace_grad_patches(grad_psi_patch_ls, grad_psi, this_pos_batch, initialize=True)
                     self.psi_theta_ls[this_i_theta] = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta],
-                                                                               grad_psi,
+                                                                               w.cast(grad_psi, 'float32'),
                                                                                i_batch + n_batch * i_iteration,
+                                                                               params_slicer=[this_i_theta],
                                                                                **self.optimizer.options_dict)
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
@@ -490,7 +497,12 @@ def reconstruct_ptychography(
                     if self.optimize_probe and self.total_iter > self.probe_update_delay:
                         p = w.stack([this_probe_real, this_probe_imag], axis=-1)
                         grad_p = w.stack([grad_p_real, grad_p_imag], axis=-1)
-                        p = self.probe_optimizer.apply_gradient(p, grad_p, i_batch + n_batch * i_iteration,
+                        if self.common_probe:
+                            params_slicer = [slice(None)]
+                        else:
+                            params_slicer = [this_i_theta, this_ind_batch]
+                        p = self.probe_optimizer.apply_gradient(p, w.cast(grad_p, 'float32'), i_batch + n_batch * i_iteration,
+                                                                params_slicer=params_slicer,
                                                                 **self.optimizer.options_dict)
                         if self.common_probe:
                             self.probe_real, self.probe_imag = w.split_channel(p)
@@ -502,9 +514,13 @@ def reconstruct_ptychography(
 
                     if is_last_batch_of_this_theta:
                         # Calculate gradient of the second term of the loss upon finishing each angle.
-                        self.grad_psi, this_loss = self.get_part2_grad(this_i_theta)
-                        a = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta], self.grad_psi,
-                                                          self.total_iter, **self.optimizer.options_dict)
+                        psi_ls = self.psi_theta_ls[this_i_theta]
+                        w_ls = w_theta_ls[this_i_theta]
+                        lambda1_ls = lambda1_theta_ls[this_i_theta]
+                        grad_psi, this_loss = self.get_part2_grad(psi_ls, w_ls, lambda1_ls)
+                        a = self.optimizer.apply_gradient(self.psi_theta_ls[this_i_theta], w.cast(grad_psi, 'float32'),
+                                                          i_batch=self.total_iter, **self.optimizer.options_dict,
+                                                          params_slicer=[this_i_theta])
                         self.psi_theta_ls[this_i_theta] = a
                         if i_iteration == n_iterations - 1:
                             self.last_iter_part2_loss = self.last_iter_part2_loss + this_loss
@@ -580,12 +596,19 @@ def reconstruct_ptychography(
             self.w_theta_ls = []
             self.lambda1_theta_ls = []
             for i, theta in enumerate(self.theta_ls):
-                w_ = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
+                w_real, w_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
+                                                              random_guess_means_sigmas=(1, 0, 0, 0),
+                                                              verbose=False)
+                w_real = w_real[:, :, 0]
+                w_imag = w_imag[:, :, 0]
+                w_ = w.create_variable(np.stack([w_real, w_imag], axis=-1), requires_grad=False,
+                                        device=self.device)
                 self.w_theta_ls.append(w_)
                 lmbda1 = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
                 self.lambda1_theta_ls.append(lmbda1)
             self.w_theta_ls = w.stack(self.w_theta_ls)
             self.lambda1_theta_ls = w.stack(self.lambda1_theta_ls)
+            self.optimizer.create_param_arrays(self.w_theta_ls.shape, device=self.device)
 
         def forward(self, w_ls):
             """
@@ -650,16 +673,16 @@ def reconstruct_ptychography(
                             self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=True,
                                           return_multislice_results=True)
                         # ======DEBUG======
-                        if i_theta == 0 and i_iteration == 0:
-                            import matplotlib.pyplot as plt
-                            fig, axes = plt.subplots(1, 2)
-                            a1 = axes[0].imshow(grad[0, :, :, 0])
-                            plt.colorbar(a1, ax=axes[0])
-                            a2 = axes[1].imshow(grad[0, :, :, 1])
-                            plt.colorbar(a2, ax=axes[1])
-                            plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'align_grad_{}.png'.format(i_epoch)),
-                                        format='png')
-                            # plt.show()
+                        # if i_theta == 0 and i_iteration == 0:
+                        #     import matplotlib.pyplot as plt
+                        #     fig, axes = plt.subplots(1, 2)
+                        #     a1 = axes[0].imshow(grad[0, :, :, 0])
+                        #     plt.colorbar(a1, ax=axes[0])
+                        #     a2 = axes[1].imshow(grad[0, :, :, 1])
+                        #     plt.colorbar(a2, ax=axes[1])
+                        #     plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'align_grad_{}.png'.format(i_epoch)),
+                        #                 format='png')
+                        #     # plt.show()
                         # =================
                         self.exit_real_ls.append(er)
                         self.exit_imag_ls.append(ei)
@@ -668,7 +691,8 @@ def reconstruct_ptychography(
                     else:
                         grad, (this_part1_loss, this_part2_loss) = self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=False,
                                              return_multislice_results=False)
-                    w_ls = self.optimizer.apply_gradient(w_ls, grad, self.total_iter,
+                    w_ls = self.optimizer.apply_gradient(w_ls, w.cast(grad, 'float32'), i_batch=self.total_iter,
+                                                         params_slicer=[slice(i_theta, i_theta + 1)],
                                                          **self.optimizer.options_dict)
                     self.w_theta_ls[i_theta:i_theta + 1] = w_ls
                     if i_iteration == n_iterations - 1:
@@ -726,7 +750,7 @@ def reconstruct_ptychography(
                 self.lambda2_theta_ls.append(lmbda2)
             self.u_theta_ls = w.stack(self.u_theta_ls)
             self.lambda2_theta_ls = w.stack(self.lambda2_theta_ls)
-            self.optimizer.create_param_arrays([*self.whole_object_size, 2], device=self.device)
+            self.optimizer.create_param_arrays(self.u_theta_ls.shape, device=self.device)
             self.optimizer.set_index_in_grad_return(0)
 
         def forward(self, u_ls, energy_ev, psize_cm, return_intermediate_wavefields=False):
@@ -842,19 +866,22 @@ def reconstruct_ptychography(
                         self.get_grad(u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, self.energy_ev, self.psize_cm,
                                       i_theta=i_theta, get_multislice_results_from_prevsp=(i_iteration == 0))
                     # ======DEBUG======
-                    if i_theta == 0 and i_iteration == 0:
-                        import matplotlib.pyplot as plt
-                        fig, axes = plt.subplots(1, 2)
-                        a1 = axes[0].imshow(grad_u[0, 128, :, :, 0])
-                        plt.colorbar(a1, ax=axes[0])
-                        a2 = axes[1].imshow(grad_u[0, 128, :, :, 1])
-                        plt.colorbar(a2, ax=axes[1])
-                        plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'bp_grad_{}.png'.format(i_epoch)), format='png')
-                        # plt.show()
+                    # if i_theta == 0 and i_iteration == 0:
+                    #     import matplotlib.pyplot as plt
+                    #     fig, axes = plt.subplots(1, 2)
+                    #     a1 = axes[0].imshow(grad_u[0, 128, :, :, 0])
+                    #     plt.colorbar(a1, ax=axes[0])
+                    #     a2 = axes[1].imshow(grad_u[0, 128, :, :, 1])
+                    #     plt.colorbar(a2, ax=axes[1])
+                    #     plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'bp_grad_{}.png'.format(i_epoch)), format='png')
+                    #     # plt.show()
                     # =================
-                    self.u_theta_ls[i_theta] = self.optimizer.apply_gradient(self.u_theta_ls[i_theta], grad_u,
-                                                                             self.total_iter,
-                                                                             **self.optimizer.options_dict)
+                    self.u_theta_ls[i_theta:i_theta + 1] = \
+                        self.optimizer.apply_gradient(u_ls,
+                                                      w.cast(grad_u, 'float32'),
+                                                      i_batch=self.total_iter,
+                                                      params_slicer=[slice(i_theta, i_theta + 1)],
+                                                      **self.optimizer.options_dict)
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                         self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
@@ -910,7 +937,7 @@ def reconstruct_ptychography(
                 lmbda3 = w.create_variable(lmbda3, requires_grad=False, device=self.device)
                 self.lambda3_theta_ls.append(lmbda3)
             self.lambda3_theta_ls = w.stack(self.lambda3_theta_ls)
-            self.optimizer.create_param_arrays([*self.whole_object_size, 2], device=self.device)
+            self.optimizer.create_param_arrays(self.x.shape, device=self.device)
             self.optimizer.set_index_in_grad_return(0)
 
         def forward(self, x, theta):
@@ -936,18 +963,18 @@ def reconstruct_ptychography(
                     theta = self.theta_ls[i_theta]
                     grad, this_loss = self.get_grad(self.x, u, lambda3, theta)
                     # ======DEBUG======
-                    if i_theta == 0 and i_iteration == 0:
-                        import matplotlib.pyplot as plt
-                        fig, axes = plt.subplots(1, 2)
-                        a1 = axes[0].imshow(grad[128, :, :, 0])
-                        plt.colorbar(a1, ax=axes[0])
-                        a2 = axes[1].imshow(grad[128, :, :, 1])
-                        plt.colorbar(a2, ax=axes[1])
-                        plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'tomo_grad_{}.png'.format(i_epoch)),
-                                    format='png')
-                        # plt.show()
+                    # if i_theta == 0 and i_iteration == 0:
+                    #     import matplotlib.pyplot as plt
+                    #     fig, axes = plt.subplots(1, 2)
+                    #     a1 = axes[0].imshow(grad[128, :, :, 0])
+                    #     plt.colorbar(a1, ax=axes[0])
+                    #     a2 = axes[1].imshow(grad[128, :, :, 1])
+                    #     plt.colorbar(a2, ax=axes[1])
+                    #     plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'tomo_grad_{}.png'.format(i_epoch)),
+                    #                 format='png')
+                    #     # plt.show()
                     # =================
-                    self.x = self.optimizer.apply_gradient(self.x, grad, self.total_iter,
+                    self.x = self.optimizer.apply_gradient(self.x, w.cast(grad, 'float32'), i_batch=self.total_iter,
                                                            **self.optimizer.options_dict)
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
@@ -1229,26 +1256,21 @@ def reconstruct_ptychography(
         # ================================================================================
         # Declare and initialize subproblems.
         # ================================================================================
-        optimizer = adorym.GDOptimizer('pr', options_dict={'learning_rate': 1e-1})
-        optimizer_probe = adorym.GDOptimizer('probe', options_dict={'learning_rate': 1e-2})
         sp_phr = PhaseRetrievalSubproblem(obj_size, theta_ls, theta_downsample=theta_downsample,
                                           probe_update_delay=30,
-                                          rho=1e-3, optimizer=optimizer, device=device_obj,
+                                          rho=1e-3, optimizer=optimizer_phr, device=device_obj,
                                           common_probe=False, minibatch_size=minibatch_size,
-                                          optimize_probe=True, probe_optimizer=optimizer_probe)
+                                          optimize_probe=True, probe_optimizer=optimizer_phr_probe)
         sp_phr.initialize([probe_real, probe_imag], prj, probe_pos=probe_pos)
 
-        optimizer = adorym.GDOptimizer('align', options_dict={'learning_rate': 1e-1})
-        sp_aln = AlignmentSubproblem(obj_size, theta_ls, rho=1e-3, optimizer=optimizer, device=device_obj)
+        sp_aln = AlignmentSubproblem(obj_size, theta_ls, rho=rho_aln, optimizer=optimizer_aln, device=device_obj)
         sp_aln.initialize()
 
-        optimizer = adorym.GDOptimizer('bp', options_dict={'learning_rate': 1e-1})
-        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=16, energy_ev=energy_ev, psize_cm=psize_cm,
-                                   rho=1e-3, optimizer=optimizer, device=device_obj)
+        sp_bkp = BackpropSubproblem(obj_size, theta_ls, binning=binning, energy_ev=energy_ev, psize_cm=psize_cm,
+                                   rho=rho_bkp, optimizer=optimizer_bkp, device=device_obj)
         sp_bkp.initialize()
 
-        optimizer = adorym.GDOptimizer('tomo', options_dict={'learning_rate': 1e-1})
-        sp_tmo = TomographySubproblem(obj_size, theta_ls, rho=1e-3, optimizer=optimizer, device=device_obj)
+        sp_tmo = TomographySubproblem(obj_size, theta_ls, rho=rho_tmo, optimizer=optimizer_tmo, device=device_obj)
         sp_tmo.initialize()
 
         sp_phr.set_dependencies(None, sp_aln)

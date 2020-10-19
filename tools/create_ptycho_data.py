@@ -210,9 +210,9 @@ params_2d_cell = {'fname': 'data_cell_phase.h5',
 # params = params_2d_cell
 # params = params_adhesin_2_noisy_pos
 # params = params_cameraman_noisy_pos
-params = params_cone_ff
+# params = params_cone_ff
 # params = params_adhesin_2
-# params = params_cone_marc
+params = params_cone_marc
 # params = params_adhesin_ff
 
 simulate_ptychography(**params)

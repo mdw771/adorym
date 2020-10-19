@@ -118,7 +118,11 @@ class Optimizer(object):
         kwargs = {} if use_numpy else {'device': device}
         if len(self.params_list) > 0:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
+                if malias == np:
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
+                else:
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device,
+                                                                            requires_grad=False)
         return
 
     def create_distributed_param_arrays(self, whole_object_size, use_numpy=False, dtype='float32'):
@@ -126,14 +130,21 @@ class Optimizer(object):
         malias = np if use_numpy else w
         if len(self.params_list) > 0 and self.slice_catalog[rank] is not None:
             for param_name in self.params_list:
-                self.params_whole_array_dict[param_name] = malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0], *self.whole_object_size[1:]], dtype=dtype)
+                if malias == np:
+                    self.params_whole_array_dict[param_name] = \
+                        malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0],
+                                      *self.whole_object_size[1:]], dtype=dtype)
+                else:
+                    self.params_whole_array_dict[param_name] = \
+                        malias.zeros([self.slice_catalog[rank][1] - self.slice_catalog[rank][0],
+                                      *self.whole_object_size[1:]], dtype=dtype, requires_grad=False)
         return
 
     def restore_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
         if len(self.params_list) > 0:
             arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint.npy'))
             if use_numpy == False:
-                arr = w.create_variable(arr, device=device)
+                arr = w.create_variable(arr, device=device, requires_grad=False)
             if len(self.params_list) > 0:
                 for i, param_name in enumerate(self.params_list):
                     self.params_whole_array_dict[param_name] = arr[i]
@@ -145,7 +156,7 @@ class Optimizer(object):
             if os.path.exists(path):
                 arr = np.load(path)
                 if use_numpy == False:
-                    arr = w.create_variable(arr, device=device)
+                    arr = w.create_variable(arr, device=device, requires_grad=False)
                 if len(self.params_list) > 0:
                     for i, param_name in enumerate(self.params_list):
                         self.params_whole_array_dict[param_name] = arr[i].astype(dtype)
@@ -240,6 +251,20 @@ class Optimizer(object):
             g = g / n_ranks
         return g
 
+    def get_array_slicer(self, slicer):
+        if slicer == None:
+            if len(self.params_list) > 0:
+                if len(self.params_whole_array_dict) > 0:
+                    shape = self.params_whole_array_dict[list(self.params_whole_array_dict.keys())[0]].shape
+                    s = [slice(None)] * len(shape)
+                else:
+                    s = None
+            else:
+                s = None
+        else:
+            s = slicer
+        return s
+
 class AdamOptimizer(Optimizer):
 
     def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
@@ -248,7 +273,8 @@ class AdamOptimizer(Optimizer):
         return
 
     def apply_gradient(self, x, gradient, i_batch, step_size=0.001, b1=0.9, b2=0.999, eps=1e-7, distribution_mode=False,
-                       m=None, v=None, return_moments=False, update_batch_count=True, use_numpy=False, **kwargs):
+                       m=None, v=None, return_moments=False, update_batch_count=True, use_numpy=False,
+                       params_slicer=None, **kwargs):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -259,6 +285,7 @@ class AdamOptimizer(Optimizer):
             Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
             gradient.
         """
+        ss = self.get_array_slicer(params_slicer)
         g = self.convert_gradient(gradient)
         malias = np if use_numpy else w
         if m is None or v is None:
@@ -266,8 +293,8 @@ class AdamOptimizer(Optimizer):
                 m = self.params_chunk_array_dict['m']
                 v = self.params_chunk_array_dict['v']
             else:
-                m = self.params_whole_array_dict['m']
-                v = self.params_whole_array_dict['v']
+                m = self.params_whole_array_dict['m'][ss]
+                v = self.params_whole_array_dict['v'][ss]
         m = b1 * m  # First moment estimate.
         m = m + (1 - b1) * g
         v = b2 * v  # Second moment estimate.
@@ -282,8 +309,8 @@ class AdamOptimizer(Optimizer):
             self.params_chunk_array_dict['m'] = m
             self.params_chunk_array_dict['v'] = v
         else:
-            self.params_whole_array_dict['m'] = m
-            self.params_whole_array_dict['v'] = v
+            self.params_whole_array_dict['m'][ss] = m
+            self.params_whole_array_dict['v'][ss] = v
         if update_batch_count:
             self.i_batch += 1
         del mhat, vhat
@@ -327,7 +354,8 @@ class MomentumOptimizer(Optimizer):
                                           forward_model=forward_model)
         return
 
-    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, gamma=0.9, use_numpy=False, **kwargs):
+    def apply_gradient(self, x, gradient, i_batch, step_size=0.001, gamma=0.9, use_numpy=False, params_slicer=None,
+                       **kwargs):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -338,18 +366,18 @@ class MomentumOptimizer(Optimizer):
             Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
             gradient.
         """
+        ss = self.get_array_slicer(params_slicer)
         if self.distribution_mode == 'shared_file':
             v = self.params_chunk_array_dict['v']
         else:
-            v = self.params_whole_array_dict['v']
+            v = self.params_whole_array_dict['v'][ss]
         g = self.convert_gradient(gradient)
-        v = self.params_whole_array_dict['v']
         v = gamma * v + step_size * g
         x = x - v
         if self.distribution_mode == 'shared_file':
             self.params_chunk_array_dict['v'] = v
         else:
-            self.params_whole_array_dict['v'] = v
+            self.params_whole_array_dict['v'][ss] = v
         return x
 
     def apply_gradient_to_file(self, obj, gradient, i_batch=None, step_size=0.001, gamma=0.9, **kwargs):
@@ -482,17 +510,17 @@ class CurveballOptimizer(Optimizer):
         p = -np.matmul(p, self.vec_b)
         self.beta, self.rho = -p[0, 0], p[1, 0]
 
-    def calculate_update_vector(self, dz):
+    def calculate_update_vector(self, dz, ss):
         """
         In DO, this is done for slabs.
         """
-        z = self.params_whole_array_dict['z']
+        z = self.params_whole_array_dict['z'][ss]
         z = self.rho * z - self.beta * dz
-        self.params_whole_array_dict['z'] = z
+        self.params_whole_array_dict['z'][ss] = z
         self.z_chunk = z
         return z
 
-    def apply_gradient(self, x, gradient, i_batch, alpha=1, use_numpy=False):
+    def apply_gradient(self, x, gradient, i_batch, alpha=1, use_numpy=False, params_slicer=None):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -503,8 +531,9 @@ class CurveballOptimizer(Optimizer):
             Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
             gradient.
         """
+        ss = self.get_array_slicer(params_slicer)
         g = self.convert_gradient(gradient)
-        z = self.calculate_update_vector(g)
+        z = self.calculate_update_vector(g, ss=ss)
         x = x + alpha * z
         return x
  
@@ -532,9 +561,9 @@ class CGOptimizer(Optimizer):
         self._diag_precondition_t = None
         return
 
-    def _calculate_PR_beta(self):
+    def _calculate_PR_beta(self, ss):
 
-        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old']
+        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
         p = self._descent_dir_t
         p_old = _descent_dir_old_t
         if self._diag_precondition_t is not None:
@@ -549,7 +578,8 @@ class CGOptimizer(Optimizer):
         beta = max([beta, 0.])
         return beta
 
-    def apply_gradient(self, x, gradient, i_batch, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None):
+    def apply_gradient(self, x, gradient, i_batch, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None,
+                       params_slicer=None):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -560,6 +590,7 @@ class CGOptimizer(Optimizer):
             Adam, i_batch may be preferably up-counted only when all voxels of the object are updated with non-zero
             gradient.
         """
+        ss = self.get_array_slicer(params_slicer)
         g = self.convert_gradient(gradient)
         try:
             forward_model = gradient.forward_model
@@ -570,11 +601,11 @@ class CGOptimizer(Optimizer):
         self._descent_dir_t = -g
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
-        _s_t = self.params_whole_array_dict['s']
+        _s_t = self.params_whole_array_dict['s'][ss]
         self._linesearch = self.linesearch_map[linesearch_type](maxiter=max_backtracking_iter,
                                                                 initial_stepsize=step_size)
 
-        beta = self._calculate_PR_beta()
+        beta = self._calculate_PR_beta(ss=ss)
         s_new = self._descent_dir_t + beta * _s_t
 
         # Ensure that the calculated descent direction actually reduces the objective
@@ -598,8 +629,8 @@ class CGOptimizer(Optimizer):
                                                  gradient=g,
                                                  f0=forward_model.current_loss)
         x = linesearch_out.newx
-        self.params_whole_array_dict['s'] = s_new
-        self.params_whole_array_dict['descent_dir_old'] = self._descent_dir_t
+        self.params_whole_array_dict['s'][ss] = s_new
+        self.params_whole_array_dict['descent_dir_old'][ss] = self._descent_dir_t
         self.i_batch += 1
         self.i_line_search_step += linesearch_out.step_count
         return x
