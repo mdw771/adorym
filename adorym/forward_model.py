@@ -32,21 +32,22 @@ class ForwardModel(object):
         self.device = device
         self.simulation_mode = simulation_mode
         self.current_loss = 0
-        self.common_vars = common_vars_dict
         self.raw_data_type = raw_data_type
-        self.unknown_type = common_vars_dict['unknown_type']
         self.i_call = 0
-        self.normalize_fft = common_vars_dict['normalize_fft']
-        self.sign_convention = common_vars_dict['sign_convention']
-        self.rotate_out_of_loop = common_vars_dict['rotate_out_of_loop']
-        self.scale_ri_by_k = common_vars_dict['scale_ri_by_k']
-        self.is_minus_logged = common_vars_dict['is_minus_logged']
-        self.forward_algorithm = common_vars_dict['forward_algorithm']
-        self.stdout_options = common_vars_dict['stdout_options']
-        self.poisson_multiplier = common_vars_dict['poisson_multiplier']
-        self.common_probe_pos = common_vars_dict['common_probe_pos']
-        self.binning = common_vars_dict['binning']
-        self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
+        self.common_vars = common_vars_dict
+        if common_vars_dict is not None:
+            self.unknown_type = common_vars_dict['unknown_type']
+            self.normalize_fft = common_vars_dict['normalize_fft']
+            self.sign_convention = common_vars_dict['sign_convention']
+            self.rotate_out_of_loop = common_vars_dict['rotate_out_of_loop']
+            self.scale_ri_by_k = common_vars_dict['scale_ri_by_k']
+            self.is_minus_logged = common_vars_dict['is_minus_logged']
+            self.forward_algorithm = common_vars_dict['forward_algorithm']
+            self.stdout_options = common_vars_dict['stdout_options']
+            self.poisson_multiplier = common_vars_dict['poisson_multiplier']
+            self.common_probe_pos = common_vars_dict['common_probe_pos']
+            self.binning = common_vars_dict['binning']
+            self.prj = common_vars_dict['prj'] # HDF5 dataset pointer
         self.loss_args = {}
         self.reg_list = []
 

@@ -21,12 +21,14 @@ class BackTrackingLineSearch:
                  stepsize_threshold_low: float = 1e-10,
                  dtype: np.dtype = np.float32,
                  maxiter: int = None,
-                 name='backtracking_linesearch') -> None:
+                 name='backtracking_linesearch',
+                 normalize_alpha=True) -> None:
         self.contraction_factor = contraction_factor
         self.optimism = optimism
         self.suff_decr = suff_decr
         self.initial_stepsize = initial_stepsize
         self.stepsize_threshold_low = stepsize_threshold_low
+        self.normalize_alpha = normalize_alpha
 
         self._dtype = dtype
         self._machine_eps = np.finfo(dtype).eps
@@ -61,9 +63,15 @@ class BackTrackingLineSearch:
             # Look a little further
             alpha *= self.optimism
             if alpha * descent_norm < self._machine_eps:
-                alpha = self.initial_stepsize / descent_norm
+                if self.normalize_alpha:
+                    alpha = self.initial_stepsize / descent_norm
+                else:
+                    alpha = self.initial_stepsize
         else:
-            alpha = self.initial_stepsize / descent_norm
+            if self.normalize_alpha:
+                alpha = self.initial_stepsize / descent_norm
+            else:
+                alpha = self.initial_stepsize
 
         # Make the chosen sten and compute the cost there
         newf, newx = objective_and_update(x0, alpha * descent_dir)
@@ -104,12 +112,14 @@ class AdaptiveLineSearch:
                  stepsize_threshold_low: float = 1e-10,
                  dtype: np.dtype = np.float32,
                  maxiter: int = None,
-                 name='backtracking_linesearch') -> None:
+                 name='backtracking_linesearch',
+                 normalize_alpha=True) -> None:
         self.contraction_factor = contraction_factor
         self.optimism = optimism
         self.suff_decr = suff_decr
         self.initial_stepsize = initial_stepsize
         self.stepsize_threshold_low = stepsize_threshold_low
+        self.normalize_alpha=normalize_alpha
 
         self._dtype = dtype
         self._machine_eps = np.finfo(dtype).eps
@@ -141,7 +151,10 @@ class AdaptiveLineSearch:
         if self._alpha_suggested > 0:
             alpha = self._alpha_suggested
         else:
-            alpha = self.initial_stepsize / descent_norm
+            if self.normalize_alpha:
+                alpha = self.initial_stepsize / descent_norm
+            else:
+                alpha = self.initial_stepsize
 
         # Make the chosen sten and compute the cost there
         newf, newx = objective_and_update(x0, alpha * descent_dir)
@@ -181,6 +194,7 @@ class AdaptiveLineSearch:
         if lsstate_new.newf <= f0:
             lsstate_updated = lsstate_new
         else:
+            print('Line search is unable to find a smaller loss ({} > {})!'.format(lsstate_new.newf, f0))
             lsstate_updated = LSState(newf=f0, newx=x0, alpha=0., step_count=lsstate_new.step_count)
 
         return lsstate_updated

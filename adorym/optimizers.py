@@ -561,7 +561,7 @@ class CGOptimizer(Optimizer):
         self._diag_precondition_t = None
         return
 
-    def _calculate_PR_beta(self, ss):
+    def _calculate_PR_beta(self, ss, i_batch):
 
         _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
         p = self._descent_dir_t
@@ -571,15 +571,15 @@ class CGOptimizer(Optimizer):
             p_old = self._diag_precondition_t * p_old
         beta_num = w.sum(p * (self._descent_dir_t - _descent_dir_old_t))
         beta_denom = w.sum(p_old * _descent_dir_old_t)
-        if self.i_batch > 0:
+        if i_batch > 0:
             beta = beta_num / beta_denom
         else:
             beta = 0
         beta = max([beta, 0.])
         return beta
 
-    def apply_gradient(self, x, gradient, i_batch, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None,
-                       params_slicer=None):
+    def apply_gradient(self, x, gradient, i_batch=None, step_size=1., linesearch_type='adaptive', max_backtracking_iter=None,
+                       normalize_alpha=True, params_slicer=None):
         """
         Use calculated gradient to update the variable being optimized.
         :param x: Array or Tensor of the optimized variable.
@@ -603,9 +603,10 @@ class CGOptimizer(Optimizer):
         loss_fn = forward_model.get_loss_function()
         _s_t = self.params_whole_array_dict['s'][ss]
         self._linesearch = self.linesearch_map[linesearch_type](maxiter=max_backtracking_iter,
-                                                                initial_stepsize=step_size)
-
-        beta = self._calculate_PR_beta(ss=ss)
+                                                                initial_stepsize=step_size,
+                                                                normalize_alpha=normalize_alpha)
+        this_i_batch = i_batch if i_batch is not None else self.i_batch
+        beta = self._calculate_PR_beta(ss=ss, i_batch=this_i_batch)
         s_new = self._descent_dir_t + beta * _s_t
 
         # Ensure that the calculated descent direction actually reduces the objective
@@ -628,6 +629,7 @@ class CGOptimizer(Optimizer):
                                                  descent_dir=s_new,
                                                  gradient=g,
                                                  f0=forward_model.current_loss)
+
         x = linesearch_out.newx
         self.params_whole_array_dict['s'][ss] = s_new
         self.params_whole_array_dict['descent_dir_old'][ss] = self._descent_dir_t

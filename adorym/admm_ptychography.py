@@ -1,8 +1,9 @@
 import numpy as np
 import h5py
-import warnings
 
+import warnings
 import time
+import inspect
 
 import adorym
 import adorym.wrappers as w
@@ -303,7 +304,7 @@ def reconstruct_ptychography(
             y_pred_ls, _, _ = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                                            probe_pos_correction, this_ind_batch)
             y_ls = self.get_data(this_i_theta, this_ind_batch, self.theta_downsample)
-            loss = w.mean((y_pred_ls - y_ls) ** 2)
+            loss = w.sum((y_pred_ls - y_ls) ** 2)
             return loss
 
         def get_part1_grad(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
@@ -323,7 +324,7 @@ def reconstruct_ptychography(
                              probe_pos_correction, this_ind_batch)
             y_ls = self.get_data(this_i_theta, this_ind_batch, theta_downsample=theta_downsample)
             g = (y_pred_ls - y_ls)
-            this_loss = w.mean(g ** 2)
+            this_loss = w.sum(g ** 2)
 
             g_psi_real = w.zeros(patches.shape[:-1], requires_grad=False, device=self.device)
             g_psi_imag = w.zeros(patches.shape[:-1], requires_grad=False, device=self.device)
@@ -360,10 +361,13 @@ def reconstruct_ptychography(
 
             return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag), this_loss
 
+        def get_part2_loss(self, psi_ls, w_ls, lambda1_ls):
+            return self.get_part2_grad(psi_ls, w_ls, lambda1_ls)[1]
+
         def get_part2_grad(self, psi_ls, w_ls, lambda1_ls):
             grad = self.next_sp.rho * (psi_ls - w_ls + lambda1_ls / self.next_sp.rho)
             l_real, l_imag = w.split_channel(grad)
-            this_loss = w.mean(l_real ** 2 + l_imag ** 2) / self.next_sp.rho
+            this_loss = w.sum(l_real ** 2 + l_imag ** 2) / self.next_sp.rho
             return grad, this_loss
 
         def solve(self, n_iterations=5, randomize_probe_pos=False):
@@ -525,8 +529,8 @@ def reconstruct_ptychography(
                         if i_iteration == n_iterations - 1:
                             self.last_iter_part2_loss = self.last_iter_part2_loss + this_loss
                 self.total_iter += 1
-            self.last_iter_part1_loss /= n_batch
-            self.last_iter_part2_loss /= n_theta
+            # self.last_iter_part1_loss /= n_batch
+            # self.last_iter_part2_loss /= n_theta
 
         def get_patches(self, psi, this_pos_batch_int):
             """
@@ -587,6 +591,12 @@ def reconstruct_ptychography(
             self.n_theta = len(theta_ls)
             self.rho = rho
             self.optimizer = optimizer
+            forward_model = adorym.ForwardModel()
+            args = inspect.getfullargspec(self.get_loss).args
+            args.pop(0)
+            forward_model.argument_ls = args
+            forward_model.get_loss_function = lambda: self.get_loss
+            self.optimizer.forward_model = forward_model
 
         def initialize(self):
             """
@@ -619,6 +629,14 @@ def reconstruct_ptychography(
             """
             return w_ls
 
+        def get_loss(self, w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls):
+
+            this_part1_loss, this_part2_loss = self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls,
+                                                             recalculate_multislice=True,
+                                                             return_multislice_results=False)[1]
+            this_loss = this_part1_loss + this_part2_loss
+            return this_loss
+
         def get_grad(self, w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=False,
                      return_multislice_results=False):
             """
@@ -637,12 +655,12 @@ def reconstruct_ptychography(
             temp = self.rho * (psi_ls - w_ls + lambda1_ls / self.rho)
             grad = -temp
             lr, li = w.split_channel(temp)
-            this_part1_loss = w.mean(lr ** 2 + li ** 2) / self.rho
+            this_part1_loss = w.sum(lr ** 2 + li ** 2) / self.rho
 
             temp = self.next_sp.rho * (w_ls - g_u + lambda2_ls / self.next_sp.rho)
             grad = grad + temp
             lr, li = w.split_channel(temp)
-            this_part2_loss = w.mean(lr ** 2 + li ** 2) / self.next_sp.rho
+            this_part2_loss = w.sum(lr ** 2 + li ** 2) / self.next_sp.rho
 
             if return_multislice_results:
                 return grad, self.exit_real, self.exit_imag, self.psi_forward_real_ls, self.psi_forward_imag_ls, \
@@ -663,11 +681,17 @@ def reconstruct_ptychography(
             self.psi_forward_imag_ls_ls = []
             for i, i_theta in enumerate(theta_ind_ls):
                 for i_iteration in range(n_iterations):
+                    print_flush('  ALN: Iter {}, theta {} started.'.format(i_iteration, i),
+                                sto_rank, rank, same_line=True, **stdout_options)
                     u_ls = u_theta_ls[i_theta:i_theta + 1]
                     w_ls = self.w_theta_ls[i_theta:i_theta + 1]
                     psi_ls = psi_theta_ls[i_theta:i_theta + 1]
                     lambda1_ls = self.lambda1_theta_ls[i_theta:i_theta + 1]
                     lambda2_ls = lambda2_theta_ls[i_theta:i_theta + 1]
+                    loss_func_args = {'w_ls': w_ls, 'u_ls': u_ls, 'psi_ls': psi_ls, 'lambda1_ls': lambda1_ls,
+                                      'lambda2_ls': lambda2_ls}
+                    self.optimizer.forward_model.update_loss_args(loss_func_args)
+
                     if i_iteration == 0:
                         grad, er, ei, psir, psii, (this_part1_loss, this_part2_loss) = \
                             self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=True,
@@ -691,6 +715,7 @@ def reconstruct_ptychography(
                     else:
                         grad, (this_part1_loss, this_part2_loss) = self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=False,
                                              return_multislice_results=False)
+                    self.optimizer.forward_model.current_loss = this_part1_loss + this_part2_loss
                     w_ls = self.optimizer.apply_gradient(w_ls, w.cast(grad, 'float32'), i_batch=self.total_iter,
                                                          params_slicer=[slice(i_theta, i_theta + 1)],
                                                          **self.optimizer.options_dict)
@@ -699,8 +724,8 @@ def reconstruct_ptychography(
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                         self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
             self.total_iter += 1
-            self.last_iter_part1_loss /= n_theta
-            self.last_iter_part2_loss /= n_theta
+            # self.last_iter_part1_loss /= n_theta
+            # self.last_iter_part2_loss /= n_theta
 
         def update_dual(self):
             r = (self.prev_sp.psi_theta_ls - self.forward(self.w_theta_ls))
@@ -729,6 +754,12 @@ def reconstruct_ptychography(
             self.psize_cm = psize_cm
             self.rho = rho
             self.optimizer = optimizer
+            forward_model = adorym.ForwardModel()
+            args = inspect.getfullargspec(self.get_loss).args
+            args.pop(0)
+            forward_model.argument_ls = args
+            forward_model.get_loss_function = lambda: self.get_loss
+            self.optimizer.forward_model = forward_model
 
         def initialize(self):
             """
@@ -784,6 +815,25 @@ def reconstruct_ptychography(
                                                  return_intermediate_wavefields=return_intermediate_wavefields)
             return res
 
+        def get_loss(self, u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, energy_ev, psize_cm):
+            lmbda_nm = 1240. / energy_ev
+            delta_nm = psize_cm * 1e7
+            k = 2. * PI * delta_nm / lmbda_nm
+            n_slices = u_ls.shape[-2]
+
+            exit_real, exit_imag = self.forward(u_ls, energy_ev, psize_cm, return_intermediate_wavefields=False)
+
+            grad = -self.rho * (w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho)
+            grad_real, grad_imag = w.split_channel(grad)
+            this_part1_loss = w.sum(grad_real ** 2 + grad_imag ** 2) / self.rho
+
+            temp = self.next_sp.rho * (u_ls - self.next_sp.forward(x, theta) + lambda3_ls / self.next_sp.rho)
+            temp_delta, temp_beta = w.split_channel(temp)
+            this_part2_loss = w.sum(temp_delta ** 2 + temp_beta ** 2) / self.next_sp.rho
+
+            this_loss = this_part1_loss + this_part2_loss
+            return this_loss
+
         def get_grad(self, u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, energy_ev, psize_cm,
                      i_theta, get_multislice_results_from_prevsp=False):
             lmbda_nm = 1240. / energy_ev
@@ -813,7 +863,7 @@ def reconstruct_ptychography(
             # Calculate dL / dg = -rho * [w - g(u) + lambda/rho]
             grad = -self.rho * (w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho)
             grad_real, grad_imag = w.split_channel(grad)
-            this_part1_loss = w.mean(grad_real ** 2 + grad_imag ** 2) / self.rho
+            this_part1_loss = w.sum(grad_real ** 2 + grad_imag ** 2) / self.rho
 
             # Back propagate and get psi''.
             _, _, psi_backward_real_ls, psi_backward_imag_ls = \
@@ -840,7 +890,7 @@ def reconstruct_ptychography(
             # Calculate second term of dL / d(delta/beta).
             temp = self.next_sp.rho * (u_ls - self.next_sp.forward(x, theta) + lambda3_ls / self.next_sp.rho)
             temp_delta, temp_beta = w.split_channel(temp)
-            this_part2_loss = w.mean(temp_delta ** 2 + temp_beta ** 2) / self.next_sp.rho
+            this_part2_loss = w.sum(temp_delta ** 2 + temp_beta ** 2) / self.next_sp.rho
             grad_delta = grad_delta + temp_delta
             grad_beta = grad_beta + temp_beta
 
@@ -857,14 +907,22 @@ def reconstruct_ptychography(
                 theta_ind_ls = np.arange(self.n_theta).astype(int)
                 np.random.shuffle(theta_ind_ls)
                 for i, i_theta in enumerate(theta_ind_ls):
+                    print_flush('  BKP: Iter {}, theta {} started.'.format(i_iteration, i),
+                                sto_rank, rank, same_line=True, **stdout_options)
                     u_ls = w.reshape(self.u_theta_ls[i_theta], [1, *self.u_theta_ls[i_theta].shape])
                     w_ls = w.reshape(w_theta_ls[i_theta], [1, *w_theta_ls[i_theta].shape])
                     lambda2_ls = w.reshape(self.lambda2_theta_ls[i_theta], [1, *self.lambda2_theta_ls[i_theta].shape])
                     lambda3_ls = w.reshape(lambda3_theta_ls[i_theta], [1, *lambda3_theta_ls[i_theta].shape])
                     theta = self.theta_ls[i_theta]
+                    loss_func_args = {'u_ls': u_ls, 'w_ls': w_ls, 'x': x, 'lambda2_ls': lambda2_ls,
+                                      'lambda3_ls': lambda3_ls, 'theta': theta, 'energy_ev': self.energy_ev,
+                                      'psize_cm': self.psize_cm}
+                    self.optimizer.forward_model.update_loss_args(loss_func_args)
+
                     grad_u, (this_part1_loss, this_part2_loss) = \
                         self.get_grad(u_ls, w_ls, x, lambda2_ls, lambda3_ls, theta, self.energy_ev, self.psize_cm,
                                       i_theta=i_theta, get_multislice_results_from_prevsp=(i_iteration == 0))
+                    self.optimizer.forward_model.current_loss = this_part1_loss + this_part2_loss
                     # ======DEBUG======
                     # if i_theta == 0 and i_iteration == 0:
                     #     import matplotlib.pyplot as plt
@@ -886,8 +944,8 @@ def reconstruct_ptychography(
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                         self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
                 self.total_iter += 1
-            self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
-            self.last_iter_part2_loss = self.last_iter_part2_loss / n_theta
+            # self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
+            # self.last_iter_part2_loss = self.last_iter_part2_loss / n_theta
 
         def update_dual(self):
             r = 0
@@ -919,6 +977,12 @@ def reconstruct_ptychography(
             self.n_theta = len(theta_ls)
             self.rho = rho
             self.optimizer = optimizer
+            forward_model = adorym.ForwardModel()
+            args = inspect.getfullargspec(self.get_loss).args
+            args.pop(0)
+            forward_model.argument_ls = args
+            forward_model.get_loss_function = lambda: self.get_loss
+            self.optimizer.forward_model = forward_model
 
         def initialize(self):
             """
@@ -943,12 +1007,18 @@ def reconstruct_ptychography(
         def forward(self, x, theta):
             return w.rotate(x, theta, axis=0, device=self.device)
 
+        def get_loss(self, x, u, lambda3, theta):
+            grad = u - self.forward(x, theta) + lambda3 / self.rho
+            grad_delta, grad_beta = w.split_channel(grad)
+            this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
+            return this_loss
+
         def get_grad(self, x, u, lambda3, theta):
             grad = u - self.forward(x, theta) + lambda3 / self.rho
+            grad_delta, grad_beta = w.split_channel(grad)
+            this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
             grad = self.forward(grad, -theta)
             grad = -self.rho * grad
-            grad_delta, grad_beta = w.split_channel(grad)
-            this_loss = w.mean(grad_delta ** 2 + grad_beta ** 2) / self.rho
             return grad, this_loss
 
         def solve(self, n_iterations=3):
@@ -958,10 +1028,16 @@ def reconstruct_ptychography(
             for i_iteration in range(n_iterations):
                 np.random.shuffle(theta_ind_ls)
                 for i, i_theta in enumerate(theta_ind_ls):
+                    print_flush('  TMO: Iter {}, theta {} started.'.format(i_iteration, i),
+                                sto_rank, rank, same_line=True, **stdout_options)
                     u = u_theta_ls[i_theta]
                     lambda3 = self.lambda3_theta_ls[i_theta]
                     theta = self.theta_ls[i_theta]
+                    loss_func_args = {'x': self.x, 'u': u, 'lambda3': lambda3, 'theta': theta}
+                    self.optimizer.forward_model.update_loss_args(loss_func_args)
+
                     grad, this_loss = self.get_grad(self.x, u, lambda3, theta)
+                    self.optimizer.forward_model.current_loss = this_loss
                     # ======DEBUG======
                     # if i_theta == 0 and i_iteration == 0:
                     #     import matplotlib.pyplot as plt
@@ -979,7 +1055,7 @@ def reconstruct_ptychography(
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
                 self.total_iter += 1
-            self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
+            # self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
 
         def update_dual(self):
             self.rsquare = 0
@@ -1306,7 +1382,7 @@ def reconstruct_ptychography(
             # psi_real_ls, psi_imag_ls = mag_phase_to_real_imag(psi_mag_ls, psi_phase_ls)
             # sp_phr.psi_theta_ls = w.create_variable(np.stack([psi_real_ls, psi_imag_ls], axis=-1), requires_grad=False)
 
-            sp_phr.solve(n_iterations=3)
+            sp_phr.solve(n_iterations=1)
             print_flush('PHR done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_phr.last_iter_part1_loss,
                                                                 sp_phr.last_iter_part2_loss), sto_rank, rank)
             t00 = time.time()
