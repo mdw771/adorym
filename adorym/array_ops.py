@@ -105,6 +105,7 @@ class LargeArray(object):
                 self.arr_rot = b
         else:
             b = sp_rotate(a, -coords, axes=(1, 2), reshape=False, order=1, mode='nearest')
+            # b = w.rotate(a, coords, override_backend=override_backend)
             if overwrite_arr:
                 self.arr = b
             else:

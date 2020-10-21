@@ -1221,6 +1221,7 @@ def write_subblocks_to_file(dset, this_pos_batch, obj_delta, obj_beta, probe_siz
 def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', unknown_type='delta_beta', override_backend=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
+
     :return: padded object and padding lengths.
     """
     pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type)
@@ -1247,6 +1248,7 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
 def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_backend=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary, using edge values.
+
     :return: padded object and padding lengths.
     """
     pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta')

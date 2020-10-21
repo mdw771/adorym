@@ -729,6 +729,9 @@ def flip(var, axis=[0], override_backend=None):
 
 def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None):
     """
+    Pad array.
+    [ATTENTION: The behavior of this function is different between Autograd and Pytorch backend.]
+
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
     :param mode: Choose from 'constant', 'reflect'.
     """
