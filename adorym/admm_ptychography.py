@@ -916,7 +916,7 @@ class BackpropSubproblem(Subproblem):
         for i_theta, theta in enumerate(self.theta_ls):
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*self.whole_object_size, len(self.theta_ls)),
                                           self.theta_ls[i_theta], reverse=False)
-            self.next_sp.x.rotate_array(coord_ls, overwrite_arr=False)
+            self.next_sp.x.rotate_array(coord_ls, overwrite_arr=False, override_backend='autograd', override_device='cpu')
             # Create an all-rank batch index array like [(0, 0), (0, 1), (0, 2), ..., (0, n_ranks)].
             this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks).astype(int)], axis=-1)
             # Create a probe position array like
@@ -975,7 +975,8 @@ class BackpropSubproblem(Subproblem):
         probe_imag = w.zeros([n_batch, *patch_shape[:2]], requires_grad=False, device=self.device, dtype='float64')
         res = multislice_propagate_batch(u_ls, probe_real, probe_imag, self.energy_ev, self.psize_cm,
                                          self.psize_cm, free_prop_cm=0, binning=self.binning,
-                                         return_intermediate_wavefields=return_intermediate_wavefields)
+                                         return_intermediate_wavefields=return_intermediate_wavefields,
+                                         device=self.device)
         return res
 
     def backprop(self, u_ls, probe_real, probe_imag, return_intermediate_wavefields=False):
@@ -989,7 +990,8 @@ class BackpropSubproblem(Subproblem):
         patch_shape = u_ls[0].shape[1:4]
         res = multislice_backpropagate_batch(u_ls, probe_real, probe_imag, self.energy_ev, self.psize_cm,
                                              self.psize_cm, free_prop_cm=0, binning=self.binning,
-                                             return_intermediate_wavefields=return_intermediate_wavefields)
+                                             return_intermediate_wavefields=return_intermediate_wavefields,
+                                             device=self.device)
         return res
 
     def get_loss(self, u_ls, w_ls, r_x, lambda2_ls, lambda3_ls):
@@ -1212,7 +1214,7 @@ class BackpropSubproblem(Subproblem):
             lambda2 = lambda2_mmap[line_st:line_end, px_st:px_end, :]
             lambda2 = w.create_variable(lambda2, requires_grad=False, device=self.device)
             lambda2 = lambda2 + self.rho * this_r[:line_end - line_st, :px_end - px_st, :]
-            lambda2_mmap[line_st:line_end, px_st:px_end, :] = lambda2
+            lambda2_mmap[line_st:line_end, px_st:px_end, :] = w.to_numpy(lambda2)
             del lambda2_mmap
             rr, ri = w.split_channel(this_r)
             self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
@@ -1268,7 +1270,7 @@ class TomographySubproblem(Subproblem):
         self.optimizer.set_index_in_grad_return(0)
 
     def forward(self, x, theta):
-        return w.rotate(x, theta, axis=0, device=self.device)
+        return w.rotate(x, theta, axis=0, device=None)
 
     def get_loss(self, x, u, lambda3, theta):
         grad = u - self.forward(x, theta) + lambda3 / self.rho
