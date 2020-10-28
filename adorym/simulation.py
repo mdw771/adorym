@@ -160,6 +160,7 @@ def simulate_ptychography(
     global_settings.backend = backend
     device_obj = None if cpu_only else gpu_index
     device_obj = w.get_device(device_obj)
+    print(device_obj)
     n_pos = len(probe_pos)
 
     if rank == 0:
@@ -665,9 +666,9 @@ def simulate_ptychography(
         # Write data.
         # ================================================================================
         if complex_output:
-            prj[this_i_theta, this_ind_batch] = np.stack(this_pred_batch[0]) + 1j * np.stack(this_pred_batch[1])
+            prj[this_i_theta, this_ind_batch] = np.stack(w.to_numpy(this_pred_batch[0])) + 1j * w.to_numpy(np.stack(this_pred_batch[1]))
         else:
-            prj[this_i_theta, this_ind_batch] = this_pred_batch + 1j * 0
+            prj[this_i_theta, this_ind_batch] = w.to_numpy(this_pred_batch) + 1j * 0
         f.flush()
 
         # ================================================================================

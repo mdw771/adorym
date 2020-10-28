@@ -136,7 +136,7 @@ try:
 except: pass
 
 try:
-    params_cone_marc = {'fname': 'data_cone_256_foam_1nm_new.h5',
+    params_cone_marc = {'fname': 'data_cone_256_foam_1nm_fine.h5',
                         'theta_st': 0,
                         'theta_end': 2 * np.pi,
                         'n_theta': 500,
@@ -146,17 +146,20 @@ try:
                         'energy_ev': 5000,
                         'psize_cm': 1.e-7,
                         'phantom_path': '/home/beams/B282788/Data/programs/adorym_tests/cone_256_foam_ptycho/phantom',
-                        'minibatch_size': 1,
+                        'minibatch_size': 10,
                         'save_path': '../demos/cone_256_foam_ptycho',
                         'initial_guess': None,
                         'probe_type': 'gaussian',
                         'forward_algorithm': 'fresnel',
-                        'probe_pos': [(y, x) for y in (np.arange(23) * 12) - 36 for x in (np.arange(23) * 12) - 36],
+                        'probe_pos': [(y, x) for y in (np.arange(82) * 3) - 36 for x in (np.arange(82) * 3) - 36],
                         'probe_mag_sigma': 6,
                         'probe_phase_sigma': 6,
                         'probe_phase_max': 0.5,
                         'free_prop_cm': 'inf',
-                        'normalize_fft': False
+                        'normalize_fft': False,
+                        'cpu_only': False,
+                        'backend': 'pytorch',
+                        'gpu_index': 1,
                         }
 except: pass
 

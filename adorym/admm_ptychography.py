@@ -72,7 +72,7 @@ class Subproblem():
 class PhaseRetrievalSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., theta_downsample=None, optimizer=None, device=None,
                  minibatch_size=23, probe_update_delay=30, optimize_probe=False, probe_optimizer=None,
-                 common_probe=True, randomize_probe_pos=False, stdout_options={}):
+                 common_probe=True, randomize_probe_pos=False, debug=False, stdout_options={}):
         """
         Phase retrieval subproblem solver.
 
@@ -98,14 +98,20 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.probe_update_delay = probe_update_delay
         self.stdout_options = stdout_options
         self.randomize_probe_pos = randomize_probe_pos
+        self.debug = debug
 
-    def initialize(self, probe_init, prj, theta_ls=None, probe_pos=None, n_pos_ls=None, probe_pos_ls=None,
+    def initialize(self, probe_exit, probe_incident, prj, theta_ls=None, probe_pos=None, n_pos_ls=None, probe_pos_ls=None,
                    output_folder='.'):
         """
         Initialize solver.
 
-        :param probe_init: List. [probe_real_init, probe_imag_init]. Each is a Float array in
-                           [n_modes, det_y, det_x].
+        :param probe_exit: List. Effective exiting probe in [probe_real_init, probe_imag_init].
+                           Each is a Float array in [n_modes, det_y, det_x]. A good initial guess for the exiting
+                           probe would be the free-space-propagated incident probe.
+        :param probe_incident: List. Incident probe in [probe_real_init, probe_imag_init].
+                               Each is a Float array in [n_modes, det_y, det_x]. Currently, the optimizing the
+                               incident probe is not supported. Please either use known incident probe, or
+                               solve it with 2D ptychography.
         :param theta_ls: List of rotation angles in radians.
         :param prj: H5py Dataset object. Pointer to raw data.
         :param probe_pos: List of probe positions. A list of length-2 tuples. If probe positions are different
@@ -144,10 +150,10 @@ class PhaseRetrievalSubproblem(Subproblem):
             psi = w.create_variable(np.stack([psi_real, psi_imag], axis=-1), requires_grad=False, device=self.device)
             self.psi_theta_ls.append(psi)
         self.psi_theta_ls = w.stack(self.psi_theta_ls)
-        self.probe_real = w.create_variable(probe_init[0], requires_grad=False, device=self.device)
-        self.probe_imag = w.create_variable(probe_init[1], requires_grad=False, device=self.device)
-        self.probe_size = probe_init[0].shape[1:]
-        self.n_probe_modes = probe_init[0].shape[0]
+        self.probe_real = w.create_variable(probe_exit[0], requires_grad=False, device=self.device)
+        self.probe_imag = w.create_variable(probe_exit[1], requires_grad=False, device=self.device)
+        self.probe_size = probe_exit[0].shape[1:]
+        self.n_probe_modes = probe_exit[0].shape[0]
         self.prj = prj
         self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=self.device)
         self.optimizer.set_index_in_grad_return(0)
@@ -372,6 +378,13 @@ class PhaseRetrievalSubproblem(Subproblem):
             g_psi_real = g_psi_real + g_psi_m_real
             g_psi_imag = g_psi_imag + g_psi_m_imag
 
+        if self.debug:
+            print_flush('  Mean part 1 psi gradient (r/i): {}/{}.'.format(w.mean(g_psi_real), w.mean(g_psi_imag)),
+                        0, rank)
+            print_flush('  Mean part 1 probe gradient (r/i): {}/{}.'.format(w.mean(g_p_real), w.mean(g_p_imag)),
+                        0, rank)
+        del y_ls
+
         return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag), this_loss
 
     def get_part2_loss(self, psi=None, w_=None, lambda1=None, g_u=None, lambda2=None):
@@ -392,7 +405,56 @@ class PhaseRetrievalSubproblem(Subproblem):
             this_loss = w.sum(lr ** 2 + li ** 2) / self.next_sp.rho
         else:
             raise ValueError('Check your arguments.')
+        if self.debug:
+            g1, g2 = w.split_channel(grad)
+            print_flush('  Mean part 2 gradient (r/i): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank)
         return grad, this_loss
+
+    def update_g_u(self):
+        """
+        Precalculate multislice exiting waves and save for later use in this subproblem and the BKP subproblem.
+        """
+        my_group, my_theta_ind_ls = self.next_sp.get_my_batch()
+        if my_group != -1:
+            n_ranks_per_angle = self.next_sp.ranks_per_angle
+            my_local_rank = rank % self.next_sp.ranks_per_angle
+            szw = self.next_sp.safe_zone_width
+            tile_shape = self.next_sp.tile_shape
+            tile_shape_padded = np.array(tile_shape) + 2 * szw
+            for i_theta in my_theta_ind_ls:
+                print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=True,
+                            **self.stdout_options)
+                u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
+                u = self.next_sp.prepare_u_tile(u_mmap, my_local_rank)
+                del u_mmap
+
+                er, ei, psir, psii = self.next_sp.forward(u[None, :], return_intermediate_wavefields=True)
+                ex = w.stack([er, ei], axis=-1)[0]
+                ex = ex[szw:szw + tile_shape[0], szw:szw + tile_shape[1]]
+
+                # Save intermediate wavefield tiles for later use.
+                psi1 = w.stack([w.stack(psir, axis=-1), w.stack(psii, axis=-1)], axis=-1)[0]
+                psi1 = psi1[szw:szw + tile_shape[0], szw:szw + tile_shape[1], :, :]
+                self.save_variable(psi1, 'psi1_{:05d}_{:04d}'.format(my_local_rank, i_theta))
+
+                # Group leader rank gathers exiting wave tiles in that angle.
+                if my_local_rank == 0:
+                    ex_ls = [ex]
+                    for i_tile in range(1, self.next_sp.ranks_per_angle):
+                        ex_ls.append(comm.recv(src=my_group * n_ranks_per_angle))
+                else:
+                    comm.send(ex, dest=rank // self.next_sp.ranks_per_angle)
+
+                # Group leader rank assembles exiting wave tiles.
+                if my_local_rank == 0:
+                    ex_full = w.zeros([self.whole_object_size[0], self.whole_object_size[1], 2])
+                    for i_tile, ex in enumerate(ex_ls):
+                        line_st, px_st = self.next_sp.get_tile_position(i_tile)
+                        line_end = min([self.whole_object_size[0], line_st + tile_shape[0]])
+                        px_end = min([self.whole_object_size[1], px_st + tile_shape[1]])
+                        ex_full[line_st:line_end, px_st:px_end, :] = ex[:line_end - line_st, :px_end - px_st, :]
+                    self.save_variable(ex_full, 'g_u_{:04d}'.format(i_theta))
+        print_flush('  Done.', 0, rank, **self.stdout_options)
 
     def solve(self, n_iterations=5):
         """Solve subproblem.
@@ -407,48 +469,7 @@ class PhaseRetrievalSubproblem(Subproblem):
         # follow the pattern of tiled propagation instead of ptychography.
         if isinstance(self.next_sp, BackpropSubproblem):
             print_flush('  PHR: Computing propagation forward pass...', 0, rank, **self.stdout_options)
-            my_group, my_theta_ind_ls = self.next_sp.get_my_batch()
-            if my_group != -1:
-                n_ranks_per_angle = self.next_sp.ranks_per_angle
-                my_local_rank = rank % self.next_sp.ranks_per_angle
-                szw = self.next_sp.safe_zone_width
-                tile_shape = self.next_sp.tile_shape
-                tile_shape_padded = np.array(tile_shape) + 2 * szw
-                for i_theta in my_theta_ind_ls:
-                    print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=True,
-                                **self.stdout_options)
-                    u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
-                    u = self.next_sp.prepare_u_tile(u_mmap, my_local_rank)
-                    del u_mmap
-
-                    er, ei, psir, psii = self.next_sp.forward(u[None, :], return_intermediate_wavefields=True)
-                    ex = w.stack([er, ei], axis=-1)[0]
-                    ex = ex[szw:szw + tile_shape[0], szw:szw + tile_shape[1]]
-
-                    # Save intermediate wavefield tiles for later use.
-                    psi1 = w.stack([w.stack(psir, axis=-1), w.stack(psii, axis=-1)], axis=-1)[0]
-                    psi1 = psi1[szw:szw + tile_shape[0], szw:szw + tile_shape[1], :, :]
-                    self.save_variable(psi1, 'psi1_{:05d}_{:04d}'.format(my_local_rank, i_theta))
-
-                    # Group leader rank gathers exiting wave tiles in that angle.
-                    if my_local_rank == 0:
-                        ex_ls = [ex]
-                        for i_tile in range(1, self.next_sp.ranks_per_angle):
-                            ex_ls.append(comm.recv(src=my_group * n_ranks_per_angle))
-                    else:
-                        comm.send(ex, dest=rank // self.next_sp.ranks_per_angle)
-
-                    # Group leader rank assembles exiting wave tiles.
-                    if my_local_rank == 0:
-                        ex_full = w.zeros([self.whole_object_size[0], self.whole_object_size[1], 2])
-                        for i_tile, ex in enumerate(ex_ls):
-                            line_st, px_st = self.next_sp.get_tile_position(i_tile)
-                            line_end = min([self.whole_object_size[0], line_st + tile_shape[0]])
-                            px_end = min([self.whole_object_size[1], px_st + tile_shape[1]])
-                            ex_full[line_st:line_end, px_st:px_end, :] = ex[:line_end - line_st, :px_end - px_st, :]
-                        self.save_variable(ex_full, 'g_u_{:04d}'.format(i_theta))
-            print_flush('  Done.', 0, rank, same_line=True,
-                        **self.stdout_options)
+            self.update_g_u()
             comm.Barrier()
 
         common_probe_pos = True if self.probe_pos_ls is None else False
@@ -501,8 +522,10 @@ class PhaseRetrievalSubproblem(Subproblem):
                     this_probe_imag = []
                     for ind in this_ind_batch:
                         if self.probe_real_ls[this_i_theta][ind] is not None:
-                            this_probe_real.append(self.probe_real_ls[this_i_theta][ind])
-                            this_probe_imag.append(self.probe_imag_ls[this_i_theta][ind])
+                            this_probe_real.append(w.create_constant(self.probe_real_ls[this_i_theta][ind],
+                                                                     device=self.device))
+                            this_probe_imag.append(w.create_constant(self.probe_imag_ls[this_i_theta][ind],
+                                                                     device=self.device))
                         else:
                             this_probe_real.append(self.probe_real)
                             this_probe_imag.append(self.probe_imag)
@@ -529,7 +552,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 if i_iteration == n_iterations - 1:
                     self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
 
-                if self.optimize_probe and self.total_iter > self.probe_update_delay:
+                if self.optimize_probe and self.total_iter >= self.probe_update_delay:
                     p = w.stack([this_probe_real, this_probe_imag], axis=-1)
                     grad_p = w.stack([grad_p_real, grad_p_imag], axis=-1)
                     # Reduce part-1 gradient within local group for the same angle.
@@ -547,8 +570,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                     else:
                         pr, pi = w.split_channel(p)
                         for i, ind in enumerate(this_ind_batch):
-                            self.probe_real_ls[this_i_theta][ind] = pr[i]
-                            self.probe_imag_ls[this_i_theta][ind] = pi[i]
+                            self.probe_real_ls[this_i_theta][ind] = w.to_numpy(pr[i])
+                            self.probe_imag_ls[this_i_theta][ind] = w.to_numpy(pi[i])
 
                 if is_last_batch_of_this_theta:
                     # Calculate gradient of the second term of the loss upon finishing each angle.
@@ -573,6 +596,10 @@ class PhaseRetrievalSubproblem(Subproblem):
                     self.psi_theta_ls[this_local_i_theta] = a
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part2_loss = self.last_iter_part2_loss + this_loss
+                    try:
+                        del g_u, lambda2
+                    except:
+                        del w_, lambda1
             self.total_iter += 1
         # self.last_iter_part1_loss /= n_batch
         # self.last_iter_part2_loss /= n_theta
@@ -787,7 +814,7 @@ class AlignmentSubproblem(Subproblem):
 
 class BackpropSubproblem(Subproblem):
     def __init__(self, whole_object_size, binning, energy_ev, psize_cm, safe_zone_width=0,
-                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, stdout_options={}):
+                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, debug=False, stdout_options={}):
         """
         Alignment subproblem solver.
 
@@ -817,6 +844,7 @@ class BackpropSubproblem(Subproblem):
         self.tile_shape = [int(np.ceil(self.whole_object_size[0] / n_tiles_y)),
                            int(np.ceil(self.whole_object_size[1] / n_tiles_x))]
         self.tile_shape_padded = [i + 2 * self.safe_zone_width for i in self.tile_shape]
+        self.debug = debug
 
     def initialize(self, theta_ls=None, output_folder=None):
         """
@@ -1064,12 +1092,20 @@ class BackpropSubproblem(Subproblem):
         grad_delta = -grad_imag * k
         grad_beta = -grad_real * k
 
+        if self.debug:
+            print_flush('  Mean part 1 batch gradient (d/b): {}/{}.'.format(w.mean(grad_delta), w.mean(grad_beta)),
+                        0, rank)
+
         # Calculate second term of dL / d(delta/beta).
         temp = self.next_sp.rho * (u_ls - r_x + lambda3_ls / self.next_sp.rho)
         temp_delta, temp_beta = w.split_channel(temp)
         this_part2_loss = w.sum(temp_delta ** 2 + temp_beta ** 2) / self.next_sp.rho
         grad_delta = grad_delta + temp_delta
         grad_beta = grad_beta + temp_beta
+
+        if self.debug:
+            print_flush('  Mean part 2 batch gradient (d/b): {}/{}.'.format(w.mean(temp_delta), w.mean(temp_beta)),
+                        0, rank)
 
         return w.stack([grad_delta, grad_beta], axis=-1), (this_part1_loss, this_part2_loss)
 
@@ -1133,7 +1169,6 @@ class BackpropSubproblem(Subproblem):
                     lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
                     lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta))
                     lambda3_ls = self.prepare_u_tile(lambda3_mmap, self.local_rank)[None]
-                    del lambda3_mmap
                     theta = self.theta_ls[i_theta]
                     loss_func_args = {'u_ls': u_ls, 'w_ls': w_ls, 'x': x, 'lambda2_ls': lambda2_ls,
                                       'lambda3_ls': lambda3_ls, 'theta': theta, 'energy_ev': self.energy_ev,
@@ -1145,7 +1180,6 @@ class BackpropSubproblem(Subproblem):
                     lambda2_ls = self.prepare_2d_tile(lambda2_ls, self.local_rank)[None]
                     lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta))
                     lambda3_ls = self.prepare_u_tile(lambda3_mmap, self.local_rank)[None]
-                    del lambda3_mmap
                     theta = self.theta_ls[i_theta]
                     loss_func_args = {'u_ls': u_ls, 'w_ls': psi_ls, 'r_x': r_x, 'lambda2_ls': lambda2_ls,
                                       'lambda3_ls': lambda3_ls}
@@ -1180,10 +1214,14 @@ class BackpropSubproblem(Subproblem):
                 u_mmap = self.load_mmap('u_{:04d}'.format(i_theta), mode='r+')
                 u_ls = w.to_numpy(u_ls[:line_end - line_st, :px_end - px_st, :, :])
                 u_mmap[line_st:line_end, px_st:px_end, :, :] = u_ls
-                del u_mmap
                 if i_iteration == n_iterations - 1:
                     self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                     self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
+                del u_mmap, lambda3_mmap, lambda2_ls, u_ls
+                try:
+                    del r_x
+                except:
+                    del w_ls
             self.total_iter += 1
         # self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
         # self.last_iter_part2_loss = self.last_iter_part2_loss / n_theta
@@ -1215,7 +1253,7 @@ class BackpropSubproblem(Subproblem):
             lambda2 = w.create_variable(lambda2, requires_grad=False, device=self.device)
             lambda2 = lambda2 + self.rho * this_r[:line_end - line_st, :px_end - px_st, :]
             lambda2_mmap[line_st:line_end, px_st:px_end, :] = w.to_numpy(lambda2)
-            del lambda2_mmap
+            del lambda2_mmap, lambda2
             rr, ri = w.split_channel(this_r)
             self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
         self.rsquare = self.rsquare / self.n_theta
@@ -1223,7 +1261,7 @@ class BackpropSubproblem(Subproblem):
 
 class TomographySubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., optimizer=None, device=None, n_all2all_split='auto',
-                 stdout_options={}):
+                 debug=False, stdout_options={}):
         """
         Tomography subproblem solver.
 
@@ -1243,6 +1281,7 @@ class TomographySubproblem(Subproblem):
         self.optimizer.forward_model = forward_model
         self.n_all2all_split = n_all2all_split
         self.stdout_options = stdout_options
+        self.debug = debug
 
     def initialize(self, theta_ls=None, output_folder='.'):
         """
@@ -1284,6 +1323,9 @@ class TomographySubproblem(Subproblem):
         this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
         grad = self.forward(grad, -theta)
         grad = -self.rho * grad
+        if self.debug:
+            g1, g2 = w.split_channel(grad)
+            print_flush('  Mean batch gradient (d/b): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank)
         return grad, this_loss
 
     def solve(self, n_iterations=3):
@@ -1298,10 +1340,8 @@ class TomographySubproblem(Subproblem):
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                     u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                     u = w.create_variable(u, requires_grad=False, device=None)
-                    del u_mmap
                     lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta), mode='r+')
                     lambda3 = lambda3_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
-                    del lambda3_mmap
                     lambda3 = w.create_variable(lambda3, requires_grad=False, device=None)
                     theta = self.theta_ls[i_theta]
                     x = w.create_variable(self.x.arr, requires_grad=False, device=None)
@@ -1325,6 +1365,7 @@ class TomographySubproblem(Subproblem):
                     x = self.optimizer.apply_gradient(x, w.cast(grad, 'float32'), i_batch=self.total_iter,
                                                       **self.optimizer.options_dict)
                     self.x.arr = w.to_numpy(x)
+                    del u_mmap, lambda3_mmap, u, lambda3, x
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
                 self.total_iter += 1
@@ -1337,7 +1378,6 @@ class TomographySubproblem(Subproblem):
                 u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                 u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                 u = w.create_variable(u, requires_grad=False, device=None)
-                del u_mmap
                 x = w.create_variable(self.x.arr, requires_grad=False, device=None)
                 this_r = u - self.forward(x, theta)
                 lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta), mode='r+')
@@ -1345,9 +1385,9 @@ class TomographySubproblem(Subproblem):
                 lambda3 = w.create_variable(lambda3, requires_grad=False, device=None)
                 lambda3 = lambda3 + self.rho * this_r
                 lambda3_mmap[self.slice_range_local[0]:self.slice_range_local[1]] = w.to_numpy(lambda3)
-                del lambda3_mmap
                 rr, ri = w.split_channel(this_r)
                 self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
+                del u_mmap, lambda3_mmap, u, lambda3
             self.rsquare = self.rsquare / self.n_theta
 
 
@@ -1683,7 +1723,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # Initialize probe functions.
         # ================================================================================
-        print_flush('Initialzing probe...', sto_rank, rank, **stdout_options)
+        print_flush('Initializing probe...', sto_rank, rank, **stdout_options)
         if rank == 0:
             probe_init_kwargs = kwargs
             probe_init_kwargs['lmbda_nm'] = lmbda_nm
@@ -1742,7 +1782,7 @@ def reconstruct_ptychography(
         # Declare and initialize subproblems.
         # ================================================================================
 
-        sp_phr.initialize([probe_real, probe_imag], prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
+        sp_phr.initialize(probe=[probe_real, probe_imag], prj=prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
         if sp_aln is not None: sp_aln.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_bkp.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_tmo.initialize(theta_ls=theta_ls, output_folder=output_folder)
@@ -1778,7 +1818,7 @@ def reconstruct_ptychography(
             sp_phr.solve(n_iterations=n_iterations_phr)
             print_flush('PHR done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_phr.last_iter_part1_loss,
                                                                 sp_phr.last_iter_part2_loss), sto_rank, rank)
-            for i, i_theta in enumerate(sp_phr.theta_ind_ls_local):
+            for i, i_theta in tuple(enumerate(sp_phr.theta_ind_ls_local))[::50]:
                 output_probe(sp_phr.psi_theta_ls[i][:, :, 0], sp_phr.psi_theta_ls[i][:, :, 1],
                              os.path.join(output_folder, 'intermediate', 'ptycho'), custom_name='psi_{}'.format(i_theta),
                              full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
@@ -1844,7 +1884,12 @@ def reconstruct_ptychography(
                 output_probe(sp_phr.probe_real, sp_phr.probe_imag, os.path.join(output_folder, 'intermediate', 'probe'),
                              full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
 
+            w.collect_gpu_garbage()
             print_flush(
                 'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
                                                                                   time.time() - t0, time.time() - t_zero),
                 sto_rank, rank, **stdout_options)
+            if not cpu_only:
+                print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
+                    w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()),
+                    rank, rank, **stdout_options)

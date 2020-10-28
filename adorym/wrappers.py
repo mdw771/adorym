@@ -106,6 +106,33 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True, override_b
     return var
 
 
+def create_constant(arr, dtype=None, device=None, override_backend=None):
+    """
+    Create a variable wrapper.
+    :param arr: Numpy array of the intial value.
+    :param dtype: str; Data type.
+    :param device: A device object from PyTorch, etc. Use None for CPU.
+    """
+    bn = override_backend if override_backend is not None else global_settings.backend
+    args = {}
+    if bn == 'autograd':
+        if dtype is not None:
+            args['dtype'] = dtype_mapping_dict[dtype]['autograd']
+        var = np.array(arr, **args)
+    elif bn == 'pytorch':
+        if dtype is not None:
+            args['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
+        if device is not None:
+            args['device'] = device
+        args['requires_grad'] = False
+        var = tc.tensor(arr, **args)
+    else:
+        if dtype is not None:
+            args['dtype'] = dtype_mapping_dict[dtype]['autograd']
+        var = np.array(arr, **args)
+    return var
+
+
 def to_numpy(var):
     if isinstance(var, np.ndarray):
         return var
