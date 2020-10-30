@@ -2,6 +2,7 @@ import warnings
 import os
 import gc
 import numpy as np
+import scipy.signal
 
 import adorym.global_settings as global_settings
 
@@ -462,6 +463,36 @@ def round(var, override_backend=None):
 
 def round_and_cast(var, dtype='int32', override_backend=None):
     return cast(round(var), dtype=dtype, override_backend=override_backend)
+
+
+def fft(var_real, var_imag, axes=-1, override_backend=None, normalize=False):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        var = var_real + 1j * var_imag
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.fft(var, axes=axes, norm=norm)
+        return anp.real(var), anp.imag(var)
+    elif bn == 'pytorch':
+        var = tc.stack([var_real, var_imag], dim=-1)
+        var = tc.fft(var, signal_ndim=1, normalized=normalize)
+        var_real, var_imag = tc.split(var, 1, dim=-1)
+        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
+        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+
+
+def ifft(var_real, var_imag, axes=-1, override_backend=None, normalize=False):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'autograd':
+        var = var_real + 1j * var_imag
+        norm = None if not normalize else 'ortho'
+        var = anp.fft.ifft1(var, axes=axes, norm=norm)
+        return anp.real(var), anp.imag(var)
+    elif bn == 'pytorch':
+        var = tc.stack([var_real, var_imag], dim=-1)
+        var = tc.ifft(var, signal_ndim=1, normalized=normalize)
+        var_real, var_imag = tc.split(var, 1, dim=-1)
+        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
+        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
 def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
@@ -987,3 +1018,29 @@ def pcc(obj):
             denom = denom * std(obj[slicer_z + [i_slice]])
     nom = sum(nom)
     return abs(nom / denom)
+
+
+def tomography_filter(arr, axis=2, filter_type='hamming'):
+    """
+    Apply a 1D ramp filter needed for tomography reconstruction.
+
+    :param arr: Data array.
+    :param axis: Axis of slice projection.
+    :return:
+    """
+    bn = global_settings.backend
+    func = getattr(scipy.signal.windows, filter_type)
+    filter = func(arr.shape[axis])
+    if axis != len(arr.shape) - 1:
+        arr = swap_axes(arr, [axis, len(arr.shape) - 1])
+    if bn == 'pytorch':
+        args = {'device': arr.device}
+    else:
+        args = {}
+    arr_r, arr_i = fft(arr, zeros_like(arr, requires_grad=False, **args))
+    arr_r = arr_r * filter
+    arr_i = arr_i * filter
+    arr, _ = ifft(arr_r, arr_i)
+    if axis != len(arr.shape) - 1:
+        arr = swap_axes(arr, [axis, len(arr.shape) - 1])
+    return arr

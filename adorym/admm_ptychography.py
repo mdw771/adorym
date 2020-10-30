@@ -71,8 +71,8 @@ class Subproblem():
 
 class PhaseRetrievalSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., theta_downsample=None, optimizer=None, device=None,
-                 minibatch_size=23, probe_update_delay=30, optimize_probe=False, probe_optimizer=None,
-                 common_probe=True, randomize_probe_pos=False, debug=False, stdout_options={}):
+                 minibatch_size=23, probe_update_delay=30, probe_update_interval=4, optimize_probe=False,
+                 probe_optimizer=None, common_probe=True, randomize_probe_pos=False, debug=False, stdout_options={}):
         """
         Phase retrieval subproblem solver.
 
@@ -82,6 +82,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         :param optimizer: adorym.Optimizer object for object function.
         :param probe_optimizer: adorym.Optimizer object for probe functions.
         :param probe_update_delay: Int. Number of subproblem iterations after which probes can be updated.
+        :param probe_update_interval: Int. Number of subproblem iterations after which effective exiting probes
+                                      are updated.
         :param common_probe: Whether to use the same exiting plane probe for all positions. Due to object-probe
                              coupling, allowing different probes for different positions is more physically
                              accurate for strongly scattering objects, but requires more memory.
@@ -99,6 +101,7 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.stdout_options = stdout_options
         self.randomize_probe_pos = randomize_probe_pos
         self.debug = debug
+        self.probe_update_interval = probe_update_interval
 
     def initialize(self, probe_exit, probe_incident, prj, theta_ls=None, probe_pos=None, n_pos_ls=None, probe_pos_ls=None,
                    output_folder='.'):
@@ -139,19 +142,21 @@ class PhaseRetrievalSubproblem(Subproblem):
             self.n_pos_ls = [len(probe_pos)] * self.n_theta
         self.psi_theta_ls = []
         if not self.common_probe:
-            self.probe_real_ls = [[None] * self.n_pos_ls[i] for i in range(self.n_theta)]
-            self.probe_imag_ls = [[None] * self.n_pos_ls[i] for i in range(self.n_theta)]
+            self.probe_real_ls = np.full([self.n_theta, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
+            self.probe_imag_ls = np.full([self.n_theta, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
         for i, theta in enumerate(self.theta_ind_ls_local):
             psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
                                                           random_guess_means_sigmas=(1, 0, 0, 0),
                                                           verbose=False)
             psi_real = psi_real[:, :, 0]
             psi_imag = psi_imag[:, :, 0]
-            psi = w.create_variable(np.stack([psi_real, psi_imag], axis=-1), requires_grad=False, device=self.device)
+            psi = w.create_constant(np.stack([psi_real, psi_imag], axis=-1), device=self.device)
             self.psi_theta_ls.append(psi)
         self.psi_theta_ls = w.stack(self.psi_theta_ls)
-        self.probe_real = w.create_variable(probe_exit[0], requires_grad=False, device=self.device)
-        self.probe_imag = w.create_variable(probe_exit[1], requires_grad=False, device=self.device)
+        self.probe_real = w.create_constant(probe_exit[0], device=self.device)
+        self.probe_imag = w.create_constant(probe_exit[1], device=self.device)
+        self.probe_i_real = w.create_constant(probe_incident[0], device=self.device)
+        self.probe_i_imag = w.create_constant(probe_incident[1], device=self.device)
         self.probe_size = probe_exit[0].shape[1:]
         self.n_probe_modes = probe_exit[0].shape[0]
         self.prj = prj
@@ -277,6 +282,24 @@ class PhaseRetrievalSubproblem(Subproblem):
             patch_ls_new.append(w.stack([patch_real, patch_imag], axis=-1))
         patch_ls_new = w.stack(patch_ls_new)
         return patch_ls_new
+
+    def probe_correction_shift(self, probe_real_ls, probe_imag_ls, probe_pos_correction):
+        """
+        Apply subpixel shift to probes.
+        :param probe_real_ls: [n_batch, n_modes, y, x].
+        :param probe_imag_ls: [n_batch, n_modes, y, x]
+        :return:
+        """
+        probe_real_ls_new = []
+        probe_imag_ls_new = []
+        for i in range(len(probe_real_ls)):
+            pr, pi = realign_image_fourier(probe_real_ls[i], probe_imag_ls[i],
+                                           probe_pos_correction[i], axes=(1, 2), device=self.device)
+            probe_real_ls_new.append(pr)
+            probe_imag_ls_new.append(pi)
+        probe_real_ls_new = w.stack(probe_real_ls_new)
+        probe_imag_ls_new = w.stack(probe_imag_ls_new)
+        return probe_real_ls_new, probe_imag_ls_new
 
     def forward(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                 probe_pos_correction, this_ind_batch):
@@ -475,7 +498,7 @@ class PhaseRetrievalSubproblem(Subproblem):
         common_probe_pos = True if self.probe_pos_ls is None else False
         if common_probe_pos:
             probe_pos_int = np.round(self.probe_pos).astype(int)
-            probe_pos_correction = w.create_variable(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
+            self.probe_pos_correction = w.create_variable(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
                                                      requires_grad=False, device=self.device)
         else:
             probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in self.probe_pos_ls]
@@ -483,11 +506,15 @@ class PhaseRetrievalSubproblem(Subproblem):
             probe_pos_correction = np.zeros([self.n_theta, n_pos_max, 2])
             for j, (probe_pos, probe_pos_int) in enumerate(zip(self.probe_pos_ls, probe_pos_int_ls)):
                 probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
-            probe_pos_correction = w.create_variable(probe_pos_correction, device=self.device)
+            self.probe_pos_correction = w.create_variable(probe_pos_correction, device=self.device)
         n_tot_per_batch = self.minibatch_size * self.n_local_ranks
-        ind_list_rand = self.get_batches(common_probe_pos)
-        n_batch = len(ind_list_rand)
+        self.ind_list_rand = self.get_batches(common_probe_pos)
+        n_batch = len(self.ind_list_rand)
         for i_iteration in range(n_iterations):
+            if self.total_iter % self.probe_update_interval == (self.probe_update_interval - 1) \
+                    and not self.common_probe:
+                self.update_exiting_probes()
+
             # ================================================================================
             # Put diffraction spots from all angles together, and divide into minibatches.
             # ================================================================================
@@ -503,25 +530,25 @@ class PhaseRetrievalSubproblem(Subproblem):
                 # Get scan position, rotation angle indices, and raw data for current batch.
                 # ================================================================================
                 t00 = time.time()
-                if len(ind_list_rand[i_batch]) < n_tot_per_batch:
-                    n_supp = n_tot_per_batch - len(ind_list_rand[i_batch])
-                    ind_list_rand[i_batch] = np.concatenate([ind_list_rand[i_batch], ind_list_rand[0][:n_supp]])
+                if len(self.ind_list_rand[i_batch]) < n_tot_per_batch:
+                    n_supp = n_tot_per_batch - len(self.ind_list_rand[i_batch])
+                    self.ind_list_rand[i_batch] = np.concatenate([self.ind_list_rand[i_batch], self.ind_list_rand[0][:n_supp]])
 
-                this_ind_batch_allranks = ind_list_rand[i_batch]
+                this_ind_batch_allranks = self.ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch_allranks[self.local_rank * self.minibatch_size, 0]
                 this_local_i_theta = np.where(self.theta_ind_ls_local == this_i_theta)[0][0]
                 this_ind_batch = np.sort(
                     this_ind_batch_allranks[self.local_rank * self.minibatch_size:(self.local_rank + 1) * self.minibatch_size, 1])
                 probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
                 this_pos_batch = probe_pos_int[this_ind_batch]
-                is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
+                is_last_batch_of_this_theta = i_batch == n_batch - 1 or self.ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 self.local_comm.Barrier()
 
                 if not self.common_probe:
                     this_probe_real = []
                     this_probe_imag = []
                     for ind in this_ind_batch:
-                        if self.probe_real_ls[this_i_theta][ind] is not None:
+                        if not np.isnan(self.probe_real_ls[this_i_theta, ind, 0, 0, 0]):
                             this_probe_real.append(w.create_constant(self.probe_real_ls[this_i_theta][ind],
                                                                      device=self.device))
                             this_probe_imag.append(w.create_constant(self.probe_imag_ls[this_i_theta][ind],
@@ -537,7 +564,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 patch_ls = self.get_patches(self.psi_theta_ls[this_local_i_theta], this_pos_batch)
                 (grad_psi_patch_real_ls, grad_psi_patch_imag_ls), (grad_p_real, grad_p_imag), this_loss = \
                     self.get_part1_grad(patch_ls, this_probe_real, this_probe_imag, this_i_theta, this_pos_batch,
-                                        probe_pos_correction, this_ind_batch)
+                                        self.probe_pos_correction, this_ind_batch)
                 grad_psi_patch_ls = w.stack([grad_psi_patch_real_ls, grad_psi_patch_imag_ls], axis=-1)
                 grad_psi[...] = 0
                 grad_psi = self.replace_grad_patches(grad_psi_patch_ls, grad_psi, this_pos_batch, initialize=True)
@@ -570,8 +597,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                     else:
                         pr, pi = w.split_channel(p)
                         for i, ind in enumerate(this_ind_batch):
-                            self.probe_real_ls[this_i_theta][ind] = w.to_numpy(pr[i])
-                            self.probe_imag_ls[this_i_theta][ind] = w.to_numpy(pi[i])
+                            self.probe_real_ls[this_i_theta, ind] = w.to_numpy(pr[i])
+                            self.probe_imag_ls[this_i_theta, ind] = w.to_numpy(pi[i])
 
                 if is_last_batch_of_this_theta:
                     # Calculate gradient of the second term of the loss upon finishing each angle.
@@ -649,6 +676,131 @@ class PhaseRetrievalSubproblem(Subproblem):
         grad_psi = grad_psi[pad_arr[0, 0]:pad_arr[0, 0] + init_shape[0],
                    pad_arr[1, 0]:pad_arr[1, 0] + init_shape[1]]
         return grad_psi
+
+    def update_exiting_probes(self):
+        """
+        Update exiting probes using incident probe and current values of u_theta.
+        """
+        n_batch = len(self.ind_list_rand)
+        n_tot_per_batch = self.minibatch_size * self.n_local_ranks
+
+        common_probe_pos = True if self.probe_pos_ls is None else False
+        if common_probe_pos:
+            probe_pos_int = np.round(self.probe_pos).astype(int)
+            probe_pos_correction = w.create_variable(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
+                                                     requires_grad=False, device=self.device)
+        else:
+            probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in self.probe_pos_ls]
+            n_pos_max = np.max([len(poses) for poses in self.probe_pos_ls])
+            probe_pos_correction = np.zeros([self.n_theta, n_pos_max, 2])
+            for j, (probe_pos, probe_pos_int) in enumerate(zip(self.probe_pos_ls, probe_pos_int_ls)):
+                probe_pos_correction[j, :len(probe_pos)] = probe_pos - probe_pos_int
+            probe_pos_correction = w.create_variable(probe_pos_correction, device=self.device)
+
+        for i_batch in range(0, n_batch):
+            # ================================================================================
+            # Initialize batch.
+            # ================================================================================
+            print_flush('  PHR: Probe update: batch {} of {} started.'.format(i_batch, n_batch),
+                        0, rank, same_line=True, **self.stdout_options)
+            starting_batch = 0
+
+            # ================================================================================
+            # Get scan position, rotation angle indices, and raw data for current batch.
+            # ================================================================================
+            t00 = time.time()
+            if len(self.ind_list_rand[i_batch]) < n_tot_per_batch:
+                n_supp = n_tot_per_batch - len(self.ind_list_rand[i_batch])
+                self.ind_list_rand[i_batch] = np.concatenate(
+                    [self.ind_list_rand[i_batch], self.ind_list_rand[0][:n_supp]])
+
+            this_ind_batch_allranks = self.ind_list_rand[i_batch]
+            this_i_theta = this_ind_batch_allranks[self.local_rank * self.minibatch_size, 0]
+            this_local_i_theta = np.where(self.theta_ind_ls_local == this_i_theta)[0][0]
+            this_ind_batch = np.sort(
+                this_ind_batch_allranks[
+                self.local_rank * self.minibatch_size:(self.local_rank + 1) * self.minibatch_size, 1])
+            probe_pos_int = probe_pos_int if common_probe_pos else probe_pos_int_ls[this_i_theta]
+            this_pos_batch = probe_pos_int[this_ind_batch]
+            is_last_batch_of_this_theta = i_batch == n_batch - 1 or self.ind_list_rand[i_batch + 1][0, 0] != this_i_theta
+            self.local_comm.Barrier()
+
+            u_ls = []
+            u_mmap = self.load_mmap('u_{:04d}'.format(this_i_theta))
+            for ind in this_ind_batch:
+                pos_y, pos_x = probe_pos_int[ind]
+                line_st = max([0, pos_y])
+                line_end = min([self.whole_object_size[0], pos_y + self.probe_size[0]])
+                px_st = max([0, pos_x])
+                px_end = min([self.whole_object_size[1], pos_x + self.probe_size[1]])
+                u = u_mmap[line_st:line_end, px_st:px_end, :, :]
+                u = w.create_constant(u, device=self.device)
+                u, _ = pad_object(u, self.whole_object_size, probe_pos_int[ind:ind + 1], self.probe_size)
+                u_ls.append(u)
+            del u_mmap
+            u_ls = w.stack(u_ls)
+
+            # Plane wave propagation.
+            if isinstance(self.next_sp, BackpropSubproblem):
+                nsp = self.next_sp
+            else:
+                nsp = self.next_sp.next_sp
+            assert isinstance(nsp, BackpropSubproblem)
+            psi_1_real_ls, psi_1_imag_ls = nsp.forward(u_ls, return_intermediate_wavefields=False)
+
+            # Probe propagation.
+            # Shift probes to make up floating point positions. Using positive correction for probes.
+            psi_p_real_ls = []
+            psi_p_imag_ls = []
+            pos_correction_batch = self.probe_pos_correction[this_i_theta, this_ind_batch]
+            this_probe_i_real = w.create_constant(self.probe_i_real, device=self.device)
+            this_probe_i_imag = w.create_constant(self.probe_i_imag, device=self.device)
+            this_probe_i_real = w.tile(this_probe_i_real, [len(u_ls), 1, 1, 1])
+            this_probe_i_imag = w.tile(this_probe_i_imag, [len(u_ls), 1, 1, 1])
+            this_probe_i_real, this_probe_i_imag = self.probe_correction_shift(this_probe_i_real, this_probe_i_imag,
+                                                                               pos_correction_batch)
+            for i_mode in range(self.n_probe_modes):
+                psi_p_real, psi_p_imag = multislice_propagate_batch(u_ls,
+                                                                    this_probe_i_real[:, i_mode, :, :],
+                                                                    this_probe_i_imag[:, i_mode, :, :],
+                                                                    nsp.energy_ev, nsp.psize_cm, nsp.psize_cm,
+                                                                    free_prop_cm=0, binning=nsp.binning,
+                                                                    return_intermediate_wavefields=False,
+                                                                    device=self.device)
+                psi_p_real_ls.append(psi_p_real)
+                psi_p_imag_ls.append(psi_p_imag)
+            # wave_real/imag_ls is in [n_modes, n_batch, y, x].
+            psi_p_real_ls = w.stack(psi_p_real_ls, axis=0)
+            psi_p_imag_ls = w.stack(psi_p_imag_ls, axis=0)
+
+            # if rank == 0:
+            #     dxchange.write_tiff(np.squeeze(w.to_numpy(psi_p_real_ls)), os.path.join(self.output_folder, 'intermediate', 'debug', 'psi_p_real_ls'), dtype='float32')
+            #     dxchange.write_tiff(np.squeeze(w.to_numpy(psi_p_imag_ls)), os.path.join(self.output_folder, 'intermediate', 'debug', 'psi_p_imag_ls'), dtype='float32')
+            #     dxchange.write_tiff(np.squeeze(w.to_numpy(psi_1_real_ls)), os.path.join(self.output_folder, 'intermediate', 'debug', 'psi_1_real_ls'), dtype='float32')
+            #     dxchange.write_tiff(np.squeeze(w.to_numpy(psi_1_imag_ls)), os.path.join(self.output_folder, 'intermediate', 'debug', 'psi_1_imag_ls'), dtype='float32')
+
+            # Complex Hadamard quotient
+            this_probe_e_real_ls, this_probe_e_imag_ls = w.complex_mul(psi_p_real_ls, psi_p_imag_ls,
+                                                                       psi_1_real_ls, -psi_1_imag_ls)
+            mod = psi_1_real_ls ** 2 + psi_1_imag_ls ** 2
+            this_probe_e_real_ls = this_probe_e_real_ls / mod
+            this_probe_e_imag_ls = this_probe_e_imag_ls / mod
+
+            this_probe_e_real_ls = w.permute_axes(this_probe_e_real_ls, [1, 0, 2, 3])
+            this_probe_e_imag_ls = w.permute_axes(this_probe_e_imag_ls, [1, 0, 2, 3])
+
+            # Shift back.
+            this_probe_e_real_ls, this_probe_e_imag_ls = \
+                self.probe_correction_shift(this_probe_e_real_ls, this_probe_e_imag_ls, -pos_correction_batch)
+
+            for i, ind in enumerate(this_ind_batch):
+                self.probe_real_ls[this_i_theta, ind] = w.to_numpy(this_probe_e_real_ls[i])
+                self.probe_imag_ls[this_i_theta, ind] = w.to_numpy(this_probe_e_imag_ls[i])
+
+        # p_r = self.probe_real_ls[0, :, 0, :, :]
+        # p_i = self.probe_imag_ls[0, :, 0, :, :]
+        # dxchange.write_tiff(np.sqrt(p_r ** 2 + p_i ** 2), os.path.join(self.output_folder, 'intermediate', 'debug', 'p_mag_{}_rank{}'.format(self.total_iter, rank)), dtype='float32')
+        # dxchange.write_tiff(np.arctan2(p_i, p_r), os.path.join(self.output_folder, 'intermediate', 'debug', 'p_phase_{}_rank{}'.format(self.total_iter, rank)), dtype='float32')
 
 
 class AlignmentSubproblem(Subproblem):
@@ -997,7 +1149,7 @@ class BackpropSubproblem(Subproblem):
                      All chunks have to be from the same theta.
         :return: Exiting wavefields.
         """
-        patch_shape = u_ls[0].shape[1:4]
+        patch_shape = u_ls[0].shape[0:3]
         n_batch = len(u_ls)
         probe_real = w.ones([n_batch, *patch_shape[:2]], requires_grad=False, device=self.device, dtype='float64')
         probe_imag = w.zeros([n_batch, *patch_shape[:2]], requires_grad=False, device=self.device, dtype='float64')
@@ -1775,14 +1927,19 @@ def reconstruct_ptychography(
 
         # Forward propagate probe to exiting plane.
         voxel_nm = np.array([psize_cm] * 3) * 1.e7
-        probe_real, probe_imag = fresnel_propagate(probe_real, probe_imag, psize_cm * this_obj_size[2] * 1e7,
-                                                   lmbda_nm, voxel_nm, override_backend='autograd')
+        probe_real_exit, probe_imag_exit = fresnel_propagate(probe_real, probe_imag, psize_cm * this_obj_size[2] * 1e7,
+                                                             lmbda_nm, voxel_nm, override_backend='autograd')
 
         # ================================================================================
         # Declare and initialize subproblems.
         # ================================================================================
+        assert isinstance(sp_phr, PhaseRetrievalSubproblem)
+        assert isinstance(sp_aln, (AlignmentSubproblem, type(None)))
+        assert isinstance(sp_bkp, BackpropSubproblem)
+        assert isinstance(sp_tmo, TomographySubproblem)
 
-        sp_phr.initialize(probe=[probe_real, probe_imag], prj=prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
+        sp_phr.initialize(probe_exit=[probe_real_exit, probe_imag_exit], probe_incident=[probe_real, probe_imag],
+                          prj=prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
         if sp_aln is not None: sp_aln.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_bkp.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_tmo.initialize(theta_ls=theta_ls, output_folder=output_folder)
