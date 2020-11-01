@@ -2,6 +2,7 @@ import warnings
 import os
 import gc
 import numpy as np
+import scipy
 import scipy.signal
 
 import adorym.global_settings as global_settings
@@ -318,6 +319,13 @@ def no_grad():
     else:
         return EmptyWith()
 
+def detach(var):
+    if global_settings.backend == 'pytorch':
+        var.requires_grad_(False)
+        return var
+    else:
+        return var
+
 def reattach(var):
     if global_settings.backend == 'pytorch':
         var.requires_grad_()
@@ -465,12 +473,12 @@ def round_and_cast(var, dtype='int32', override_backend=None):
     return cast(round(var), dtype=dtype, override_backend=override_backend)
 
 
-def fft(var_real, var_imag, axes=-1, override_backend=None, normalize=False):
+def fft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
-        var = anp.fft.fft(var, axes=axes, norm=norm)
+        var = anp.fft.fft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
@@ -480,12 +488,12 @@ def fft(var_real, var_imag, axes=-1, override_backend=None, normalize=False):
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def ifft(var_real, var_imag, axes=-1, override_backend=None, normalize=False):
+def ifft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
-        var = anp.fft.ifft1(var, axes=axes, norm=norm)
+        var = anp.fft.ifft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif bn == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
@@ -966,18 +974,23 @@ def affine_transform(arr, transform, override_backend=None):
 def rotate(arr, theta, axis=0, override_backend=None, device=None):
     """
     A rotate function that allows taking gradient with regards to theta.
-    :param arr: a 3D object in [N, H, W, C].
+
+    :param arr: a 3D object in [len_y, len_x, len_z, n_channels].
     """
     bn = override_backend if override_backend is not None else global_settings.backend
     if bn == 'autograd':
-        raise NotImplementedError('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
+        warnings.warn('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
+        axes = []
+        for i in range(3):
+            if i != axis:
+                axes.append(i)
+        return scipy.ndimage.rotate(arr, -anp.rad2deg(theta), reshape=False, axes=axes, mode='nearest', order=1)
     elif bn == 'pytorch':
         try:
             theta = theta.view(1)
         except:
             theta = tc.tensor(theta, requires_grad=False, device=device)
             theta = theta.view(1)
-
         axis_arrangement = [0, 1, 2, 3]
         # Move channel to the 2nd dimension.
         axis_arrangement[1], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[1]
@@ -993,9 +1006,9 @@ def rotate(arr, theta, axis=0, override_backend=None, device=None):
         m1 = tc.cat([tc.sin(theta), tc.cos(theta), naught])
         m = tc.stack([m0, m1]).view(1, 2, 3)
         m = cast(tile(m, [arr.shape[0], 1, 1], override_backend='pytorch'), pytorch_dtype_query_mapping_dict[arr.dtype], override_backend='pytorch')
-        g = tc.nn.functional.affine_grid(m, arr.shape)
+        g = tc.nn.functional.affine_grid(m, arr.shape, align_corners=False)
 
-        arr = tc.nn.functional.grid_sample(arr, g, padding_mode='border')
+        arr = tc.nn.functional.grid_sample(arr, g, padding_mode='border', align_corners=False)
         arr = permute_axes(arr, [axis_arrangement.index(0), axis_arrangement.index(1),
                                  axis_arrangement.index(2), axis_arrangement.index(3)], override_backend='pytorch')
         return arr

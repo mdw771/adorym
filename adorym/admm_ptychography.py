@@ -1082,7 +1082,7 @@ class BackpropSubproblem(Subproblem):
         """
         self._psi_theta_ls_local = []
         for i_local, i_theta in enumerate(self.theta_ind_ls_local):
-            psi = self.load_variable('psi_{:04d}'.format(i_theta))
+            psi = self.load_variable('psi_{:04d}'.format(i_theta), create_variable=False)
             self._psi_theta_ls_local.append(psi)
 
     def update_x_data(self):
@@ -1112,10 +1112,9 @@ class BackpropSubproblem(Subproblem):
             probe_pos_valid = probe_pos_valid - self.safe_zone_width
             probe_pos[t_rank:t_rank + self.ranks_per_angle] = probe_pos_valid
             x = self.next_sp.x.read_chunks_from_distributed_object(probe_pos, this_ind_batch_allranks, 1,
-                                                self.tile_shape_padded, device=self.device, unknown_type='delta_beta',
+                                                self.tile_shape_padded, device=None, unknown_type='delta_beta',
                                                 apply_to_arr_rot=True, dtype='float32',
-                                                n_split=self.next_sp.n_all2all_split)
-            x.requires_grad = False
+                                                n_split=self.next_sp.n_all2all_split, create_variable=False)
             if rank >= t_rank and rank < t_rank + self.ranks_per_angle:
                 self._r_x_ls_local.append(x[0])
 
@@ -1326,7 +1325,7 @@ class BackpropSubproblem(Subproblem):
                                       'lambda3_ls': lambda3_ls, 'theta': theta, 'energy_ev': self.energy_ev,
                                       'psize_cm': self.psize_cm}
                 elif isinstance(self.prev_sp, PhaseRetrievalSubproblem):
-                    r_x = self._r_x_ls_local[i][None]
+                    r_x = w.create_constant(self._r_x_ls_local[i][None], device=self.device)
                     psi_ls = self.prepare_2d_tile(self._psi_theta_ls_local[i], self.local_rank)[None]
                     lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))
                     lambda2_ls = self.prepare_2d_tile(lambda2_ls, self.local_rank)[None]
@@ -1413,7 +1412,7 @@ class BackpropSubproblem(Subproblem):
 
 class TomographySubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., optimizer=None, device=None, n_all2all_split='auto',
-                 debug=False, stdout_options={}):
+                 debug=False, filter='hamming', stdout_options={}):
         """
         Tomography subproblem solver.
 
@@ -1433,6 +1432,7 @@ class TomographySubproblem(Subproblem):
         self.optimizer.forward_model = forward_model
         self.n_all2all_split = n_all2all_split
         self.stdout_options = stdout_options
+        self.filter = filter
         self.debug = debug
 
     def initialize(self, theta_ls=None, output_folder='.'):
@@ -1447,7 +1447,7 @@ class TomographySubproblem(Subproblem):
 
         # x is an adorym.ObjectFunction class in DO mode.
         self.x = adorym.ObjectFunction([*self.whole_object_size, 2], distribution_mode='distributed_object',
-                                       output_folder=self.output_folder, device=self.device)
+                                       output_folder=self.output_folder, device=None)
         self.x.initialize_distributed_array_with_zeros()
         self.slice_range_ls = self.x.slice_catalog
         self.slice_range_local = self.slice_range_ls[rank]
@@ -1460,20 +1460,32 @@ class TomographySubproblem(Subproblem):
         self.optimizer.create_distributed_param_arrays(self.x.arr.shape)
         self.optimizer.set_index_in_grad_return(0)
 
-    def forward(self, x, theta):
-        return w.rotate(x, theta, axis=0, device=None)
+    def forward(self, x, theta, reverse=False):
+        # return w.rotate(x, theta, axis=0, device=None)
+        # Rotate on CPU in case of large x.
+        coords = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*self.whole_object_size, self.n_theta),
+                                    theta, reverse=reverse)
+        # coords = w.create_constant(coords, device=None)
+        return apply_rotation(x, coords, axis=0, device=None)
 
-    def get_loss(self, x, u, lambda3, theta):
-        grad = u - self.forward(x, theta) + lambda3 / self.rho
+    def get_loss(self, x, u, lambda3, theta=None):
+        grad = u - self.forward(x, theta=theta, reverse=False) + lambda3 / self.rho
         grad_delta, grad_beta = w.split_channel(grad)
         this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
         return this_loss
 
-    def get_grad(self, x, u, lambda3, theta):
-        grad = u - self.forward(x, theta) + lambda3 / self.rho
+    def get_grad(self, x, u, lambda3, theta, i_theta=None):
+        grad = u - self.forward(x, theta, reverse=False) + lambda3 / self.rho
         grad_delta, grad_beta = w.split_channel(grad)
         this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
-        grad = self.forward(grad, -theta)
+        if self.filter is not None:
+            # import matplotlib.pyplot as plt
+            # fig, axes = plt.subplots(1, 2)
+            # axes[0].imshow(grad[25, :, :, 0])
+            grad = w.tomography_filter(grad, axis=1, filter_type=self.filter)
+            # axes[1].imshow(grad[25, :, :, 0])
+            # plt.show()
+        grad = self.forward(grad, theta, reverse=True)
         grad = -self.rho * grad
         if self.debug:
             g1, g2 = w.split_channel(grad)
@@ -1531,7 +1543,7 @@ class TomographySubproblem(Subproblem):
                 u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                 u = w.create_variable(u, requires_grad=False, device=None)
                 x = w.create_variable(self.x.arr, requires_grad=False, device=None)
-                this_r = u - self.forward(x, theta)
+                this_r = u - self.forward(x, theta, reverse=False)
                 lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta), mode='r+')
                 lambda3 = lambda3_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                 lambda3 = w.create_variable(lambda3, requires_grad=False, device=None)
