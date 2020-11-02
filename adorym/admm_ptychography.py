@@ -464,7 +464,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 if my_local_rank == 0:
                     ex_ls = [ex]
                     for i_tile in range(1, self.next_sp.ranks_per_angle):
-                        ex_ls.append(comm.recv(src=my_group * n_ranks_per_angle))
+                        ex_ls.append(comm.recv(source=i_tile + my_group * n_ranks_per_angle))
                 else:
                     comm.send(ex, dest=rank // self.next_sp.ranks_per_angle)
 
@@ -1199,10 +1199,14 @@ class BackpropSubproblem(Subproblem):
 
         if get_multislice_results_from_prevsp:
             try:
-                ex = self.load_variable('g_u_{:04d}'.format(i_theta))
+                ex_mmap = self.load_mmap('g_u_{:04d}'.format(i_theta))
+                ex = self.prepare_2d_tile(ex_mmap, self.local_rank)[None]
                 psi1 = self.load_variable('psi1_{:05d}_{:04d}'.format(self.local_rank, i_theta))
+                if self.safe_zone_width > 0:
+                    psi1 = pad_object_edge(psi1, None, None, None, pad_arr=np.array([[self.safe_zone_width] * 2] * 2))
                 exit_real, exit_imag = w.split_channel(ex)
                 psi_forward_real_ls, psi_forward_imag_ls = w.split_channel(psi1)
+                del ex_mmap
             except:
                 warnings.warn('Cannot get multislice results from previous subproblem.')
                 exit_real, exit_imag, psi_forward_real_ls, psi_forward_imag_ls = \
@@ -1216,7 +1220,8 @@ class BackpropSubproblem(Subproblem):
             psi_forward_imag_ls = w.stack(psi_forward_imag_ls, axis=3)
 
         # Calculate dL / dg = -rho * [w - g(u) + lambda/rho]
-        grad = -self.rho * (w_ls - w.stack([exit_real, exit_imag], axis=-1) + lambda2_ls / self.rho)
+        g_u_ls = w.stack([exit_real, exit_imag], axis=-1)
+        grad = -self.rho * (w_ls - g_u_ls + lambda2_ls / self.rho)
         grad_real, grad_imag = w.split_channel(grad)
         this_part1_loss = w.sum(grad_real ** 2 + grad_imag ** 2) / self.rho
 

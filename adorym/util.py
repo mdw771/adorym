@@ -1245,13 +1245,14 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
     return obj_rot, pad_arr
 
 
-def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_backend=None):
+def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_backend=None, pad_arr=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary, using edge values.
 
     :return: padded object and padding lengths.
     """
-    pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta')
+    if pad_arr is None:
+        pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta')
     obj_rot = w.permute_axes(obj_rot, [2, 3, 0, 1])
     if np.count_nonzero(pad_arr) > 0:
         paap = [[0, 0]] * (len(obj_rot.shape) - 2)
