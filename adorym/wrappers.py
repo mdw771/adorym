@@ -50,6 +50,8 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'arctan2':     {'autograd': 'arctan2',    'tensorflow': 'atan2',      'pytorch': 'atan2'},
                      'nonzero':     {'autograd': 'nonzero',    'tensorflow': 'nonzero',    'pytorch': 'nonzero'},
                      'sign':        {'autograd': 'sign',       'tensorflow': 'sign',       'pytorch': 'sign',       'numpy': 'sign'},
+                     'argmax':      {'autograd': 'argmax',     'tensorflow': 'argmax',     'pytorch': 'argmax',     'numpy': 'argmax'},
+                     'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
                      }
 
 dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
@@ -160,6 +162,13 @@ def get_device(index=None):
         if index is None: return None
         else:
             return tc.device('cuda:{}'.format(index))
+
+
+def get_var_device(var):
+    if global_settings.backend == 'autograd':
+        return None
+    elif global_settings.backend == 'pytorch':
+        return var.device
 
 
 def set_device(device):
@@ -432,6 +441,13 @@ def exp_complex(var_real, var_imag):
     return e * cos(var_imag), e * sin(var_imag)
 
 
+def arange(*args, **kwargs):
+    if global_settings.backend == 'pytorch':
+        return tc.arange(*args, **kwargs)
+    elif global_settings.backend == 'autograd':
+        return anp.arange(*args, **kwargs)
+
+
 def abs(var):
     func = getattr(engine_dict[global_settings.backend], func_mapping_dict['abs'][global_settings.backend])
     arr = func(var)
@@ -467,6 +483,14 @@ def round(var, override_backend=None):
     func = getattr(engine_dict[bn], func_mapping_dict['round'][bn])
     arr = func(var)
     return arr
+
+
+def fix(a, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    if bn == 'pytorch':
+        return tc.trunc(a)
+    elif bn == 'autograd':
+        return anp.fix(a)
 
 
 def round_and_cast(var, dtype='int32', override_backend=None):
@@ -1057,3 +1081,27 @@ def tomography_filter(arr, axis=2, filter_type='hamming'):
     if axis != len(arr.shape) - 1:
         arr = swap_axes(arr, [axis, len(arr.shape) - 1])
     return arr
+
+
+def argmax(arr, override_backend=None):
+    bn = override_backend if override_backend is not None else global_settings.backend
+    func = getattr(engine_dict[bn], func_mapping_dict['argmax'][bn])
+    arr = func(arr)
+    return arr
+
+
+def tensordot(a, b, axes=None, override_backend=None):
+    """
+    :param axes: Comply to Numpy format.
+    """
+    bn = override_backend if override_backend is not None else global_settings.backend
+    dims = axes
+    if bn == 'pytorch':
+        if isinstance(axes, (list, tuple)):
+            if isinstance(axes[0], int):
+                dims = []
+                for i in axes:
+                    dims.append((axes[i],))
+        return tc.tensordot(a, b, dims=dims)
+    elif bn == 'autograd':
+        return anp.tensordot(a, b, axes=dims)

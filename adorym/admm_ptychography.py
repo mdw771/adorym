@@ -433,25 +433,35 @@ class PhaseRetrievalSubproblem(Subproblem):
             print_flush('  Mean part 2 gradient (r/i): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank)
         return grad, this_loss
 
-    def update_g_u(self):
+    def update_g_u(self, bp_sp, ri_variable='u'):
         """
-        Precalculate multislice exiting waves and save for later use in this subproblem and the BKP subproblem.
+        Precalculate multislice exiting waves [g(u)] and save for later use in this subproblem and the BKP subproblem.
+
+        :param bp_sp: Instance of BackpropSubproblem class.
+        :param ri_variable: String. Can be 'u' or 'r_x'. Set the variable to get refractive indices from -
+                            either u or r(x).
         """
-        my_group, my_theta_ind_ls = self.next_sp.get_my_batch()
+        assert isinstance(bp_sp, BackpropSubproblem)
+        my_group, my_theta_ind_ls = bp_sp.group_ind, bp_sp.theta_ind_ls_local
         if my_group != -1:
-            n_ranks_per_angle = self.next_sp.ranks_per_angle
-            my_local_rank = rank % self.next_sp.ranks_per_angle
-            szw = self.next_sp.safe_zone_width
-            tile_shape = self.next_sp.tile_shape
+            n_ranks_per_angle = bp_sp.ranks_per_angle
+            my_local_rank = rank % bp_sp.ranks_per_angle
+            szw = bp_sp.safe_zone_width
+            tile_shape = bp_sp.tile_shape
             tile_shape_padded = np.array(tile_shape) + 2 * szw
-            for i_theta in my_theta_ind_ls:
+            for i, i_theta in enumerate(my_theta_ind_ls):
                 print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=True,
                             **self.stdout_options)
-                u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
-                u = self.next_sp.prepare_u_tile(u_mmap, my_local_rank)
-                del u_mmap
+                if ri_variable == 'u':
+                    u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
+                    u = bp_sp.prepare_u_tile(u_mmap, my_local_rank)
+                    del u_mmap
+                elif ri_variable == 'r_x':
+                    u = w.create_constant(bp_sp._r_x_ls_local[i], device=self.device)
+                else:
+                    raise ValueError('Invalid value for ri_variable. ')
 
-                er, ei, psir, psii = self.next_sp.forward(u[None, :], return_intermediate_wavefields=True)
+                er, ei, psir, psii = bp_sp.forward(u[None], return_intermediate_wavefields=True)
                 ex = w.stack([er, ei], axis=-1)[0]
                 ex = ex[szw:szw + tile_shape[0], szw:szw + tile_shape[1]]
 
@@ -463,20 +473,20 @@ class PhaseRetrievalSubproblem(Subproblem):
                 # Group leader rank gathers exiting wave tiles in that angle.
                 if my_local_rank == 0:
                     ex_ls = [ex]
-                    for i_tile in range(1, self.next_sp.ranks_per_angle):
+                    for i_tile in range(1, bp_sp.ranks_per_angle):
                         ex_ls.append(comm.recv(source=i_tile + my_group * n_ranks_per_angle))
                 else:
-                    comm.send(ex, dest=rank // self.next_sp.ranks_per_angle)
+                    comm.send(ex, dest=rank // bp_sp.ranks_per_angle)
 
                 # Group leader rank assembles exiting wave tiles.
                 if my_local_rank == 0:
                     ex_full = w.zeros([self.whole_object_size[0], self.whole_object_size[1], 2])
                     for i_tile, ex in enumerate(ex_ls):
-                        line_st, px_st = self.next_sp.get_tile_position(i_tile)
+                        line_st, px_st = bp_sp.get_tile_position(i_tile)
                         line_end = min([self.whole_object_size[0], line_st + tile_shape[0]])
                         px_end = min([self.whole_object_size[1], px_st + tile_shape[1]])
                         ex_full[line_st:line_end, px_st:px_end, :] = ex[:line_end - line_st, :px_end - px_st, :]
-                    self.save_variable(ex_full, 'g_u_{:04d}'.format(i_theta))
+                    self.save_variable(ex_full, 'g_{}_{:04d}'.format(ri_variable, i_theta))
         print_flush('  Done.', 0, rank, **self.stdout_options)
 
     def solve(self, n_iterations=5):
@@ -488,12 +498,15 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.last_iter_part2_loss = 0
         grad_psi = w.zeros_like(self.psi_theta_ls[0], requires_grad=False, device=self.device)
 
-        # If next subproblem is backpropagation, prepare the exiting waves beforehand. Rank allocation should
+        # If next subproblem is backpropagation, _theta:i_theta + 1prepare the exiting waves beforehand. Rank allocation should
         # follow the pattern of tiled propagation instead of ptychography.
+        print_flush('  PHR: Computing propagation forward pass...', 0, rank, **self.stdout_options)
         if isinstance(self.next_sp, BackpropSubproblem):
-            print_flush('  PHR: Computing propagation forward pass...', 0, rank, **self.stdout_options)
-            self.update_g_u()
-            comm.Barrier()
+            bp_sp = self.next_sp
+        else:
+            bp_sp = self.next_sp.next_sp
+        self.update_g_u(bp_sp)
+        comm.Barrier()
 
         common_probe_pos = True if self.probe_pos_ls is None else False
         if common_probe_pos:
@@ -603,10 +616,9 @@ class PhaseRetrievalSubproblem(Subproblem):
                 if is_last_batch_of_this_theta:
                     # Calculate gradient of the second term of the loss upon finishing each angle.
                     if isinstance(self.next_sp, AlignmentSubproblem):
-                        # TODO: MPI support for this case
                         psi = self.psi_theta_ls[this_local_i_theta]
-                        w_ = self.next_sp.w_theta_ls[this_i_theta]
-                        lambda1 = self.next_sp.lambda1_theta_ls[this_i_theta]
+                        w_ = self.load_variable('w_{:04d}'.format(this_i_theta))
+                        lambda1 = self.load_variable('lambda1_{:04d}'.format(this_i_theta))
                         loss_func_args = {'psi': psi, 'w_': w_, 'lambda1': lambda1}
                         grad_psi_2, this_loss = self.get_part2_grad(**loss_func_args)
                     elif isinstance(self.next_sp, BackpropSubproblem):
@@ -831,32 +843,70 @@ class AlignmentSubproblem(Subproblem):
         :param theta_ls: List of rotation angles in radians.
         """
         self.setup_temp_folder(output_folder); comm.Barrier()
+        self.theta_ind_ls_local = list(range(rank, self.n_theta, n_ranks))
         self.theta_ls = theta_ls
         self.n_theta = len(theta_ls)
-        self.w_theta_ls = []
-        self.lambda1_theta_ls = []
-        for i, theta in enumerate(self.theta_ls):
-            w_real, w_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
-                                                      random_guess_means_sigmas=(1, 0, 0, 0),
-                                                      verbose=False)
-            w_real = w_real[:, :, 0]
-            w_imag = w_imag[:, :, 0]
-            w_ = w.create_variable(np.stack([w_real, w_imag], axis=-1), requires_grad=False,
-                                   device=self.device)
-            self.w_theta_ls.append(w_)
-            lmbda1 = w.zeros([*self.whole_object_size[0:2], 2], requires_grad=False, device=self.device)
-            self.lambda1_theta_ls.append(lmbda1)
-        self.w_theta_ls = w.stack(self.w_theta_ls)
-        self.lambda1_theta_ls = w.stack(self.lambda1_theta_ls)
-        self.optimizer.create_param_arrays(self.w_theta_ls.shape, device=self.device)
+        self.w_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2],
+                                        device=self.device)
+        self.lambda1_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2],
+                                              device=self.device)
 
-    def forward(self, w_ls):
+        self.optimizer.create_param_arrays(self.w_theta_ls_local.shape, device=self.device)
+        self.shift_params = w.zeros([self.n_theta, 2], device=self.device)
+
+    def update_psi_data_mpi(self):
+        """
+        Update psi data in this subproblem class by gathering psi data in the PHR subproblem classes of other ranks.
+        WARNING: This function uses MPI and may raise the Integer Overflow bug.
+        """
+        assert isinstance(self.prev_sp, PhaseRetrievalSubproblem)
+        # I have psi on these i_thetas
+        my_psi_itheta_ls = self.prev_sp.theta_ind_ls_local
+
+        dat = [None] * n_ranks
+        for i_rank in range(n_ranks):
+            dat[i_rank] = [None] * len(self.theta_ls[i_rank::n_ranks])
+
+        for i_local, my_psi_itheta in enumerate(my_psi_itheta_ls):
+            # Who need my psi data on this i_theta? Where is this i_theta in their local list?
+            t_rank, t_ind = my_psi_itheta % n_ranks, my_psi_itheta // n_ranks
+            dat[t_rank][t_ind] = self.prev_sp.psi_theta_ls[i_local]
+
+        dat = comm.alltoall(dat)
+
+        self._psi_theta_ls_local = []
+        for i_local, i_theta in enumerate(self.theta_ind_ls_local):
+            # Who should send me this i_theta?
+            src_rank, _ = self.prev_sp.locate_theta_data(i_theta)
+            self._psi_theta_ls_local.append(dat[src_rank][i_local])
+        self._psi_theta_ls_local = w.stack(self._psi_theta_ls_local)
+
+    def update_psi_data(self):
+        """
+        Update psi data in this subproblem class by gathering psi data solved in the PHR subproblem and saved on HDD.
+        """
+        assert isinstance(self.prev_sp, PhaseRetrievalSubproblem)
+        self._psi_theta_ls_local = []
+        for i_local, i_theta in enumerate(self.theta_ind_ls_local):
+            psi = self.load_variable('psi_{:04d}'.format(i_theta), create_variable=False)
+            self._psi_theta_ls_local.append(psi)
+
+    def forward(self, psi_ls, shift_ls):
         """
         Operator t.
 
-        :param w_ls: Tensor.
-        :return:
+        :param w_ls: Tensor in [n_batch, y, x, 2].
+        :param shift_ls: List of (y, x) shifts matching the length of w_ls. In shape [n_batch, 2].
+        :return: Shifted w.
         """
+        w_ls = []
+        for i, psi in enumerate(psi_ls):
+            shift = shift_ls[i]
+            psi_r, psi_i = w.split_channel(psi)
+            w_r, w_i = realign_image_fourier(psi_r, psi_i, -shift, axes=(0, 1), device=self.device)
+            w_ = w.stack([w_r, w_i], axis=-1)
+            w_ls.append(w_)
+        w_ls = w.stack(w_ls)
         return w_ls
 
     def get_loss(self, w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls):
@@ -867,101 +917,104 @@ class AlignmentSubproblem(Subproblem):
         this_loss = this_part1_loss + this_part2_loss
         return this_loss
 
-    def get_grad(self, w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=False,
-                 return_multislice_results=False):
+    def get_grad(self, w_ls, g_u_ls, psi_ls, lambda1_ls, lambda2_ls):
         """
         Get gradient.
 
         :param w: Tensor in [n_batch, y, x, 2].
         :return: Gradient.
         """
-        if recalculate_multislice:
-            self.exit_real, self.exit_imag, self.psi_forward_real_ls, self.psi_forward_imag_ls = \
-                self.next_sp.forward(u_ls, return_intermediate_wavefields=True)
-        g_u = w.stack([self.exit_real, self.exit_imag], axis=-1)
-
         # t(w) is currently assumed to be identity matrix.
-        temp = self.rho * (psi_ls - w_ls + lambda1_ls / self.rho)
-        grad = -temp
-        lr, li = w.split_channel(temp)
-        this_part1_loss = w.sum(lr ** 2 + li ** 2) / self.rho
+        # temp = self.rho * (psi_ls - w_ls + lambda1_ls / self.rho)
+        # grad = -temp
+        # lr, li = w.split_channel(temp)
+        # this_part1_loss = w.sum(lr ** 2 + li ** 2) / self.rho
 
-        temp = self.next_sp.rho * (w_ls - g_u + lambda2_ls / self.next_sp.rho)
-        grad = grad + temp
-        lr, li = w.split_channel(temp)
+        grad = self.next_sp.rho * (w_ls - g_u_ls + lambda2_ls / self.next_sp.rho)
+        lr, li = w.split_channel(grad)
         this_part2_loss = w.sum(lr ** 2 + li ** 2) / self.next_sp.rho
 
-        if return_multislice_results:
-            return grad, self.exit_real, self.exit_imag, self.psi_forward_real_ls, self.psi_forward_imag_ls, \
-                   (this_part1_loss, this_part2_loss)
-        else:
-            return grad, (this_part1_loss, this_part2_loss)
+        # return grad, (this_part1_loss, this_part2_loss)
+        return grad, this_part2_loss
+
+    def solve_alignment_params(self):
+        try:
+            assert isinstance(self.next_sp, BackpropSubproblem)
+            assert len(self.next_sp._r_x_ls_local) > 0
+        except:
+            print_flush('  ALN: No updated r(x) stored in BKP. Return zeros for alignment params.', 0, rank)
+            return w.zeros([self.n_theta, 2])
+
+        assert isinstance(self.prev_sp, PhaseRetrievalSubproblem)
+        self.prev_sp.update_g_u(self.next_sp, ri_variable='r_x')
+        self.update_psi_data()
+        for i, i_theta in enumerate(list(range(rank, self.n_theta, n_ranks))):
+            g_r_x = self.load_variable('g_r_x_{:04d}'.format(i_theta))
+            psi = self._psi_theta_ls_local[i]
+            # Register with phase correlation
+            shifts = phase_correlation(psi, g_r_x, upsample_factor=10)
+            self.shift_params[i_theta, :] = shifts
+        self.shift_params = comm.allreduce(self.shift_params)
 
     def solve(self, n_iterations=3):
         self.last_iter_part1_loss = 0
         self.last_iter_part2_loss = 0
-        psi_theta_ls = self.prev_sp.psi_theta_ls
-        u_theta_ls = self.next_sp.u_theta_ls
-        lambda2_theta_ls = self.next_sp.lambda2_theta_ls
         theta_ind_ls = np.arange(self.n_theta).astype(int)
         self.exit_real_ls = []
         self.exit_imag_ls = []
         self.psi_forward_real_ls_ls = []
         self.psi_forward_imag_ls_ls = []
-        for i, i_theta in enumerate(theta_ind_ls):
-            for i_iteration in range(n_iterations):
+
+        # Solve for alignment parameters
+        self.solve_alignment_params()
+
+        # Solve for w
+        for i_iteration in range(n_iterations):
+            for i, i_theta in enumerate(self.theta_ind_ls_local):
                 print_flush('  ALN: Iter {}, theta {} started.'.format(i_iteration, i),
                             0, rank, same_line=True, **self.stdout_options)
-                u_ls = u_theta_ls[i_theta:i_theta + 1]
-                w_ls = self.w_theta_ls[i_theta:i_theta + 1]
-                psi_ls = psi_theta_ls[i_theta:i_theta + 1]
-                lambda1_ls = self.lambda1_theta_ls[i_theta:i_theta + 1]
-                lambda2_ls = lambda2_theta_ls[i_theta:i_theta + 1]
-                loss_func_args = {'w_ls': w_ls, 'u_ls': u_ls, 'psi_ls': psi_ls, 'lambda1_ls': lambda1_ls,
+                g_u_ls = self.load_variable('g_u_{:04d}'.format(i_theta))[None]
+                psi_ls = self._psi_theta_ls_local[i][None]
+                lambda1_ls = self.lambda1_theta_ls_local[i][None]
+                lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
+                shift_ls = self.shift_params[i_theta][None]
+
+                # Step 1: Get w by shifting psi (solves part 1 of the subproblem loss)
+                w_ls = self.forward(psi_ls, shift_ls)
+
+                # Step 2: Update part 2 of the subproblem loss
+                loss_func_args = {'w_ls': w_ls, 'g_u_ls': g_u_ls, 'psi_ls': psi_ls, 'lambda1_ls': lambda1_ls,
                                   'lambda2_ls': lambda2_ls}
                 self.optimizer.forward_model.update_loss_args(loss_func_args)
 
-                if i_iteration == 0:
-                    grad, er, ei, psir, psii, (this_part1_loss, this_part2_loss) = \
-                        self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls, recalculate_multislice=True,
-                                      return_multislice_results=True)
-                    # ======DEBUG======
-                    # if i_theta == 0 and i_iteration == 0:
-                    #     import matplotlib.pyplot as plt
-                    #     fig, axes = plt.subplots(1, 2)
-                    #     a1 = axes[0].imshow(grad[0, :, :, 0])
-                    #     plt.colorbar(a1, ax=axes[0])
-                    #     a2 = axes[1].imshow(grad[0, :, :, 1])
-                    #     plt.colorbar(a2, ax=axes[1])
-                    #     plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'align_grad_{}.png'.format(i_epoch)),
-                    #                 format='png')
-                    #     # plt.show()
-                    # =================
-                    self.exit_real_ls.append(er)
-                    self.exit_imag_ls.append(ei)
-                    self.psi_forward_real_ls_ls.append(psir)
-                    self.psi_forward_imag_ls_ls.append(psii)
-                else:
-                    grad, (this_part1_loss, this_part2_loss) = self.get_grad(w_ls, u_ls, psi_ls, lambda1_ls, lambda2_ls,
-                                                                             recalculate_multislice=False,
-                                                                             return_multislice_results=False)
-                self.optimizer.forward_model.current_loss = this_part1_loss + this_part2_loss
+                grad, this_part2_loss = self.get_grad(**loss_func_args)
+                self.optimizer.forward_model.current_loss = this_part2_loss
                 w_ls = self.optimizer.apply_gradient(w_ls, w.cast(grad, 'float32'), i_batch=self.total_iter,
                                                      params_slicer=[slice(i_theta, i_theta + 1)],
                                                      **self.optimizer.options_dict)
-                self.w_theta_ls[i_theta:i_theta + 1] = w_ls
+                self.w_theta_ls_local[i] = w_ls[0]
                 if i_iteration == n_iterations - 1:
-                    self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
+                    # self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                     self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
         self.total_iter += 1
         # self.last_iter_part1_loss /= n_theta
         # self.last_iter_part2_loss /= n_theta
 
+        # Dump w data and lambda1 data
+        for i, i_theta in enumerate(self.theta_ind_ls_local):
+            self.save_variable(w.to_numpy(self.w_theta_ls_local[i]), 'w_{:04d}'.format(i_theta))
+            self.save_variable(w.to_numpy(self.lambda1_theta_ls_local[i]), 'lambda1_{:04d}'.format(i_theta))
+
     def update_dual(self):
-        r = (self.prev_sp.psi_theta_ls - self.forward(self.w_theta_ls))
-        self.lambda1_theta_ls = self.lambda1_theta_ls + self.rho * r
+        local_shifts = [self.shift_params[i_theta] for i_theta in self.theta_ind_ls_local]
+        r = (self._psi_theta_ls_local - self.forward(self.w_theta_ls_local, local_shifts))
+        self.lambda1_theta_ls_local = self.lambda1_theta_ls_local + self.rho * r
         rr, ri = w.split_channel(r)
         self.rsquare = w.mean(rr ** 2 + ri ** 2)
+
+        # Dump lambda1 data
+        for i, i_theta in enumerate(self.theta_ind_ls_local):
+            self.save_variable(w.to_numpy(self.lambda1_theta_ls_local[i]), 'lambda1_{:04d}'.format(i_theta))
 
 
 class BackpropSubproblem(Subproblem):
@@ -1307,7 +1360,8 @@ class BackpropSubproblem(Subproblem):
         return u
 
     def solve(self, n_iterations=3):
-        self.update_psi_data()
+        if isinstance(self.prev_sp, PhaseRetrievalSubproblem):
+            self.update_psi_data()
         self.update_x_data()
         self.last_iter_part1_loss = 0
         self.last_iter_part2_loss = 0
@@ -1319,24 +1373,17 @@ class BackpropSubproblem(Subproblem):
                 print_flush('  BKP: Iter {}, theta {} started.'.format(i_iteration, i),
                             0, rank, same_line=True, **self.stdout_options)
                 u_ls = self.prepare_u_tile(self.load_mmap('u_{:04d}'.format(i_theta)), self.local_rank)[None]
+                r_x = w.create_constant(self._r_x_ls_local[i][None], device=self.device)
+                lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
+                lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta))
+                lambda3_ls = self.prepare_u_tile(lambda3_mmap, self.local_rank)[None]
+                theta = self.theta_ls[i_theta]
                 if isinstance(self.prev_sp, AlignmentSubproblem):
-                    x = self.next_sp.x
-                    w_ls = self.prev_sp.w_theta_ls[i_theta:i_theta + 1]
-                    lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
-                    lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta))
-                    lambda3_ls = self.prepare_u_tile(lambda3_mmap, self.local_rank)[None]
-                    theta = self.theta_ls[i_theta]
-                    loss_func_args = {'u_ls': u_ls, 'w_ls': w_ls, 'x': x, 'lambda2_ls': lambda2_ls,
-                                      'lambda3_ls': lambda3_ls, 'theta': theta, 'energy_ev': self.energy_ev,
-                                      'psize_cm': self.psize_cm}
+                    w_ls = self.load_variable('w_{:04d}'.format(i_theta))[None]
+                    loss_func_args = {'u_ls': u_ls, 'w_ls': w_ls, 'r_x': r_x, 'lambda2_ls': lambda2_ls,
+                                      'lambda3_ls': lambda3_ls}
                 elif isinstance(self.prev_sp, PhaseRetrievalSubproblem):
-                    r_x = w.create_constant(self._r_x_ls_local[i][None], device=self.device)
                     psi_ls = self.prepare_2d_tile(self._psi_theta_ls_local[i], self.local_rank)[None]
-                    lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))
-                    lambda2_ls = self.prepare_2d_tile(lambda2_ls, self.local_rank)[None]
-                    lambda3_mmap = self.load_mmap('lambda3_{:04d}'.format(i_theta))
-                    lambda3_ls = self.prepare_u_tile(lambda3_mmap, self.local_rank)[None]
-                    theta = self.theta_ls[i_theta]
                     loss_func_args = {'u_ls': u_ls, 'w_ls': psi_ls, 'r_x': r_x, 'lambda2_ls': lambda2_ls,
                                       'lambda3_ls': lambda3_ls}
                 else:
@@ -1373,9 +1420,9 @@ class BackpropSubproblem(Subproblem):
                 if i_iteration == n_iterations - 1:
                     self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                     self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
-                del u_mmap, lambda3_mmap, lambda2_ls, u_ls
+                del u_mmap, lambda3_mmap, lambda2_ls, u_ls, r_x
                 try:
-                    del r_x
+                    del psi_ls
                 except:
                     del w_ls
             self.total_iter += 1
@@ -2006,7 +2053,7 @@ def reconstruct_ptychography(
             # plt.show()
             if sp_aln is not None:
                 sp_aln.solve(n_iterations=n_iterations_aln)
-                print_flush('ALN done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_aln.last_iter_part1_loss,
+                print_flush('ALN done in {} s. Loss: NA/{}.'.format(time.time() - t00,
                                                                     sp_aln.last_iter_part2_loss), sto_rank, rank)
             # ff = h5py.File('/home/beams/B282788/Data/programs/adorym_dev/demos/adhesin/data_adhesin_360_soft_4d.h5')
             # dd = ff['exchange/data']
