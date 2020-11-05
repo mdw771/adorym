@@ -525,7 +525,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         n_batch = len(self.ind_list_rand)
         for i_iteration in range(n_iterations):
             if self.total_iter % self.probe_update_interval == (self.probe_update_interval - 1) \
-                    and not self.common_probe:
+                    and not self.common_probe and self.total_iter > 0:
+                print_flush('  PHR: Updating exiting probes...', 0, rank, **self.stdout_options)
                 self.update_exiting_probes()
 
             # ================================================================================
@@ -738,7 +739,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             self.local_comm.Barrier()
 
             u_ls = []
-            u_mmap = self.load_mmap('u_{:04d}'.format(this_i_theta))
+            u_mmap = self.load_mmap('x_{:04d}'.format(this_i_theta))
             for ind in this_ind_batch:
                 pos_y, pos_x = probe_pos_int[ind]
                 line_st = max([0, pos_y])
@@ -1138,7 +1139,7 @@ class BackpropSubproblem(Subproblem):
             psi = self.load_variable('psi_{:04d}'.format(i_theta), create_variable=False)
             self._psi_theta_ls_local.append(psi)
 
-    def update_x_data(self):
+    def update_x_data(self, dump_rotated_x=False):
         """
         Update r(x) tile from distributedly stored x in the TMO subproblem.
         """
@@ -1150,6 +1151,17 @@ class BackpropSubproblem(Subproblem):
             coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*self.whole_object_size, len(self.theta_ls)),
                                           self.theta_ls[i_theta], reverse=False)
             self.next_sp.x.rotate_array(coord_ls, overwrite_arr=False, override_backend='autograd', override_device='cpu')
+
+            if dump_rotated_x:
+                if rank == 0:
+                    if not os.path.exists(os.path.join(self.temp_folder, 'x_{:04d}'.format(i_theta))):
+                        self.save_variable(np.zeros([*self.whole_object_size, 2]), 'x_{:04d}'.format(i_theta))
+                comm.barrier()
+                if self.next_sp.x.arr is not None:
+                    f = self.load_mmap('x_{:04d}'.format(i_theta), mode='r+')
+                    f[slice(*self.next_sp.slice_range_local)] = self.next_sp.x.arr_rot
+                    del f
+
             # Create an all-rank batch index array like [(0, 0), (0, 1), (0, 2), ..., (0, n_ranks)].
             this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks).astype(int)], axis=-1)
             # Create a probe position array like
@@ -1362,7 +1374,15 @@ class BackpropSubproblem(Subproblem):
     def solve(self, n_iterations=3):
         if isinstance(self.prev_sp, PhaseRetrievalSubproblem):
             self.update_psi_data()
-        self.update_x_data()
+            phr_sp = self.prev_sp
+        else:
+            phr_sp = self.prev_sp.prev_sp
+
+        # Dump x at various angles right before exiting probes are updated in PHR
+        assert isinstance(phr_sp, PhaseRetrievalSubproblem)
+        flag_dump_x = (phr_sp.total_iter % phr_sp.probe_update_interval == (phr_sp.probe_update_interval - 2))
+        self.update_x_data(dump_rotated_x=flag_dump_x)
+
         self.last_iter_part1_loss = 0
         self.last_iter_part2_loss = 0
 
