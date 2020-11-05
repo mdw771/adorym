@@ -123,6 +123,7 @@ class PhaseRetrievalSubproblem(Subproblem):
         :param probe_pos_ls: List of probe position lists for all angles. If probe positions are common for all
                              angles, put None.
         """
+        print_flush('  PHR: Initializing...', 0, rank, **self.stdout_options)
         self.theta_ls = theta_ls
         self.n_theta = len(theta_ls)
         self.setup_temp_folder(output_folder); comm.Barrier()
@@ -142,8 +143,8 @@ class PhaseRetrievalSubproblem(Subproblem):
             self.n_pos_ls = [len(probe_pos)] * self.n_theta
         self.psi_theta_ls = []
         if not self.common_probe:
-            self.probe_real_ls = np.full([self.n_theta, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
-            self.probe_imag_ls = np.full([self.n_theta, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
+            self.probe_real_ls = np.full([self.n_theta_local, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
+            self.probe_imag_ls = np.full([self.n_theta_local, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
         for i, theta in enumerate(self.theta_ind_ls_local):
             psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
                                                           random_guess_means_sigmas=(1, 0, 0, 0),
@@ -562,10 +563,10 @@ class PhaseRetrievalSubproblem(Subproblem):
                     this_probe_real = []
                     this_probe_imag = []
                     for ind in this_ind_batch:
-                        if not np.isnan(self.probe_real_ls[this_i_theta, ind, 0, 0, 0]):
-                            this_probe_real.append(w.create_constant(self.probe_real_ls[this_i_theta][ind],
+                        if not np.isnan(self.probe_real_ls[this_local_i_theta, ind, 0, 0, 0]):
+                            this_probe_real.append(w.create_constant(self.probe_real_ls[this_local_i_theta][ind],
                                                                      device=self.device))
-                            this_probe_imag.append(w.create_constant(self.probe_imag_ls[this_i_theta][ind],
+                            this_probe_imag.append(w.create_constant(self.probe_imag_ls[this_local_i_theta][ind],
                                                                      device=self.device))
                         else:
                             this_probe_real.append(self.probe_real)
@@ -611,8 +612,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                     else:
                         pr, pi = w.split_channel(p)
                         for i, ind in enumerate(this_ind_batch):
-                            self.probe_real_ls[this_i_theta, ind] = w.to_numpy(pr[i])
-                            self.probe_imag_ls[this_i_theta, ind] = w.to_numpy(pi[i])
+                            self.probe_real_ls[this_local_i_theta, ind] = w.to_numpy(pr[i])
+                            self.probe_imag_ls[this_local_i_theta, ind] = w.to_numpy(pi[i])
 
                 if is_last_batch_of_this_theta:
                     # Calculate gradient of the second term of the loss upon finishing each angle.
@@ -690,7 +691,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                    pad_arr[1, 0]:pad_arr[1, 0] + init_shape[1]]
         return grad_psi
 
-    def update_exiting_probes(self):
+    def update_exiting_probes(self, gamma=1e-9):
         """
         Update exiting probes using incident probe and current values of u_theta.
         """
@@ -795,7 +796,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             # Complex Hadamard quotient
             this_probe_e_real_ls, this_probe_e_imag_ls = w.complex_mul(psi_p_real_ls, psi_p_imag_ls,
                                                                        psi_1_real_ls, -psi_1_imag_ls)
-            mod = psi_1_real_ls ** 2 + psi_1_imag_ls ** 2
+            mod = psi_1_real_ls ** 2 + psi_1_imag_ls ** 2 + gamma
             this_probe_e_real_ls = this_probe_e_real_ls / mod
             this_probe_e_imag_ls = this_probe_e_imag_ls / mod
 
@@ -807,8 +808,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                 self.probe_correction_shift(this_probe_e_real_ls, this_probe_e_imag_ls, -pos_correction_batch)
 
             for i, ind in enumerate(this_ind_batch):
-                self.probe_real_ls[this_i_theta, ind] = w.to_numpy(this_probe_e_real_ls[i])
-                self.probe_imag_ls[this_i_theta, ind] = w.to_numpy(this_probe_e_imag_ls[i])
+                self.probe_real_ls[this_local_i_theta, ind] = w.to_numpy(this_probe_e_real_ls[i])
+                self.probe_imag_ls[this_local_i_theta, ind] = w.to_numpy(this_probe_e_imag_ls[i])
 
         # p_r = self.probe_real_ls[0, :, 0, :, :]
         # p_i = self.probe_imag_ls[0, :, 0, :, :]
@@ -843,6 +844,7 @@ class AlignmentSubproblem(Subproblem):
 
         :param theta_ls: List of rotation angles in radians.
         """
+        print_flush('  ALN: Initializing...', 0, rank, **self.stdout_options)
         self.setup_temp_folder(output_folder); comm.Barrier()
         self.theta_ind_ls_local = list(range(rank, self.n_theta, n_ranks))
         self.theta_ls = theta_ls
@@ -1058,6 +1060,7 @@ class BackpropSubproblem(Subproblem):
 
         :param theta_ls: List of rotation angles in radians.
         """
+        print_flush('  BKP: Initializing...', 0, rank, **self.stdout_options)
         if self.ranks_per_angle > n_ranks:
             raise ValueError('Number of ranks per angle exceeds total number of ranks. ')
         self.setup_temp_folder(output_folder); comm.Barrier()
@@ -1513,6 +1516,7 @@ class TomographySubproblem(Subproblem):
 
         :param theta_ls: List of rotation angles in radians.
         """
+        print_flush('  TMO: Initializing...', 0, rank, **self.stdout_options)
         self.setup_temp_folder(output_folder); comm.Barrier()
         self.theta_ls = theta_ls
         self.n_theta = len(theta_ls)
