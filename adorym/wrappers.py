@@ -152,6 +152,36 @@ def to_numpy(var):
                 return var.cpu().data.numpy()
 
 
+def to_cpu(var):
+    if isinstance(var, np.ndarray):
+        return var
+    elif isinstance(var, np.float64):
+        return var
+    else:
+        if global_settings.backend == 'autograd':
+            return var
+        elif global_settings.backend == 'pytorch':
+            if var.device.type == 'cpu':
+                return var
+            else:
+                return var.cpu()
+
+
+def to_gpu(var, device='cuda:0'):
+    if isinstance(var, np.ndarray):
+        return var
+    elif isinstance(var, np.float64):
+        return var
+    else:
+        if global_settings.backend == 'autograd':
+            return var
+        elif global_settings.backend == 'pytorch':
+            if var.device.type == 'cuda':
+                return var
+            else:
+                return var.cuda(device=device)
+
+
 def get_device(index=None):
     """
     Get device object.
@@ -169,6 +199,13 @@ def get_var_device(var):
         return None
     elif global_settings.backend == 'pytorch':
         return var.device
+
+
+def get_var_device_type(var):
+    if global_settings.backend == 'autograd':
+        return 'cpu'
+    elif global_settings.backend == 'pytorch':
+        return var.device.type
 
 
 def set_device(device):
@@ -954,13 +991,17 @@ def grid_sample(arr, grid, interpolation='bilinear', axis=0, device=None):
         axis_arrangement[2], axis_arrangement[3] = axis_arrangement[3], axis_arrangement[2]
     arr = permute_axes(arr, axis_arrangement, override_backend='pytorch')
 
-    # Convert grid to [0, 1] scale.
-    arr_center = (tc.tensor(arr.shape[2:4], requires_grad=False, device=device) - 1) / 2
-    grid = (grid - arr_center) / (arr_center + 0.5)
+    # Convert grid to [-1, 1] scale.
+    # arr_center = (tc.tensor(arr.shape[2:4], requires_grad=False, device=device) - 1) / 2
+    # grid = (grid - arr_center) / (arr_center + 0.5)
+    arr_shape = create_constant(arr.shape[2:], dtype=pytorch_dtype_query_mapping_dict[arr.dtype],
+                                device=get_var_device(arr))
+    grid = -1 + 2. * grid / arr_shape + 1. / arr_shape
+
     grid = reshape(grid, [1, *arr.shape[2:4], 2], override_backend='pytorch')
     grid = tile(grid, [arr.shape[0], 1, 1, 1], override_backend='pytorch')
     grid = cast(grid, pytorch_dtype_query_mapping_dict[arr.dtype], override_backend='pytorch')
-    arr = tc.nn.functional.grid_sample(arr, grid, padding_mode='border', mode=interpolation)
+    arr = tc.nn.functional.grid_sample(arr, grid, padding_mode='border', mode=interpolation, align_corners=False)
     arr = permute_axes(arr, [axis_arrangement.index(0), axis_arrangement.index(1),
                              axis_arrangement.index(2), axis_arrangement.index(3)], override_backend='pytorch')
     if flag_convert_arr:

@@ -136,7 +136,7 @@ try:
 except: pass
 
 try:
-    params_cone_marc = {'fname': 'data_cone_256_foam_1nm_fine.h5',
+    params_cone_marc = {'fname': 'data_cone_256_foam_1nm_fine_2.h5',
                         'theta_st': 0,
                         'theta_end': 2 * np.pi,
                         'n_theta': 500,

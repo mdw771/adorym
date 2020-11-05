@@ -426,7 +426,7 @@ def rescale(arr, scale, device=None, override_backend=None):
 
 
 def get_cooridnates_stack_for_rotation(array_size, axis=0):
-    image_center = [floor(x / 2) for x in array_size]
+    image_center = [(x - 1) / 2 for x in array_size]
     coords_ls = []
     for this_axis, s in enumerate(array_size):
         if this_axis != axis:
@@ -445,7 +445,7 @@ def get_cooridnates_stack_for_rotation(array_size, axis=0):
 
 
 def calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend=None, device=None):
-    image_center = [floor(x / 2) for x in array_size]
+    image_center = [(x - 1) / 2 for x in array_size]
     m_rot = w.create_variable([[w.cos(theta, override_backend), -w.sin(theta, override_backend)],
                                [w.sin(theta, override_backend), w.cos(theta, override_backend)]],
                               override_backend=override_backend, device=device)
@@ -543,8 +543,8 @@ def apply_rotation_primitive(obj, coord_old, interpolation='bilinear', axis=0, d
         coord_old_2 = coord_old[:, 1]
 
     # Clip coords, so that edge values are used for out-of-array indices
-    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 2, override_backend=override_backend)
-    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 2, override_backend=override_backend)
+    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
 
     if interpolation == 'nearest':
         slicer = [slice(None), slice(None), slice(None)]
@@ -562,10 +562,10 @@ def apply_rotation_primitive(obj, coord_old, interpolation='bilinear', axis=0, d
         fac_fc = (coord_old_ceil_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
         fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 - coord_old_2)
         fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
-        fac_ff = w.stack([fac_ff] * 2, axis=1, override_backend=override_backend)
-        fac_fc = w.stack([fac_fc] * 2, axis=1, override_backend=override_backend)
-        fac_cf = w.stack([fac_cf] * 2, axis=1, override_backend=override_backend)
-        fac_cc = w.stack([fac_cc] * 2, axis=1, override_backend=override_backend)
+        fac_ff = w.stack([fac_ff] * s[-1], axis=1, override_backend=override_backend)
+        fac_fc = w.stack([fac_fc] * s[-1], axis=1, override_backend=override_backend)
+        fac_cf = w.stack([fac_cf] * s[-1], axis=1, override_backend=override_backend)
+        fac_cc = w.stack([fac_cc] * s[-1], axis=1, override_backend=override_backend)
 
         for i_slice in range(s[axis]):
             slicer_ff = [i_slice, i_slice, i_slice]
@@ -573,19 +573,19 @@ def apply_rotation_primitive(obj, coord_old, interpolation='bilinear', axis=0, d
             slicer_ff[axes_rot[1]] = coord_old_floor_2
             slicer_fc = [i_slice, i_slice, i_slice]
             slicer_fc[axes_rot[0]] = coord_old_floor_1
-            slicer_fc[axes_rot[1]] = coord_old_ceil_2
+            slicer_fc[axes_rot[1]] = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1)
             slicer_cf = [i_slice, i_slice, i_slice]
-            slicer_cf[axes_rot[0]] = coord_old_ceil_1
+            slicer_cf[axes_rot[0]] = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1)
             slicer_cf[axes_rot[1]] = coord_old_floor_2
             slicer_cc = [i_slice, i_slice, i_slice]
-            slicer_cc[axes_rot[0]] = coord_old_ceil_1
-            slicer_cc[axes_rot[1]] = coord_old_ceil_2
+            slicer_cc[axes_rot[0]] = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1)
+            slicer_cc[axes_rot[1]] = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1)
             vals_ff = obj[tuple(slicer_ff)]
             vals_fc = obj[tuple(slicer_fc)]
             vals_cf = obj[tuple(slicer_cf)]
             vals_cc = obj[tuple(slicer_cc)]
             vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
-            obj_rot.append(w.reshape(vals, [s[axes_rot[0]], s[axes_rot[1]], 2], override_backend=override_backend))
+            obj_rot.append(w.reshape(vals, [s[axes_rot[0]], s[axes_rot[1]], s[-1]], override_backend=override_backend))
         obj_rot = w.stack(obj_rot, axis=axis, override_backend=override_backend)
     return obj_rot
 

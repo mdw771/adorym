@@ -161,14 +161,14 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.probe_size = probe_exit[0].shape[1:]
         self.n_probe_modes = probe_exit[0].shape[0]
         self.prj = prj
-        self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=self.device)
+        self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=None)
         self.optimizer.set_index_in_grad_return(0)
         if self.optimize_probe:
             if self.common_probe:
-                self.probe_optimizer.create_param_arrays([*self.probe_real.shape, 2], device=self.device)
+                self.probe_optimizer.create_param_arrays([*self.probe_real.shape, 2], device=None)
             else:
                 self.probe_optimizer.create_param_arrays([self.n_theta, max(self.n_pos_ls), *self.probe_real.shape, 2],
-                                                         device=self.device)
+                                                         device=None)
             self.probe_optimizer.set_index_in_grad_return(0)
 
     def allocate_over_theta(self):
@@ -854,7 +854,7 @@ class AlignmentSubproblem(Subproblem):
         self.lambda1_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2],
                                               device=self.device)
 
-        self.optimizer.create_param_arrays(self.w_theta_ls_local.shape, device=self.device)
+        self.optimizer.create_param_arrays(self.w_theta_ls_local.shape, device=None)
         self.shift_params = w.zeros([self.n_theta, 2], device=self.device)
 
     def update_psi_data_mpi(self):
@@ -1022,7 +1022,8 @@ class AlignmentSubproblem(Subproblem):
 
 class BackpropSubproblem(Subproblem):
     def __init__(self, whole_object_size, binning, energy_ev, psize_cm, safe_zone_width=0,
-                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, debug=False, stdout_options={}):
+                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, debug=False,
+                 stdout_options={}):
         """
         Alignment subproblem solver.
 
@@ -1093,7 +1094,7 @@ class BackpropSubproblem(Subproblem):
             self.save_variable(lmbda2, 'lambda2_{:04d}'.format(i_theta))
 
         self.optimizer.create_param_arrays([self.n_theta_local, *self.tile_shape, self.whole_object_size[2], 2],
-                                           device=self.device)
+                                           device=None)
         self.optimizer.set_index_in_grad_return(0)
 
     def locate_theta_data(self, i_theta):
@@ -1533,7 +1534,8 @@ class TomographySubproblem(Subproblem):
             lmbda3 = np.zeros([*self.whole_object_size, 2])
             self.save_variable(lmbda3, 'lambda3_{:04d}'.format(i_theta))
 
-        self.optimizer.create_distributed_param_arrays(self.x.arr.shape)
+        self.optimizer.distribution_mode = 'distributed_object'
+        self.optimizer.create_container(self.x.arr.shape, False, None)
         self.optimizer.set_index_in_grad_return(0)
 
     def forward(self, x, theta, reverse=False):

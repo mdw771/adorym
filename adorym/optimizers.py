@@ -295,6 +295,14 @@ class AdamOptimizer(Optimizer):
             else:
                 m = self.params_whole_array_dict['m'][ss]
                 v = self.params_whole_array_dict['v'][ss]
+                device_0 = w.get_var_device(m)
+                device_type_0 = w.get_var_device_type(m)
+                if w.get_var_device_type(x) == 'cuda':
+                    m = w.to_gpu(m, w.get_var_device(x))
+                    v = w.to_gpu(v, w.get_var_device(x))
+                else:
+                    m = w.to_cpu(m)
+                    v = w.to_cpu(v)
         m = b1 * m  # First moment estimate.
         m = m + (1 - b1) * g
         v = b2 * v  # Second moment estimate.
@@ -309,6 +317,12 @@ class AdamOptimizer(Optimizer):
             self.params_chunk_array_dict['m'] = m
             self.params_chunk_array_dict['v'] = v
         else:
+            if device_type_0 == 'cpu':
+                m = w.to_cpu(m)
+                v = w.to_cpu(v)
+            else:
+                m = w.to_gpu(m, device_0)
+                v = w.to_gpu(v, device_0)
             self.params_whole_array_dict['m'][ss] = m
             self.params_whole_array_dict['v'][ss] = v
         if update_batch_count:
@@ -371,12 +385,23 @@ class MomentumOptimizer(Optimizer):
             v = self.params_chunk_array_dict['v']
         else:
             v = self.params_whole_array_dict['v'][ss]
+            device_0 = w.get_var_device(v)
+            device_type_0 = w.get_var_device_type(v)
+            if w.get_var_device_type(x) == 'cuda':
+                v = w.to_gpu(v, w.get_var_device(x))
+            else:
+                v = w.to_cpu(v)
         g = self.convert_gradient(gradient)
         v = gamma * v + step_size * g
         x = x - v
+
         if self.distribution_mode == 'shared_file':
             self.params_chunk_array_dict['v'] = v
         else:
+            if device_type_0 == 'cpu':
+                v = w.to_cpu(v)
+            else:
+                v = w.to_gpu(v, device_0)
             self.params_whole_array_dict['v'][ss] = v
         return x
 
@@ -515,7 +540,17 @@ class CurveballOptimizer(Optimizer):
         In DO, this is done for slabs.
         """
         z = self.params_whole_array_dict['z'][ss]
+        device_0 = w.get_var_device(z)
+        device_type_0 = w.get_var_device_type(z)
+        if w.get_var_device_type(dz) == 'cuda':
+            z = w.to_gpu(z, w.get_var_device(dz))
+        else:
+            z = w.to_cpu(z)
         z = self.rho * z - self.beta * dz
+        if device_type_0 == 'cpu':
+            z = w.to_cpu(z)
+        else:
+            z = w.to_gpu(z, device_0)
         self.params_whole_array_dict['z'][ss] = z
         self.z_chunk = z
         return z
@@ -564,6 +599,11 @@ class CGOptimizer(Optimizer):
     def _calculate_PR_beta(self, ss, i_batch):
 
         _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
+        if w.get_var_device_type(self._descent_dir_t) == 'cuda':
+            _descent_dir_old_t = w.to_gpu(_descent_dir_old_t, w.get_var_device(self._descent_dir_t))
+        else:
+            _descent_dir_old_t = w.to_cpu(_descent_dir_old_t)
+
         p = self._descent_dir_t
         p_old = _descent_dir_old_t
         if self._diag_precondition_t is not None:
@@ -601,7 +641,15 @@ class CGOptimizer(Optimizer):
         self._descent_dir_t = -g
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
+
         _s_t = self.params_whole_array_dict['s'][ss]
+        device_0 = w.get_var_device(_s_t)
+        device_type_0 = w.get_var_device_type(_s_t)
+        if w.get_var_device_type(self._descent_dir_t) == 'cuda':
+            _s_t = w.to_gpu(_s_t, w.get_var_device(self._descent_dir_t))
+        else:
+            _s_t = w.to_cpu(_s_t)
+
         self._linesearch = self.linesearch_map[linesearch_type](maxiter=max_backtracking_iter,
                                                                 initial_stepsize=step_size,
                                                                 normalize_alpha=normalize_alpha)
@@ -631,6 +679,13 @@ class CGOptimizer(Optimizer):
                                                  f0=forward_model.current_loss)
 
         x = linesearch_out.newx
+
+        if device_type_0 == 'cpu':
+            s_new = w.to_cpu(s_new)
+            self._descent_dir_t = w.to_cpu(self._descent_dir_t)
+        else:
+            s_new = w.to_gpu(s_new, device_0)
+            self._descent_dir_t = w.to_gpu(self._descent_dir_t, device_0)
         self.params_whole_array_dict['s'][ss] = s_new
         self.params_whole_array_dict['descent_dir_old'][ss] = self._descent_dir_t
         self.i_batch += 1
