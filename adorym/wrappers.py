@@ -74,33 +74,50 @@ if flag_pytorch_avail:
                                             'double': 'float64'}
     except:
         pass
+
+
+def set_bn(f):
+    def func(*args, override_backend=None, **kwargs):
+        if 'backend' in kwargs.keys():
+            # If "backend" in the wrapper function is specified by user, it overrides the
+            # "override_backend" argument in the decorator.
+            pass
+        else:
+            # If "backend" in the wrapper function is not specified, check if "override_backend"
+            # argument in the decorator.
+            # If so, use its value for the wrappers "backend" argument.
+            # If not, use global setting.
+            kwargs['backend'] = override_backend if override_backend is not None else global_settings.backend
+        return f(*args, **kwargs)
+    return func
+
 # _____________
 # |Flow control|_____________________________________________________________
 
 class EmptyWith(object):
     def __init__(self):
-        pass
-
+            pass
+    
     def __enter__(self):
-        pass
-
+            pass
+    
     def __exit__(self, exc_type, exc_value, tb):
-        pass
+            pass
 
-def create_variable(arr, dtype=None, device=None, requires_grad=True, override_backend=None):
+@set_bn
+def create_variable(arr, dtype=None, device=None, requires_grad=True, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
     :param dtype: str; Data type.
     :param device: A device object from PyTorch, etc. Use None for CPU.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
-    if bn == 'autograd':
+    if backend == 'autograd':
         if dtype is not None:
             args['dtype'] = dtype_mapping_dict[dtype]['autograd']
         var = anp.array(arr, **args)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         if dtype is not None:
             args['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         if device is not None:
@@ -110,20 +127,20 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True, override_b
     return var
 
 
-def create_constant(arr, dtype=None, device=None, override_backend=None):
+@set_bn
+def create_constant(arr, dtype=None, device=None, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
     :param dtype: str; Data type.
     :param device: A device object from PyTorch, etc. Use None for CPU.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
-    if bn == 'autograd':
+    if backend == 'autograd':
         if dtype is not None:
             args['dtype'] = dtype_mapping_dict[dtype]['autograd']
         var = np.array(arr, **args)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         if dtype is not None:
             args['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         if device is not None:
@@ -137,104 +154,113 @@ def create_constant(arr, dtype=None, device=None, override_backend=None):
     return var
 
 
-def to_numpy(var):
+@set_bn
+def to_numpy(var, backend='autograd'):
     if isinstance(var, np.ndarray):
         return var
     elif isinstance(var, np.float64):
         return var
     else:
-        if global_settings.backend == 'autograd':
+        if backend == 'autograd':
             return var._value
-        elif global_settings.backend == 'pytorch':
+        elif backend == 'pytorch':
             if var.device.type == 'cpu':
                 return var.data.numpy()
             else:
                 return var.cpu().data.numpy()
 
 
-def to_cpu(var):
+@set_bn
+def to_cpu(var, backend='autograd'):
     if isinstance(var, np.ndarray):
         return var
     elif isinstance(var, np.float64):
         return var
     else:
-        if global_settings.backend == 'autograd':
+        if backend == 'autograd':
             return var
-        elif global_settings.backend == 'pytorch':
+        elif backend == 'pytorch':
             if var.device.type == 'cpu':
                 return var
             else:
                 return var.cpu()
 
 
-def to_gpu(var, device='cuda:0'):
+@set_bn
+def to_gpu(var, device='cuda:0', backend='autograd'):
     if isinstance(var, np.ndarray):
         return var
     elif isinstance(var, np.float64):
         return var
     else:
-        if global_settings.backend == 'autograd':
+        if backend == 'autograd':
             return var
-        elif global_settings.backend == 'pytorch':
+        elif backend == 'pytorch':
             if var.device.type == 'cuda':
                 return var
             else:
                 return var.cuda(device=device)
 
 
-def get_device(index=None):
+@set_bn
+def get_device(index=None, backend='autograd'):
     """
     Get device object.
     :param index: index of GPU. Set to None if the tensor is kept on host.
     """
-    if global_settings.backend == 'autograd': return None
-    elif global_settings.backend == 'pytorch':
+    if backend == 'autograd': return None
+    elif backend == 'pytorch':
         if index is None: return None
         else:
             return tc.device('cuda:{}'.format(index))
 
 
-def get_var_device(var):
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_var_device(var, backend='autograd'):
+    if backend == 'autograd':
         return None
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return var.device
 
 
-def get_var_device_type(var):
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_var_device_type(var, backend='autograd'):
+    if backend == 'autograd':
         return 'cpu'
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return var.device.type
 
 
-def set_device(device):
+@set_bn
+def set_device(device, backend='autograd'):
     """
     Set device object. Not useful is backend is Autograd.
     :param device: Device object. Set to None if the tensor is kept on host.
     """
-    if global_settings.backend == 'autograd':
+    if backend == 'autograd':
         return None
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         try:
             tc.cuda.set_device(device)
         except:
             pass
 
 
-def prepare_loss_node(loss, opt_args_ls=None):
-    if global_settings.backend == 'autograd':
+@set_bn
+def prepare_loss_node(loss, opt_args_ls=None, backend='autograd'):
+    if backend == 'autograd':
         return ag.grad(loss, opt_args_ls)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return loss
 
 
-def get_gradients(loss_node, opt_args_ls=None, **kwargs):
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_gradients(loss_node, opt_args_ls=None, backend='autograd', **kwargs):
+    if backend == 'autograd':
         # For Autograd, loss_node is the grad function that takes the loss function arguments and
         # returns the gradients.
         return loss_node(*list(kwargs.values()))
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         # For PyTorch, loss_node is the loss function itself.
         l = loss_node(**kwargs)
         kwargs_ls = list(kwargs.values())
@@ -253,7 +279,8 @@ def get_gradients(loss_node, opt_args_ls=None, **kwargs):
         return grads
 
 
-def vjp(func, x):
+@set_bn
+def vjp(func, x, backend='autograd'):
     """
     Returns a constructor that would generate a function that computes the VJP between its argument and the
     Jacobian of func.
@@ -262,13 +289,14 @@ def vjp(func, x):
     :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
              receives the (adjoint) vector as input.
     """
-    if global_settings.backend == 'autograd':
+    if backend == 'autograd':
         return ag.make_vjp(func, x)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
 
 
-def jvp(func, x):
+@set_bn
+def jvp(func, x, backend='autograd'):
     """
     Returns a constructor that would generate a function that computes the JVP between its argument and the
     Jacobian of func.
@@ -277,13 +305,14 @@ def jvp(func, x):
     :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
              receives the (adjoint) vector as input.
     """
-    if global_settings.backend == 'autograd':
+    if backend == 'autograd':
         return ag.differential_operators.make_jvp_reversemode(func, x)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
 
 
-def hvp(func, x):
+@set_bn
+def hvp(func, x, backend='autograd'):
     """
     Returns a constructor that would generate a function that computes the HVP between its argument and the
     Hessian of func.
@@ -292,49 +321,54 @@ def hvp(func, x):
     :return: The returned constructor receives the input of the differentiated function as input, and the function it returns
              receives the (adjoint) vector as input.
     """
-    if global_settings.backend == 'autograd':
+    if backend == 'autograd':
         return ag.differential_operators.make_hvp(func, x)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         raise NotImplementedError('VJP for Pytorch backend is not implemented yet.')
 
 
-def get_gpu_memory_usage_mb():
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_gpu_memory_usage_mb(backend='autograd'):
+    if backend == 'autograd':
         return 0
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.cuda.memory_allocated() / 1024 ** 2
 
 
-def get_gpu_memory_cache_mb():
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_gpu_memory_cache_mb(backend='autograd'):
+    if backend == 'autograd':
         return 0
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.cuda.memory_cached() / 1024 ** 2
 
 
-def get_peak_gpu_memory_usage_mb():
-    if global_settings.backend == 'autograd':
+@set_bn
+def get_peak_gpu_memory_usage_mb(backend='autograd'):
+    if backend == 'autograd':
         return 0
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.cuda.max_memory_allocated() / 1024 ** 2
 
-def collect_gpu_garbage():
-    if global_settings.backend == 'autograd':
+@set_bn
+def collect_gpu_garbage(backend='autograd'):
+    if backend == 'autograd':
         pass
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         tc.cuda.empty_cache()
 
-def get_allocated_tensors():
+@set_bn
+def get_allocated_tensors(backend='autograd'):
 
     def _getr(slist, olist, seen):
-        for e in slist:
-            if id(e) in seen:
-                continue
-            seen[id(e)] = None
-            olist.append(e)
-            tl = gc.get_referents(e)
-            if tl:
-                _getr(tl, olist, seen)
+            for e in slist:
+                if id(e) in seen:
+                    continue
+                seen[id(e)] = None
+                olist.append(e)
+                tl = gc.get_referents(e)
+                if tl:
+                    _getr(tl, olist, seen)
 
     def get_all_objects():
         """Return a list of all live Python
@@ -350,7 +384,7 @@ def get_allocated_tensors():
         _getr(gcl, olist, seen)
         return olist
 
-    if global_settings.backend == 'pytorch':
+    if backend == 'pytorch':
         objects = get_all_objects()
         for obj in objects:
             try:
@@ -359,21 +393,24 @@ def get_allocated_tensors():
             except:
                 pass
 
-def no_grad():
-    if global_settings.backend == 'pytorch':
+@set_bn
+def no_grad(backend='autograd'):
+    if backend == 'pytorch':
         return tc.no_grad()
     else:
         return EmptyWith()
 
-def detach(var):
-    if global_settings.backend == 'pytorch':
+@set_bn
+def detach(var, backend='autograd'):
+    if backend == 'pytorch':
         var.requires_grad_(False)
         return var
     else:
         return var
 
-def reattach(var):
-    if global_settings.backend == 'pytorch':
+@set_bn
+def reattach(var, backend='autograd'):
+    if backend == 'pytorch':
         var.requires_grad_()
         return var
     else:
@@ -382,11 +419,12 @@ def reattach(var):
 # ________________
 # |Maths functions|_____________________________________________________________
 
-def zeros(shape, dtype=None, device=None, requires_grad=True):
+@set_bn
+def zeros(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros'][global_settings.backend])
-    if global_settings.backend == 'pytorch':
+    func = getattr(engine_dict[backend], func_mapping_dict['zeros'][backend])
+    if backend == 'pytorch':
         if dtype is not None: kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
@@ -394,11 +432,12 @@ def zeros(shape, dtype=None, device=None, requires_grad=True):
     return arr
 
 
-def ones(shape, dtype=None, device=None, requires_grad=True):
+@set_bn
+def ones(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones'][global_settings.backend])
-    if global_settings.backend == 'pytorch':
+    func = getattr(engine_dict[backend], func_mapping_dict['ones'][backend])
+    if backend == 'pytorch':
         if dtype is not None: kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(shape, device=device, requires_grad=requires_grad, **kwargs)
     else:
@@ -406,14 +445,15 @@ def ones(shape, dtype=None, device=None, requires_grad=True):
     return arr
 
 
-def zeros_like(var, dtype=None, device=None, requires_grad=True):
+@set_bn
+def zeros_like(var, dtype=None, device=None, requires_grad=True, backend='autograd'):
     """
     :param var: ADVariable or tensor.
     """
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['zeros_like'][global_settings.backend])
-    if global_settings.backend == 'pytorch':
+    func = getattr(engine_dict[backend], func_mapping_dict['zeros_like'][backend])
+    if backend == 'pytorch':
         if dtype is not None: kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
     else:
@@ -421,14 +461,15 @@ def zeros_like(var, dtype=None, device=None, requires_grad=True):
     return arr
 
 
-def ones_like(var, dtype=None, device=None, requires_grad=True):
+@set_bn
+def ones_like(var, dtype=None, device=None, requires_grad=True, backend='autograd'):
     """
     :param var: ADVariable or tensor.
     """
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['ones_like'][global_settings.backend])
-    if global_settings.backend == 'pytorch':
+    func = getattr(engine_dict[backend], func_mapping_dict['ones_like'][backend])
+    if backend == 'pytorch':
         if dtype is not None: kwargs['dtype'] = getattr(engine_dict['pytorch'], dtype_mapping_dict[dtype]['pytorch'])
         arr = func(var, device=device, requires_grad=requires_grad, **kwargs)
     else:
@@ -436,40 +477,44 @@ def ones_like(var, dtype=None, device=None, requires_grad=True):
     return arr
 
 
-def exp(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['exp'][global_settings.backend])
+@set_bn
+def exp(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['exp'][backend])
     arr = func(var)
     return arr
 
 
-def log(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['log'][global_settings.backend])
+@set_bn
+def log(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['log'][backend])
     arr = func(var)
     return arr
 
 
-def sign(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sign'][global_settings.backend])
+@set_bn
+def sign(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['sign'][backend])
     arr = func(var)
     return arr
 
 
-def sin(var, override_backend=None):
-    bn = global_settings.backend if override_backend is None else override_backend
-    func = getattr(engine_dict[bn], func_mapping_dict['sin'][bn])
+@set_bn
+def sin(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['sin'][backend])
     arr = func(var)
     return arr
 
 
-def cos(var, override_backend=None):
-    bn = global_settings.backend if override_backend is None else override_backend
-    func = getattr(engine_dict[bn], func_mapping_dict['cos'][bn])
+@set_bn
+def cos(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['cos'][backend])
     arr = func(var)
     return arr
 
 
-def exp_complex(var_real, var_imag):
-    if global_settings.backend == 'pytorch':
+@set_bn
+def exp_complex(var_real, var_imag, backend='autograd'):
+    if backend == 'pytorch':
         if not isinstance(var_real, tc.Tensor):
             var_real = tc.tensor(var_real)
         if not isinstance(var_imag, tc.Tensor):
@@ -478,70 +523,75 @@ def exp_complex(var_real, var_imag):
     return e * cos(var_imag), e * sin(var_imag)
 
 
+@set_bn
 def arange(*args, **kwargs):
-    if global_settings.backend == 'pytorch':
+    backend = kwargs['backend']
+    if backend == 'pytorch':
         return tc.arange(*args, **kwargs)
-    elif global_settings.backend == 'autograd':
+    elif backend == 'autograd':
         return anp.arange(*args, **kwargs)
 
 
-def abs(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['abs'][global_settings.backend])
+@set_bn
+def abs(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['abs'][backend])
     arr = func(var)
     return arr
 
 
-def stack(var_list, axis=0, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['stack'][bn])
+@set_bn
+def stack(var_list, axis=0, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['stack'][backend])
     arr = func(var_list, axis)
     return arr
 
 
-def concatenate(var_list, axis=0):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['concatenate'][global_settings.backend])
+@set_bn
+def concatenate(var_list, axis=0, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['concatenate'][backend])
     arr = func(var_list, axis)
     return arr
 
 
-def cast(var, dtype, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
+@set_bn
+def cast(var, dtype, backend='autograd'):
     dtype = str(dtype)
-    if bn == 'autograd':
+    if backend == 'autograd':
         return var.astype(dtype)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         return getattr(var, dtype_mapping_dict[dtype]['pytorch'])()
-    elif bn == 'numpy':
+    elif backend == 'numpy':
         return var.astype(dtype)
 
 
-def round(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['round'][bn])
+@set_bn
+def round(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['round'][backend])
     arr = func(var)
     return arr
 
 
-def fix(a, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'pytorch':
+@set_bn
+def fix(a, backend='autograd'):
+    if backend == 'pytorch':
         return tc.trunc(a)
-    elif bn == 'autograd':
+    elif backend == 'autograd':
         return anp.fix(a)
 
 
-def round_and_cast(var, dtype='int32', override_backend=None):
-    return cast(round(var), dtype=dtype, override_backend=override_backend)
+@set_bn
+def round_and_cast(var, dtype='int32', backend='autograd'):
+    return cast(round(var), dtype=dtype, override_backend=backend)
 
 
-def fft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def fft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.fft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.fft(var, signal_ndim=1, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -549,14 +599,14 @@ def fft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def ifft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def ifft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.ifft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.ifft(var, signal_ndim=1, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -564,14 +614,14 @@ def ifft(var_real, var_imag, axis=-1, override_backend=None, normalize=False):
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def fft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.fft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.fft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -579,14 +629,14 @@ def fft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=Fal
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.ifft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -594,14 +644,14 @@ def ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=Fa
         return var_real[tuple(slicer)], var_imag[tuple(slicer)]
 
 
-def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def fft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.fft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -613,14 +663,14 @@ def fft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, nor
         return var_real, var_imag
 
 
-def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.ifft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var = tc.stack([var_real, var_imag], dim=-1)
         var = tc.ifft(var, signal_ndim=2, normalized=normalize)
         var_real, var_imag = tc.split(var, 1, dim=-1)
@@ -632,14 +682,14 @@ def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), override_backend=None, no
         return var_real, var_imag
 
 
-def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, normalize=False):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    if backend == 'autograd':
         var = var_real + 1j * var_imag
         norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var_real = ifftshift(var_real, axes=axes)
         var_imag = ifftshift(var_imag, axes=axes)
         var = tc.stack([var_real, var_imag], dim=-1)
@@ -651,33 +701,36 @@ def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), override_backend=None, n
         return var_real, var_imag
 
 
-def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None):
-    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend)
+@set_bn
+def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), backend='autograd'):
+    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=backend)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
-    return ifft2(fh_real, fh_imag, override_backend=override_backend)
+    return ifft2(fh_real, fh_imag, override_backend=backend)
 
 
-def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), override_backend=None, normalize=True):
-    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=override_backend, normalize=normalize)
-    h_real, h_imag = fft2(h_real, h_imag, override_backend=override_backend, normalize=normalize)
+@set_bn
+def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2, -1), backend='autograd', normalize=True):
+    f_real, f_imag = fft2(arr_real, arr_imag, axes=axes, override_backend=backend, normalize=normalize)
+    h_real, h_imag = fft2(h_real, h_imag, override_backend=backend, normalize=normalize)
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
-    return ifft2(fh_real, fh_imag, override_backend=override_backend, normalize=normalize)
+    return ifft2(fh_real, fh_imag, override_backend=backend, normalize=normalize)
 
 
-def complex_mul(a_real, a_imag, b_real, b_imag):
+@set_bn
+def complex_mul(a_real, a_imag, b_real, b_imag, backend='autograd'):
     return (a_real * b_real - a_imag * b_imag, a_real * b_imag + a_imag * b_real)
 
 
-def fftshift(var, axes=(1, 2), override_backend=None):
+@set_bn
+def fftshift(var, axes=(1, 2), backend='autograd'):
     """
     :param var: [N, H, W, 2], where the last dimension represents real and imaginary parts.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+    if backend == 'autograd':
         return anp.fft.fftshift(var, axes=axes)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         s = var.shape
         for i in axes:
             p2 = (s[i] + 1) // 2
@@ -690,14 +743,14 @@ def fftshift(var, axes=(1, 2), override_backend=None):
         return var
 
 
-def ifftshift(var, axes=(1, 2), override_backend=None):
+@set_bn
+def ifftshift(var, axes=(1, 2), backend='autograd'):
     """
     :param var: [N, H, W, 2], where the last dimension represents real and imaginary parts.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+    if backend == 'autograd':
         return anp.fft.ifftshift(var, axes=axes)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         s = var.shape
         for i in axes:
             p2 = s[i] - (s[i] + 1) // 2
@@ -710,86 +763,91 @@ def ifftshift(var, axes=(1, 2), override_backend=None):
         return var
 
 
-def split_channel(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def split_channel(var, backend='autograd'):
+    if backend == 'autograd':
         var0, var1 = anp.split(var, var.shape[-1], axis=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
         return var0[tuple(slicer)], var1[tuple(slicer)]
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
         return var0[tuple(slicer)], var1[tuple(slicer)]
    
-    
-def clip(var, a1, a2, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['clip'][bn])
-    if bn == 'pytorch':
+@set_bn
+def clip(var, a1, a2, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['clip'][backend])
+    if backend == 'pytorch':
         if not isinstance(var, tc.Tensor):
             var = tc.tensor(var)
     arr = func(var, a1, a2)
     return arr
 
 
-def reshape(var, newshape, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['reshape'][bn])
+@set_bn
+def reshape(var, newshape, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['reshape'][backend])
     arr = func(var, newshape)
     return arr
 
 
-def floor(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['floor'][bn])
+@set_bn
+def floor(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['floor'][backend])
     arr = func(var)
     return arr
 
 
-def floor_and_cast(var, dtype='int32', override_backend=None):
-    return cast(floor(var, override_backend=override_backend), dtype=dtype, override_backend=override_backend)
+@set_bn
+def floor_and_cast(var, dtype='int32', backend='autograd'):
+    return cast(floor(var, override_backend=backend), dtype=dtype, override_backend=backend)
 
 
-def ceil(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['ceil'][bn])
+@set_bn
+def ceil(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['ceil'][backend])
     arr = func(var)
     return arr
 
 
-def ceil_and_cast(var, dtype='int32', override_backend=None):
-    return cast(ceil(var, override_backend=override_backend), dtype=dtype, override_backend=override_backend)
+@set_bn
+def ceil_and_cast(var, dtype='int32', backend='autograd'):
+    return cast(ceil(var, override_backend=backend), dtype=dtype, override_backend=backend)
 
 
-def sqrt(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sqrt'][global_settings.backend])
+@set_bn
+def sqrt(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['sqrt'][backend])
     arr = func(var)
     return arr
 
 
-def mean(var, axis=None):
+@set_bn
+def mean(var, axis=None, backend='autograd'):
     args = {}
-    if global_settings.backend == 'autograd':
+    if backend == 'autograd':
         if axis is not None:
             args['axis'] = axis
         return anp.mean(var, **args)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         if axis is not None:
             args['dim'] = axis
         return tc.mean(var, **args)
 
 
-def std(var):
-    if global_settings.backend == 'autograd':
+@set_bn
+def std(var, backend='autograd'):
+    if backend == 'autograd':
         return anp.std(var)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.std(var)
 
 
-def max(var, return_number=True, axis=None):
-    if global_settings.backend == 'autograd':
+@set_bn
+def max(var, return_number=True, axis=None, backend='autograd'):
+    if backend == 'autograd':
         a = anp.max(var, axis=axis)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         if axis is None:
             a = tc.max(var)
             if return_number:
@@ -799,10 +857,11 @@ def max(var, return_number=True, axis=None):
     return a
 
 
-def min(var, return_number=True, axis=None):
-    if global_settings.backend == 'autograd':
+@set_bn
+def min(var, return_number=True, axis=None, backend='autograd'):
+    if backend == 'autograd':
         a = anp.min(var, axis=axis)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         if axis is None:
             a = tc.min(var)
             if return_number:
@@ -812,41 +871,41 @@ def min(var, return_number=True, axis=None):
     return a
 
 
-def real(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['real'][bn])
+@set_bn
+def real(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['real'][backend])
     arr = func(var)
     return arr
 
 
-def imag(var, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['imag'][bn])
+@set_bn
+def imag(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['imag'][backend])
     arr = func(var)
     return arr
 
 
-def tile(var, cp, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def tile(var, cp, backend='autograd'):
+    if backend == 'autograd':
         return anp.tile(var, cp)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         return var.repeat(*cp)
 
 
-def repeat(var, cp, axis=None, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def repeat(var, cp, axis=None, backend='autograd'):
+    if backend == 'autograd':
         return anp.repeat(var, cp, axis=axis)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         return tc.repeat_interleave(var, cp, dim=axis)
 
 
-def flip(var, axis=[0], override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def flip(var, axis=[0], backend='autograd'):
+    if backend == 'autograd':
         return anp.flip(var, axis=axis)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         try:
             _ = len(axis)
             return tc.flip(var, dims=axis)
@@ -854,7 +913,8 @@ def flip(var, axis=[0], override_backend=None):
             return tc.flip(var, dims=[axis])
 
 
-def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None):
+@set_bn
+def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd'):
     """
     Pad array.
     [ATTENTION: The behavior of this function is different between Autograd and Pytorch backend.]
@@ -862,7 +922,6 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
     :param mode: Choose from 'constant', 'reflect'.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
     args = {}
     mode_dict = {'constant': {'autograd': 'constant', 'pytorch': 'constant'},
                  'edge':    {'autograd': 'edge',    'pytorch': 'replicate'},
@@ -870,20 +929,21 @@ def pad(var, pad_len, mode='constant', constant_values=0, override_backend=None)
                  'wrap':    {'autograd': 'wrap',    'pytorch': 'circular'}}
     if mode == 'constant':
         args['constant_values'] = 0
-    if bn == 'autograd':
-        return anp.pad(var, pad_len, mode=mode_dict[mode][bn], **args)
-    elif bn == 'pytorch':
+    if backend == 'autograd':
+        return anp.pad(var, pad_len, mode=mode_dict[mode][backend], **args)
+    elif backend == 'pytorch':
         pad_len = [x for y in pad_len[::-1] for x in y]
-        return tc.nn.functional.pad(var, pad_len, mode=mode_dict[mode][bn], value=constant_values)
-    elif bn == 'numpy':
+        return tc.nn.functional.pad(var, pad_len, mode=mode_dict[mode][backend], value=constant_values)
+    elif backend == 'numpy':
         return np.pad(var, pad_len, mode=mode, **args)
 
 
-def sum(var, axis=None):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['sum'][global_settings.backend])
-    if global_settings.backend == 'autograd':
+@set_bn
+def sum(var, axis=None, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['sum'][backend])
+    if backend == 'autograd':
         arr = func(var, axis=axis)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         if axis is None:
             arr = tc.sum(var)
         else:
@@ -891,14 +951,15 @@ def sum(var, axis=None):
     return arr
 
 
-def prod(var, axis=None):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['prod'][global_settings.backend])
-    if global_settings.backend == 'autograd':
+@set_bn
+def prod(var, axis=None, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['prod'][backend])
+    if backend == 'autograd':
         args = {}
         if axis is not None:
             args['axis'] = axis
         arr = func(var, **args)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         args = {}
         if axis is not None:
             args['dim'] = axis
@@ -906,41 +967,47 @@ def prod(var, axis=None):
     return arr
 
 
-def roll(var, shifts, axes=0):
-    if global_settings.backend == 'autograd':
+@set_bn
+def roll(var, shifts, axes=0, backend='autograd'):
+    if backend == 'autograd':
         return anp.roll(var, shifts, axis=axes)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.roll(var, shifts, dims=axes)
 
 
-def arctan2(var1, var2):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['arctan2'][global_settings.backend])
+@set_bn
+def arctan2(var1, var2, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['arctan2'][backend])
     arr = func(var1, var2)
     return arr
 
 
-def nonzero(var):
-    func = getattr(engine_dict[global_settings.backend], func_mapping_dict['nonzero'][global_settings.backend])
+@set_bn
+def nonzero(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['nonzero'][backend])
     arr = func(var)
     return arr
 
 
-def norm(var_real, var_imag):
-    if global_settings.backend == 'autograd':
+@set_bn
+def norm(var_real, var_imag, backend='autograd'):
+    if backend == 'autograd':
         return abs(var_real + 1j * var_imag)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
 
 
-def vec_norm(arr):
-    if global_settings.backend == 'autograd':
+@set_bn
+def vec_norm(arr, backend='autograd'):
+    if backend == 'autograd':
         return anp.sqrt(anp.sum(abs(arr ** 2)))
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.sqrt(tc.sum(arr ** 2))
 
 
-def swap_axes(arr, axes=(0, 1)):
-    if global_settings.backend == 'autograd':
+@set_bn
+def swap_axes(arr, axes=(0, 1), backend='autograd'):
+    if backend == 'autograd':
         temp = [*axes]
         if axes[0] < axes[1]:
             temp = [axes[1], axes[0]]
@@ -953,19 +1020,20 @@ def swap_axes(arr, axes=(0, 1)):
             else:
                 axes.append(i)
         return anp.transpose(arr, axes)
-    elif global_settings.backend == 'pytorch':
+    elif backend == 'pytorch':
         return tc.transpose(arr, axes[0], axes[1])
 
 
-def permute_axes(arr, axes_order, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def permute_axes(arr, axes_order, backend='autograd'):
+    if backend == 'autograd':
         return anp.transpose(arr, axes_order)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         return arr.permute(axes_order)
 
 
-def grid_sample(arr, grid, interpolation='bilinear', axis=0, device=None):
+@set_bn
+def grid_sample(arr, grid, interpolation='bilinear', axis=0, device=None, backend='autograd'):
     """
     :param arr: a stack of 2D images in [N, H, W, C].
     :param grid: [N, 2].
@@ -1009,48 +1077,48 @@ def grid_sample(arr, grid, interpolation='bilinear', axis=0, device=None):
     return arr
 
 
-def matmul(a, b, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+@set_bn
+def matmul(a, b, backend='autograd'):
+    if backend == 'autograd':
         return anp.matmul(a, b)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         return tc.matmul(a, b)
 
 
-def affine_transform(arr, transform, override_backend=None):
+@set_bn
+def affine_transform(arr, transform, backend='autograd'):
     """
     :param arr: a stack of 2D images in [N, H, W].
     :param transform: A [2, 3] matrix for affine transform.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+    if backend == 'autograd':
         raise NotImplementedError('Rescaling in Autograd is not yet implemented. Use Pytorch backend instead.')
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         n = arr.shape[0]
         arr_size = arr.shape[1:]
-        m = reshape(transform, [-1, 2, 3], override_backend=override_backend)
-        m = cast(tile(m, [n, 1, 1], override_backend=override_backend), pytorch_dtype_query_mapping_dict[arr.dtype], override_backend=override_backend)
+        m = reshape(transform, [-1, 2, 3], override_backend=backend)
+        m = cast(tile(m, [n, 1, 1], override_backend=backend), pytorch_dtype_query_mapping_dict[arr.dtype], override_backend=backend)
         g = tc.nn.functional.affine_grid(m, [n, 1, *arr_size])
         arr_new = tc.reshape(arr, [n, 1, *arr.shape[1:]])
         arr_new = tc.nn.functional.grid_sample(arr_new, g, padding_mode='border')
         return arr_new[:, 0, :, :]
 
 
-def rotate(arr, theta, axis=0, override_backend=None, device=None):
+@set_bn
+def rotate(arr, theta, axis=0, backend='autograd', device=None):
     """
     A rotate function that allows taking gradient with regards to theta.
 
     :param arr: a 3D object in [len_y, len_x, len_z, n_channels].
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
-    if bn == 'autograd':
+    if backend == 'autograd':
         warnings.warn('Rotate (with grad) in Autograd is not yet implemented. Use Pytorch backend instead.')
         axes = []
         for i in range(3):
             if i != axis:
                 axes.append(i)
         return scipy.ndimage.rotate(arr, -anp.rad2deg(theta), reshape=False, axes=axes, mode='nearest', order=1)
-    elif bn == 'pytorch':
+    elif backend == 'pytorch':
         try:
             theta = theta.view(1)
         except:
@@ -1079,10 +1147,10 @@ def rotate(arr, theta, axis=0, override_backend=None, device=None):
         return arr
 
 
-def pcc(obj):
+@set_bn
+def pcc(obj, backend='autograd'):
     """
     Calculate the Pearson correlation coefficient of images in an array along the last dimension.
-    
     :param obj: Tensor. 
     :return: Pearson correlation coefficient.
     """
@@ -1098,7 +1166,8 @@ def pcc(obj):
     return abs(nom / denom)
 
 
-def tomography_filter(arr, axis=2, filter_type='hamming'):
+@set_bn
+def tomography_filter(arr, axis=2, filter_type='hamming', backend='autograd'):
     """
     Apply a 1D ramp filter needed for tomography reconstruction.
 
@@ -1106,12 +1175,11 @@ def tomography_filter(arr, axis=2, filter_type='hamming'):
     :param axis: Axis of slice projection.
     :return:
     """
-    bn = global_settings.backend
     func = getattr(scipy.signal.windows, filter_type)
     filter = func(arr.shape[axis])
     if axis != len(arr.shape) - 1:
         arr = swap_axes(arr, [axis, len(arr.shape) - 1])
-    if bn == 'pytorch':
+    if backend == 'pytorch':
         args = {'device': arr.device}
     else:
         args = {}
@@ -1124,25 +1192,25 @@ def tomography_filter(arr, axis=2, filter_type='hamming'):
     return arr
 
 
-def argmax(arr, override_backend=None):
-    bn = override_backend if override_backend is not None else global_settings.backend
-    func = getattr(engine_dict[bn], func_mapping_dict['argmax'][bn])
+@set_bn
+def argmax(arr, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['argmax'][backend])
     arr = func(arr)
     return arr
 
 
-def tensordot(a, b, axes=None, override_backend=None):
+@set_bn
+def tensordot(a, b, axes=None, backend='autograd'):
     """
     :param axes: Comply to Numpy format.
     """
-    bn = override_backend if override_backend is not None else global_settings.backend
     dims = axes
-    if bn == 'pytorch':
+    if backend == 'pytorch':
         if isinstance(axes, (list, tuple)):
             if isinstance(axes[0], int):
                 dims = []
                 for i in axes:
                     dims.append((axes[i],))
         return tc.tensordot(a, b, dims=dims)
-    elif bn == 'autograd':
+    elif backend == 'autograd':
         return anp.tensordot(a, b, axes=dims)

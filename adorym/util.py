@@ -446,8 +446,8 @@ def get_cooridnates_stack_for_rotation(array_size, axis=0):
 
 def calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend=None, device=None):
     image_center = [(x - 1) / 2 for x in array_size]
-    m_rot = w.create_variable([[w.cos(theta, override_backend), -w.sin(theta, override_backend)],
-                               [w.sin(theta, override_backend), w.cos(theta, override_backend)]],
+    m_rot = w.create_variable([[w.cos(theta, override_backend=override_backend), -w.sin(theta, override_backend=override_backend)],
+                               [w.sin(theta, override_backend=override_backend), w.cos(theta, override_backend=override_backend)]],
                               override_backend=override_backend, device=device)
     coord_old = w.matmul(m_rot, coord_new, override_backend=override_backend)
     coord1_old = coord_old[0, :] + image_center[1]
