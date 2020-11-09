@@ -30,13 +30,42 @@ except:
 warnings.warn('Module under construction.')
 
 
+class Schedule():
+
+    def __init__(self):
+        self.schedule_iters = []
+        self.schedule_vals = []
+
+    def add_step(self, starting_iter, val):
+        assert starting_iter >= 0, 'starting_iter must be non-negative integer.'
+        self.schedule_iters.append(starting_iter)
+        self.schedule_vals.append(val)
+
+    def get_value(self, this_iter):
+        """
+        Check which segment this_iter falls in, and retrieve the value. No sort needed.
+
+        :param this_iter: Current index of iteration.
+        :return: Value at this iteration.
+        """
+        a = np.array(self.schedule_iters) - this_iter
+        a[a > 0] = a.min() - 1
+        ind = np.argmax(a)
+        return self.schedule_vals[ind]
+
+
 class Subproblem():
-    def __init__(self, device):
+    def __init__(self, device, rho_schedule=None):
         self.device = device
         self.total_iter = 0
+        self.i_epoch = 0
         self.forward_current = None
         self.output_folder = None
         self.temp_folder = None
+        self.rho_schedule = rho_schedule
+
+    def initialize(self, *args, **kwargs):
+        self.update_rho()
 
     def set_dependencies(self, prev_sp=None, next_sp=None):
         self.prev_sp = prev_sp
@@ -68,11 +97,20 @@ class Subproblem():
             if not os.path.exists(self.temp_folder):
                 os.makedirs(self.temp_folder)
 
+    def update_rho(self):
+        if self.rho_schedule is not None:
+            self.rho = self.rho_schedule.get_value(self.i_epoch)
+
+    def update_iter_and_epoch_count(self, n_iterations):
+        self.total_iter += 1
+        self.i_epoch = self.total_iter // n_iterations
+
 
 class PhaseRetrievalSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., theta_downsample=None, optimizer=None, device=None,
                  minibatch_size=23, probe_update_delay=30, probe_update_interval=4, optimize_probe=False,
-                 probe_optimizer=None, common_probe=True, randomize_probe_pos=False, debug=False, stdout_options={}):
+                 probe_optimizer=None, common_probe=True, randomize_probe_pos=False, rho_schedule=None,
+                 debug=False, stdout_options={}):
         """
         Phase retrieval subproblem solver.
 
@@ -88,7 +126,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                              coupling, allowing different probes for different positions is more physically
                              accurate for strongly scattering objects, but requires more memory.
         """
-        super(PhaseRetrievalSubproblem, self).__init__(device)
+        super(PhaseRetrievalSubproblem, self).__init__(device, rho_schedule)
         self.whole_object_size = whole_object_size
         self.theta_downsample = theta_downsample
         self.rho = rho
@@ -124,6 +162,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                              angles, put None.
         """
         print_flush('  PHR: Initializing...', 0, rank, **self.stdout_options)
+        super(PhaseRetrievalSubproblem, self).initialize()
+        print_flush('  PHR: Rho initialized to {}.'.format(self.rho), 0, rank, **self.stdout_options)
         self.theta_ls = theta_ls
         self.n_theta = len(theta_ls)
         self.setup_temp_folder(output_folder); comm.Barrier()
@@ -641,7 +681,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                         del g_u, lambda2
                     except:
                         del w_, lambda1
-            self.total_iter += 1
+            self.update_iter_and_epoch_count(n_iterations)
         # self.last_iter_part1_loss /= n_batch
         # self.last_iter_part2_loss /= n_theta
         # Dump psi to HDD.
@@ -818,7 +858,7 @@ class PhaseRetrievalSubproblem(Subproblem):
 
 
 class AlignmentSubproblem(Subproblem):
-    def __init__(self, whole_object_size, rho=1., optimizer=None, device=None, stdout_options={}):
+    def __init__(self, whole_object_size, rho=1., optimizer=None, rho_schedule=None, device=None, stdout_options={}):
         """
         Alignment subproblem solver.
 
@@ -826,7 +866,7 @@ class AlignmentSubproblem(Subproblem):
         :param device: Device object.
         :param rho: Weight of Lagrangian term.
         """
-        super(AlignmentSubproblem, self).__init__(device)
+        super(AlignmentSubproblem, self).__init__(device, rho_schedule)
         self.whole_object_size = whole_object_size
         self.rho = rho
         self.optimizer = optimizer
@@ -845,6 +885,7 @@ class AlignmentSubproblem(Subproblem):
         :param theta_ls: List of rotation angles in radians.
         """
         print_flush('  ALN: Initializing...', 0, rank, **self.stdout_options)
+        super(AlignmentSubproblem, self).initialize()
         self.setup_temp_folder(output_folder); comm.Barrier()
         self.theta_ind_ls_local = list(range(rank, self.n_theta, n_ranks))
         self.theta_ls = theta_ls
@@ -999,7 +1040,7 @@ class AlignmentSubproblem(Subproblem):
                 if i_iteration == n_iterations - 1:
                     # self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                     self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
-        self.total_iter += 1
+        self.update_iter_and_epoch_count(n_iterations)
         # self.last_iter_part1_loss /= n_theta
         # self.last_iter_part2_loss /= n_theta
 
@@ -1019,10 +1060,12 @@ class AlignmentSubproblem(Subproblem):
         for i, i_theta in enumerate(self.theta_ind_ls_local):
             self.save_variable(w.to_numpy(self.lambda1_theta_ls_local[i]), 'lambda1_{:04d}'.format(i_theta))
 
+        self.update_rho()
+
 
 class BackpropSubproblem(Subproblem):
     def __init__(self, whole_object_size, binning, energy_ev, psize_cm, safe_zone_width=0,
-                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, debug=False,
+                 rho=1., n_tiles_y=1, n_tiles_x=1, optimizer=None, device=None, rho_schedule=None, debug=False,
                  stdout_options={}):
         """
         Alignment subproblem solver.
@@ -1032,7 +1075,7 @@ class BackpropSubproblem(Subproblem):
         :param device: Device object.
         :param rho: Weight of Lagrangian term.
         """
-        super(BackpropSubproblem, self).__init__(device)
+        super(BackpropSubproblem, self).__init__(device, rho_schedule)
         self.whole_object_size = whole_object_size
         self.binning = binning
         self.energy_ev = energy_ev
@@ -1062,6 +1105,8 @@ class BackpropSubproblem(Subproblem):
         :param theta_ls: List of rotation angles in radians.
         """
         print_flush('  BKP: Initializing...', 0, rank, **self.stdout_options)
+        super(BackpropSubproblem, self).initialize()
+        print_flush('  BKP: Rho initialized to {}.'.format(self.rho), 0, rank, **self.stdout_options)
         if self.ranks_per_angle > n_ranks:
             raise ValueError('Number of ranks per angle exceeds total number of ranks. ')
         self.setup_temp_folder(output_folder); comm.Barrier()
@@ -1428,18 +1473,18 @@ class BackpropSubproblem(Subproblem):
                 #     plt.savefig(os.path.join(output_folder, 'intermediate', 'grads', 'bp_grad_{}.png'.format(i_epoch)), format='png')
                 #     # plt.show()
                 # =================
-                u_ls = u_ls[0, self.safe_zone_width:self.safe_zone_width + self.tile_shape[0],
-                               self.safe_zone_width:self.safe_zone_width + self.tile_shape[1], :, :]
-                grad_u = grad_u[0, self.safe_zone_width:self.safe_zone_width + self.tile_shape[0],
-                                   self.safe_zone_width:self.safe_zone_width + self.tile_shape[1], :, :]
+                u_ls = u_ls[self.safe_zone_width:self.safe_zone_width + self.tile_shape[0],
+                            self.safe_zone_width:self.safe_zone_width + self.tile_shape[1], :, :]
+                grad_u = grad_u[self.safe_zone_width:self.safe_zone_width + self.tile_shape[0],
+                                self.safe_zone_width:self.safe_zone_width + self.tile_shape[1], :, :]
                 u_ls = self.optimizer.apply_gradient(u_ls, w.cast(grad_u, 'float32'), i_batch=self.total_iter,
-                                                     params_slicer=i, **self.optimizer.options_dict)
+                                                     params_slicer=slice(i, i + 1), **self.optimizer.options_dict)
                 line_st = tile_y
                 line_end = min([tile_y + self.tile_shape[0], self.whole_object_size[0]])
                 px_st = tile_x
                 px_end = min([tile_x + self.tile_shape[1], self.whole_object_size[1]])
                 u_mmap = self.load_mmap('u_{:04d}'.format(i_theta), mode='r+')
-                u_ls = w.to_numpy(u_ls[:line_end - line_st, :px_end - px_st, :, :])
+                u_ls = w.to_numpy(u_ls[0, :line_end - line_st, :px_end - px_st, :, :])
                 u_mmap[line_st:line_end, px_st:px_end, :, :] = u_ls
                 if i_iteration == n_iterations - 1:
                     self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
@@ -1449,7 +1494,7 @@ class BackpropSubproblem(Subproblem):
                     del psi_ls
                 except:
                     del w_ls
-            self.total_iter += 1
+            self.update_iter_and_epoch_count(n_iterations)
         # self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
         # self.last_iter_part2_loss = self.last_iter_part2_loss / n_theta
 
@@ -1484,11 +1529,12 @@ class BackpropSubproblem(Subproblem):
             rr, ri = w.split_channel(this_r)
             self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
         self.rsquare = self.rsquare / self.n_theta
+        self.update_rho()
 
 
 class TomographySubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., optimizer=None, device=None, n_all2all_split='auto',
-                 debug=False, filter='hamming', stdout_options={}):
+                 debug=False, filter='hamming', rho_schedule=None, stdout_options={}):
         """
         Tomography subproblem solver.
 
@@ -1496,7 +1542,7 @@ class TomographySubproblem(Subproblem):
         :param device: Device object.
         :param rho: Weight of Lagrangian term.
         """
-        super(TomographySubproblem, self).__init__(device)
+        super(TomographySubproblem, self).__init__(device, rho_schedule)
         self.whole_object_size = whole_object_size
         self.rho = rho
         self.optimizer = optimizer
@@ -1518,6 +1564,8 @@ class TomographySubproblem(Subproblem):
         :param theta_ls: List of rotation angles in radians.
         """
         print_flush('  TMO: Initializing...', 0, rank, **self.stdout_options)
+        super(TomographySubproblem, self).initialize()
+        print_flush('  TMO: Rho initialized to {}.'.format(self.rho), 0, rank, **self.stdout_options)
         self.setup_temp_folder(output_folder); comm.Barrier()
         self.theta_ls = theta_ls
         self.n_theta = len(theta_ls)
@@ -1535,7 +1583,7 @@ class TomographySubproblem(Subproblem):
             self.save_variable(lmbda3, 'lambda3_{:04d}'.format(i_theta))
 
         self.optimizer.distribution_mode = 'distributed_object'
-        self.optimizer.create_container(self.x.arr.shape, False, None)
+        self.optimizer.create_container([*self.whole_object_size, 2], use_checkpoint=False, device_obj=None)
         self.optimizer.set_index_in_grad_return(0)
 
     def forward(self, x, theta, reverse=False):
@@ -1567,7 +1615,7 @@ class TomographySubproblem(Subproblem):
         grad = -self.rho * grad
         if self.debug:
             g1, g2 = w.split_channel(grad)
-            print_flush('  Mean batch gradient (d/b): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank)
+            print_flush('  Mean batch gradient (d/b): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank, **self.stdout_options)
         return grad, this_loss
 
     def solve(self, n_iterations=3):
@@ -1610,7 +1658,7 @@ class TomographySubproblem(Subproblem):
                     del u_mmap, lambda3_mmap, u, lambda3, x
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
-                self.total_iter += 1
+                self.update_iter_and_epoch_count(n_iterations)
             # self.last_iter_part1_loss = self.last_iter_part1_loss / n_theta
 
     def update_dual(self):
@@ -1631,6 +1679,7 @@ class TomographySubproblem(Subproblem):
                 self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
                 del u_mmap, lambda3_mmap, u, lambda3
             self.rsquare = self.rsquare / self.n_theta
+        self.update_rho()
 
 
 def reconstruct_ptychography(
@@ -2064,7 +2113,8 @@ def reconstruct_ptychography(
 
             sp_phr.solve(n_iterations=n_iterations_phr)
             print_flush('PHR done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_phr.last_iter_part1_loss,
-                                                                sp_phr.last_iter_part2_loss), sto_rank, rank)
+                                                                sp_phr.last_iter_part2_loss), sto_rank, rank,
+                        **stdout_options)
             for i, i_theta in tuple(enumerate(sp_phr.theta_ind_ls_local))[::50]:
                 output_probe(sp_phr.psi_theta_ls[i][:, :, 0], sp_phr.psi_theta_ls[i][:, :, 1],
                              os.path.join(output_folder, 'intermediate', 'ptycho'), custom_name='psi_{}'.format(i_theta),
@@ -2079,8 +2129,9 @@ def reconstruct_ptychography(
             # plt.show()
             if sp_aln is not None:
                 sp_aln.solve(n_iterations=n_iterations_aln)
-                print_flush('ALN done in {} s. Loss: NA/{}.'.format(time.time() - t00,
-                                                                    sp_aln.last_iter_part2_loss), sto_rank, rank)
+                print_flush('ALN done in {} s. Loss: NA/{}. Rho: {}.'.format(time.time() - t00,
+                                                                    sp_aln.last_iter_part2_loss, sp_aln.rho), sto_rank, rank,
+                            **stdout_options)
             # ff = h5py.File('/home/beams/B282788/Data/programs/adorym_dev/demos/adhesin/data_adhesin_360_soft_4d.h5')
             # dd = ff['exchange/data']
             # w_ls = []
@@ -2103,23 +2154,28 @@ def reconstruct_ptychography(
 
             t00 = time.time()
             sp_bkp.solve(n_iterations=n_iterations_bkp)
-            print_flush('BKP done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_bkp.last_iter_part1_loss,
-                                                                sp_bkp.last_iter_part2_loss), sto_rank, rank)
+            print_flush('BKP done in {} s. Loss: {}/{}. Rho: {}.'.format(time.time() - t00, sp_bkp.last_iter_part1_loss,
+                                                                sp_bkp.last_iter_part2_loss, sp_bkp.rho), sto_rank, rank,
+                        **stdout_options)
             t00 = time.time()
             sp_tmo.solve(n_iterations=n_iterations_tmo)
-            print_flush('TMO done in {} s. Loss: {}.'.format(time.time() - t00, sp_tmo.last_iter_part1_loss),
-                        sto_rank, rank)
+            print_flush('TMO done in {} s. Loss: {}. Rho: {}.'.format(time.time() - t00, sp_tmo.last_iter_part1_loss,
+                                                                       sp_tmo.rho),
+                        sto_rank, rank, **stdout_options)
 
             t00 = time.time()
             if sp_aln is not None:
                 sp_aln.update_dual()
-                print_flush('ALN dual update done in {} s. R^2 = {}.'.format(time.time() - t00, sp_aln.rsquare), sto_rank, rank)
+                print_flush('ALN dual update done in {} s. R^2 = {}. Next rho: {}.'.format(time.time() - t00, sp_aln.rsquare, sp_aln.rho),
+                            sto_rank, rank, **stdout_options)
             t00 = time.time()
             sp_bkp.update_dual()
-            print_flush('BKP dual update done in {} s. R^2 = {}.'.format(time.time() - t00, sp_bkp.rsquare), sto_rank, rank)
+            print_flush('BKP dual update done in {} s. R^2 = {}. Next rho: {}.'.format(time.time() - t00, sp_bkp.rsquare, sp_bkp.rho), sto_rank,
+                        rank, **stdout_options)
             t00 = time.time()
             sp_tmo.update_dual()
-            print_flush('TMO dual update done in {} s. R^2 = {}.'.format(time.time() - t00, sp_tmo.rsquare), sto_rank, rank)
+            print_flush('TMO dual update done in {} s. R^2 = {}. Next rho: {}.'.format(time.time() - t00, sp_tmo.rsquare, sp_tmo.rho), sto_rank,
+                        rank, **stdout_options)
 
             # ================================================================================
             # Save reconstruction after an epoch.
