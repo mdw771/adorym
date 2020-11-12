@@ -29,6 +29,8 @@ except:
 
 warnings.warn('Module under construction.')
 
+sameline = not adorym.global_settings.disable_sameline_output
+
 
 class Schedule():
 
@@ -491,7 +493,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             tile_shape = bp_sp.tile_shape
             tile_shape_padded = np.array(tile_shape) + 2 * szw
             for i, i_theta in enumerate(my_theta_ind_ls):
-                print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=True,
+                print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=sameline,
                             **self.stdout_options)
                 if ri_variable == 'u':
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
@@ -552,8 +554,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         common_probe_pos = True if self.probe_pos_ls is None else False
         if common_probe_pos:
             probe_pos_int = np.round(self.probe_pos).astype(int)
-            self.probe_pos_correction = w.create_variable(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
-                                                     requires_grad=False, device=self.device)
+            self.probe_pos_correction = w.create_constant(np.tile(self.probe_pos - probe_pos_int, [self.n_theta, 1, 1]),
+                                                                  device=self.device)
         else:
             probe_pos_int_ls = [np.round(probe_pos).astype(int) for probe_pos in self.probe_pos_ls]
             n_pos_max = np.max([len(poses) for poses in self.probe_pos_ls])
@@ -578,7 +580,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 # Initialize batch.
                 # ================================================================================
                 print_flush('  PHR: Iter {}, batch {} of {} started.'.format(i_iteration, i_batch, n_batch),
-                            0, rank, same_line=True, **self.stdout_options)
+                            0, rank, same_line=sameline, **self.stdout_options)
                 starting_batch = 0
 
                 # ================================================================================
@@ -756,7 +758,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             # Initialize batch.
             # ================================================================================
             print_flush('  PHR: Probe update: batch {} of {} started.'.format(i_batch, n_batch),
-                        0, rank, same_line=True, **self.stdout_options)
+                        0, rank, same_line=sameline, **self.stdout_options)
             starting_batch = 0
 
             # ================================================================================
@@ -1016,7 +1018,7 @@ class AlignmentSubproblem(Subproblem):
         for i_iteration in range(n_iterations):
             for i, i_theta in enumerate(self.theta_ind_ls_local):
                 print_flush('  ALN: Iter {}, theta {} started.'.format(i_iteration, i),
-                            0, rank, same_line=True, **self.stdout_options)
+                            0, rank, same_line=sameline, **self.stdout_options)
                 g_u_ls = self.load_variable('g_u_{:04d}'.format(i_theta))[None]
                 psi_ls = self._psi_theta_ls_local[i][None]
                 lambda1_ls = self.lambda1_theta_ls_local[i][None]
@@ -1440,7 +1442,7 @@ class BackpropSubproblem(Subproblem):
         for i_iteration in range(n_iterations):
             for i, i_theta in enumerate(self.theta_ind_ls_local):
                 print_flush('  BKP: Iter {}, theta {} started.'.format(i_iteration, i),
-                            0, rank, same_line=True, **self.stdout_options)
+                            0, rank, same_line=sameline, **self.stdout_options)
                 u_ls = self.prepare_u_tile(self.load_mmap('u_{:04d}'.format(i_theta)), self.local_rank)[None]
                 r_x = w.create_constant(self._r_x_ls_local[i][None], device=self.device)
                 lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
@@ -1626,7 +1628,7 @@ class TomographySubproblem(Subproblem):
                 np.random.shuffle(theta_ind_ls)
                 for i, i_theta in enumerate(theta_ind_ls):
                     print_flush('  TMO: Iter {}, theta {} started.'.format(i_iteration, i),
-                                0, rank, same_line=True, **self.stdout_options)
+                                0, rank, same_line=sameline, **self.stdout_options)
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                     u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                     u = w.create_variable(u, requires_grad=False, device=None)
