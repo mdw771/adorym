@@ -1,4 +1,5 @@
 import numpy as np
+import matplotlib.pyplot as plt
 import h5py
 
 import warnings
@@ -98,6 +99,8 @@ class Subproblem():
         if rank == 0:
             if not os.path.exists(self.temp_folder):
                 os.makedirs(self.temp_folder)
+            if not os.path.exists(os.path.join(self.temp_folder, 'debug')):
+                os.makedirs(os.path.join(self.temp_folder, 'debug'))
 
     def update_rho(self):
         if self.rho_schedule is not None:
@@ -106,6 +109,14 @@ class Subproblem():
     def update_iter_and_epoch_count(self, n_iterations):
         self.total_iter += 1
         self.i_epoch = self.total_iter // n_iterations
+
+    def save_debug_images(self, img_ls, name, slicer=slice(None)):
+        fig, axes = plt.subplots(1, len(img_ls))
+        for i, img in enumerate(img_ls):
+            ax = axes[i].imshow(w.to_numpy(img)[slicer])
+            plt.colorbar(ax, ax=axes[i])
+        plt.savefig(os.path.join(self.temp_folder, 'debug', name))
+        plt.close()
 
 
 class PhaseRetrievalSubproblem(Subproblem):
@@ -445,10 +456,13 @@ class PhaseRetrievalSubproblem(Subproblem):
             g_psi_imag = g_psi_imag + g_psi_m_imag
 
         if self.debug:
-            print_flush('  Mean part 1 psi gradient (r/i): {}/{}.'.format(w.mean(g_psi_real), w.mean(g_psi_imag)),
-                        0, rank)
-            print_flush('  Mean part 1 probe gradient (r/i): {}/{}.'.format(w.mean(g_p_real), w.mean(g_p_imag)),
-                        0, rank)
+            # print_flush('  Mean part 1 psi gradient (r/i): {}/{}.'.format(w.mean(g_psi_real), w.mean(g_psi_imag)),
+            #             0, rank, **self.stdout_options)
+            # print_flush('  Mean part 1 probe gradient (r/i): {}/{}.'.format(w.mean(g_p_real), w.mean(g_p_imag)),
+            #             0, rank, **self.stdout_options)
+            self.save_debug_images([g_psi_real, g_psi_imag], 'grad_ptycho_part1_{}_{}_{}.png'.format(self.i_epoch, this_i_theta,
+                                                                                                  this_ind_batch[0]),
+                                   slicer=0)
         del y_ls
 
         return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag), this_loss
@@ -473,7 +487,9 @@ class PhaseRetrievalSubproblem(Subproblem):
             raise ValueError('Check your arguments.')
         if self.debug:
             g1, g2 = w.split_channel(grad)
-            print_flush('  Mean part 2 gradient (r/i): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank)
+            print_flush('  Mean part 2 gradient (r/i): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank,
+                        **self.stdout_options)
+            self.save_debug_images([g1, g2], 'grad_ptycho_part2_{}_{}.png'.format(self.i_epoch, self.this_i_theta))
         return grad, this_loss
 
     def update_g_u(self, bp_sp, ri_variable='u'):
@@ -593,6 +609,7 @@ class PhaseRetrievalSubproblem(Subproblem):
 
                 this_ind_batch_allranks = self.ind_list_rand[i_batch]
                 this_i_theta = this_ind_batch_allranks[self.local_rank * self.minibatch_size, 0]
+                self.this_i_theta = this_i_theta
                 this_local_i_theta = np.where(self.theta_ind_ls_local == this_i_theta)[0][0]
                 this_ind_batch = np.sort(
                     this_ind_batch_allranks[self.local_rank * self.minibatch_size:(self.local_rank + 1) * self.minibatch_size, 1])
@@ -1366,7 +1383,10 @@ class BackpropSubproblem(Subproblem):
 
         if self.debug:
             print_flush('  Mean part 1 batch gradient (d/b): {}/{}.'.format(w.mean(grad_delta), w.mean(grad_beta)),
-                        0, rank)
+                        0, rank, **self.stdout_options)
+            self.save_debug_images([grad_delta[0, grad_delta.shape[1] // 2, :, :],
+                                    grad_beta[0, grad_beta.shape[1] // 2, :, :]],
+                                   'grad_bkp_part1_{}_{}'.format(self.i_epoch, i_theta))
 
         # Calculate second term of dL / d(delta/beta).
         temp = self.next_sp.rho * (u_ls - r_x + lambda3_ls / self.next_sp.rho)
@@ -1377,7 +1397,13 @@ class BackpropSubproblem(Subproblem):
 
         if self.debug:
             print_flush('  Mean part 2 batch gradient (d/b): {}/{}.'.format(w.mean(temp_delta), w.mean(temp_beta)),
-                        0, rank)
+                        0, rank, **self.stdout_options)
+            self.save_debug_images([temp_delta[0, temp_delta.shape[1] // 2, :, :],
+                                    temp_beta[0, temp_beta.shape[1] // 2, :, :]],
+                                   'grad_bkp_part2_{}_{}'.format(self.i_epoch, i_theta))
+            self.save_debug_images([lambda2_ls[0, :, :, 0],
+                                    lambda2_ls[0, :, :, 1]],
+                                   'lambda2_{}_{}'.format(self.i_epoch, i_theta))
 
         return w.stack([grad_delta, grad_beta], axis=-1), (this_part1_loss, this_part2_loss)
 
@@ -1592,9 +1618,9 @@ class TomographySubproblem(Subproblem):
         # return w.rotate(x, theta, axis=0, device=None)
         # Rotate on CPU in case of large x.
         coords = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*self.whole_object_size, self.n_theta),
-                                    theta, reverse=reverse)
+                                    theta, reverse=False)
         # coords = w.create_constant(coords, device=None)
-        return apply_rotation(x, coords, axis=0, device=None)
+        return apply_rotation(x, coords, axis=0, device=None, reverse=reverse)
 
     def get_loss(self, x, u, lambda3, theta=None):
         grad = u - self.forward(x, theta=theta, reverse=False) + lambda3 / self.rho
@@ -1618,6 +1644,10 @@ class TomographySubproblem(Subproblem):
         if self.debug:
             g1, g2 = w.split_channel(grad)
             print_flush('  Mean batch gradient (d/b): {}/{}.'.format(w.mean(g1), w.mean(g2)), 0, rank, **self.stdout_options)
+            self.save_debug_images([g1[g1.shape[0] // 2, :, :], g2[g2.shape[0] // 2, :, :]],
+                                   'grad_tmo_{}_{}'.format(self.i_epoch, self.this_i_theta))
+            self.save_debug_images([lambda3[lambda3.shape[0] // 2, :, :, 0], lambda3[lambda3.shape[0] // 2, :, :, 1]],
+                                   'lambda3_{}_{}'.format(self.i_epoch, self.this_i_theta))
         return grad, this_loss
 
     def solve(self, n_iterations=3):
@@ -1629,6 +1659,7 @@ class TomographySubproblem(Subproblem):
                 for i, i_theta in enumerate(theta_ind_ls):
                     print_flush('  TMO: Iter {}, theta {} started.'.format(i_iteration, i),
                                 0, rank, same_line=sameline, **self.stdout_options)
+                    self.this_i_theta = i_theta
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                     u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
                     u = w.create_variable(u, requires_grad=False, device=None)

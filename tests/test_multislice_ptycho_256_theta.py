@@ -33,7 +33,8 @@ else:
         init = [np.array(init_delta[...]), np.array(init_beta[...])]
 
 
-params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
+params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm_fine_2.h5',
+                        #'fname': 'data_cone_256_foam_1nm.h5',
                         'theta_st': 0,
                         'theta_end': 2 * np.pi,
                         'theta_downsample': 10,
@@ -47,11 +48,11 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'center': 128,
                         'energy_ev': 5000,
                         'psize_cm': 1.e-7,
-                        'minibatch_size': 23,
+                        'minibatch_size': 21,
                         'n_batch_per_update': 1,
                         # 'output_folder': 'theta_' + timestr,
                         'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
-                        'cpu_only': True,
+                        'cpu_only': False,
                         'use_checkpoint': False,
                         'save_path': '../demos/cone_256_foam_ptycho',
                         'multiscale_level': 1,
@@ -71,7 +72,8 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'optimizer': 'gd',
                         'free_prop_cm': 'inf',
                         'backend': 'pytorch',
-                        'binning': 16,}
+                        'binning': 8,
+                          'gpu_index': 1}
 
 params = params_cone_marc_theta
 

@@ -526,6 +526,7 @@ def exp_complex(var_real, var_imag, backend='autograd'):
 @set_bn
 def arange(*args, **kwargs):
     backend = kwargs['backend']
+    del kwargs['backend']
     if backend == 'pytorch':
         return tc.arange(*args, **kwargs)
     elif backend == 'autograd':

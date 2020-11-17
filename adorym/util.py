@@ -506,19 +506,22 @@ def read_all_origin_coords(src_folder, theta_ls):
     return coord_ls
 
 
-def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None, override_backend=None):
+def apply_rotation(obj, coord_old, interpolation='bilinear', axis=0, device=None, reverse=False, override_backend=None):
 
     # PyTorch CPU doesn't support float16 computation.
     if device is None or device == 'cpu':
         coord_old = coord_old.astype('float64')
-    try:
-        obj_rot = w.grid_sample(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
-    except:
-        warnings.warn('PyTorch is not available, so I am applying rotation using apply_rotation_primitive which may '
-                      'lead to lower performance. Installing PyTorch is strongly recommnended even if you do not'
-                      'wish to use the PyTorch backend for AD.\n(If you are using DP mode with Autograd backend, '
-                      'simply ignore this warning.)')
-        obj_rot = apply_rotation_primitive(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
+    if not reverse:
+        try:
+            obj_rot = w.grid_sample(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
+        except:
+            warnings.warn('PyTorch is not available, so I am applying rotation using apply_rotation_primitive which may '
+                          'lead to lower performance. Installing PyTorch is strongly recommnended even if you do not'
+                          'wish to use the PyTorch backend for AD.\n(If you are using DP mode with Autograd backend, '
+                          'simply ignore this warning.)')
+            obj_rot = apply_rotation_primitive(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
+    else:
+        obj_rot = apply_rotation_transpose(obj, coord_old, axis=axis, interpolation=interpolation, device=device)
     return obj_rot
 
 
@@ -587,6 +590,81 @@ def apply_rotation_primitive(obj, coord_old, interpolation='bilinear', axis=0, d
             vals = vals_ff * fac_ff + vals_fc * fac_fc + vals_cf * fac_cf + vals_cc * fac_cc
             obj_rot.append(w.reshape(vals, [s[axes_rot[0]], s[axes_rot[1]], s[-1]], override_backend=override_backend))
         obj_rot = w.stack(obj_rot, axis=axis, override_backend=override_backend)
+    return obj_rot
+
+
+def apply_rotation_transpose(obj, coord_old, interpolation='bilinear', axis=0, device=None, override_backend=None):
+    """
+    Find the result of applying the transpose of the rotation-interpolation matrix defined by coord_old. Used to
+    calculate the VJP of rotation operation.
+    :param obj: Tensor.
+    :param coord_old: The same variable as is passed to apply_rotation.
+    """
+    # PyTorch CPU doesn't support float16 computation.
+    if global_settings.backend == 'pytorch' and device is None:
+        coord_old = coord_old.astype('float64')
+
+    s = obj.shape
+    axes_rot = []
+    for i in range(len(obj.shape)):
+        if i != axis and i <= 2:
+            axes_rot.append(i)
+    coord_old = w.create_variable(coord_old, device=device, requires_grad=False, override_backend=override_backend)
+
+    if interpolation == 'nearest':
+        coord_old_1 = w.round_and_cast(coord_old[:, 0], override_backend=override_backend)
+        coord_old_2 = w.round_and_cast(coord_old[:, 1], override_backend=override_backend)
+    else:
+        coord_old_1 = coord_old[:, 0]
+        coord_old_2 = coord_old[:, 1]
+
+    # Clip coords, so that edge values are used for out-of-array indices
+    coord_old_1 = w.clip(coord_old_1, 0, s[axes_rot[0]] - 1, override_backend=override_backend)
+    coord_old_2 = w.clip(coord_old_2, 0, s[axes_rot[1]] - 1, override_backend=override_backend)
+
+    if interpolation == 'nearest':
+        slicer = [slice(None), slice(None), slice(None)]
+        slicer[axes_rot[0]] = coord_old_1
+        slicer[axes_rot[1]] = coord_old_2
+        obj_rot = w.reshape(obj[slicer], s, override_backend=override_backend)
+    else:
+        coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
+        coord_old_ceil_1 = coord_old_floor_1 + 1
+        coord_old_floor_2 = w.floor_and_cast(coord_old_2, dtype='int64', override_backend=override_backend)
+        coord_old_ceil_2 = coord_old_floor_2 + 1
+
+        obj_rot = w.zeros_like(obj, requires_grad=False)
+        fac_ff = (coord_old_ceil_1 - coord_old_1) * (coord_old_ceil_2 - coord_old_2)
+        fac_fc = (coord_old_ceil_1 - coord_old_1) * (coord_old_2 - coord_old_floor_2)
+        fac_cf = (coord_old_1 - coord_old_floor_1) * (coord_old_ceil_2 - coord_old_2)
+        fac_cc = (coord_old_1 - coord_old_floor_1) * (coord_old_2 - coord_old_floor_2)
+        fac_ff = w.stack([fac_ff] * s[-1], axis=1, override_backend=override_backend)
+        fac_fc = w.stack([fac_fc] * s[-1], axis=1, override_backend=override_backend)
+        fac_cf = w.stack([fac_cf] * s[-1], axis=1, override_backend=override_backend)
+        fac_cc = w.stack([fac_cc] * s[-1], axis=1, override_backend=override_backend)
+
+        for i_slice in range(s[axis]):
+            slicer_ff = [i_slice, i_slice, i_slice]
+            slicer_ff[axes_rot[0]] = coord_old_floor_1
+            slicer_ff[axes_rot[1]] = coord_old_floor_2
+            slicer_fc = [i_slice, i_slice, i_slice]
+            slicer_fc[axes_rot[0]] = coord_old_floor_1
+            slicer_fc[axes_rot[1]] = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1)
+            slicer_cf = [i_slice, i_slice, i_slice]
+            slicer_cf[axes_rot[0]] = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1)
+            slicer_cf[axes_rot[1]] = coord_old_floor_2
+            slicer_cc = [i_slice, i_slice, i_slice]
+            slicer_cc[axes_rot[0]] = w.clip(coord_old_ceil_1, 0, s[axes_rot[0]] - 1)
+            slicer_cc[axes_rot[1]] = w.clip(coord_old_ceil_2, 0, s[axes_rot[1]] - 1)
+
+            slicer_obj = [slice(None), slice(None), slice(None)]
+            slicer_obj[axis] = i_slice
+            obj_slice = w.reshape(obj[slicer_obj], [-1, 2])
+            obj_rot[tuple(slicer_ff)] += obj_slice * fac_ff
+            obj_rot[tuple(slicer_fc)] += obj_slice * fac_fc
+            obj_rot[tuple(slicer_cf)] += obj_slice * fac_cf
+            obj_rot[tuple(slicer_cc)] += obj_slice * fac_cc
+
     return obj_rot
 
 
@@ -2131,3 +2209,10 @@ def phase_correlation(img, ref, upsample_factor=1):
 
         shifts = shifts + maxima / upsample_factor
     return shifts
+
+
+def get_process_memory_usage():
+    import psutil
+    process = psutil.Process(os.getpid())
+    m = process.memory_info().rss
+    print_flush('Rank {}: {} (B on Linux) or {} (GB on Linux)'.format(rank, m, m / 1024 ** 3), rank, rank)
