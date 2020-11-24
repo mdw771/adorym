@@ -3,6 +3,8 @@ import numpy as np
 import glob
 import dxchange
 import re
+import sys
+import datetime
 import adorym.global_settings as global_settings
 
 def check_config_indept_mpi():
@@ -224,3 +226,30 @@ def parse_source_folder(src_dir, prefix):
     flist = np.array(flist)[np.argsort(ind_ls)]
     return flist, n_theta, n_dist, raw_img_shape
 
+
+def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_line=False,
+                output_folder='', timestamp='', **kwargs):
+
+    a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
+    if designate_rank is not None:
+        if this_rank == designate_rank:
+            if same_line:
+                print(a, '\r', end='')
+            else:
+                print(a)
+    else:
+        if same_line:
+            print(a, '\r', end='')
+        else:
+            print(a)
+    if (designate_rank is None or this_rank == designate_rank) and save_stdout:
+        try:
+            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
+        except:
+            os.makedirs(output_folder)
+            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
+        f.write(a)
+        f.write('\n')
+        f.close()
+    sys.stdout.flush()
+    return

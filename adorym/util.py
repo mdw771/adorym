@@ -1561,34 +1561,6 @@ def upsample_2x(arr):
     return out_arr
 
 
-def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_line=False,
-                output_folder='', timestamp='', **kwargs):
-
-    a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
-    if designate_rank is not None:
-        if this_rank == designate_rank:
-            if same_line:
-                print(a, '\r', end='')
-            else:
-                print(a)
-    else:
-        if same_line:
-            print(a, '\r', end='')
-        else:
-            print(a)
-    if (designate_rank is None or this_rank == designate_rank) and save_stdout:
-        try:
-            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
-        except:
-            os.makedirs(output_folder)
-            f = open(os.path.join(output_folder, 'stdout_{}.txt'.format(timestamp)), 'a')
-        f.write(a)
-        f.write('\n')
-        f.close()
-    sys.stdout.flush()
-    return
-
-
 def real_imag_to_mag_phase(realpart, imagpart):
     a = realpart + 1j * imagpart
     return np.abs(a), np.angle(a)
