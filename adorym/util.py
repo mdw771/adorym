@@ -626,6 +626,7 @@ def apply_rotation_transpose(obj, coord_old, interpolation='bilinear', axis=0, d
         slicer = [slice(None), slice(None), slice(None)]
         slicer[axes_rot[0]] = coord_old_1
         slicer[axes_rot[1]] = coord_old_2
+        slicer = tuple(slicer)
         obj_rot = w.reshape(obj[slicer], s, override_backend=override_backend)
     else:
         coord_old_floor_1 = w.floor_and_cast(coord_old_1, dtype='int64', override_backend=override_backend)
@@ -2212,7 +2213,10 @@ def phase_correlation(img, ref, upsample_factor=1):
 
 
 def get_process_memory_usage():
+    """
+    Return CPU memory in MB (Linux).
+    """
     import psutil
     process = psutil.Process(os.getpid())
     m = process.memory_info().rss
-    print_flush('Rank {}: {} (B on Linux) or {} (GB on Linux)'.format(rank, m, m / 1024 ** 3), rank, rank)
+    return m / 1024 ** 2

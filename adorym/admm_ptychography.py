@@ -223,6 +223,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 self.probe_optimizer.create_param_arrays([self.n_theta, max(self.n_pos_ls), *self.probe_real.shape, 2],
                                                          device=None)
             self.probe_optimizer.set_index_in_grad_return(0)
+        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
     def allocate_over_theta(self):
         """
@@ -376,8 +377,8 @@ class PhaseRetrievalSubproblem(Subproblem):
                                    requires_grad=False, device=self.device)
         for i_mode in range(self.n_probe_modes):
             slicer = [slice(None)] * (len(probe_real.shape) - 3) + [i_mode, slice(None), slice(None)]
-            this_probe_mode_real = probe_real[slicer]
-            this_probe_mode_imag = probe_imag[slicer]
+            this_probe_mode_real = probe_real[tuple(slicer)]
+            this_probe_mode_imag = probe_imag[tuple(slicer)]
             wave_real, wave_imag = w.complex_mul(patches[:, :, :, 0], patches[:, :, :, 1], this_probe_mode_real,
                                                  this_probe_mode_imag)
             wave_real, wave_imag = w.fft2_and_shift(wave_real, wave_imag, axes=(1, 2))
@@ -451,7 +452,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             slicer = [slice(None)] * (len(probe_real.shape) - 3) + [i_mode, slice(None), slice(None)]
             # probe_real/imag[slicer] is in either [y, x] or [n_batch, y, x];
             # g_psi_m_real/imag is always in [n_batch, y, x].
-            g_psi_m_real, g_psi_m_imag = w.complex_mul(g_real, g_imag, probe_real[slicer], -probe_imag[slicer])
+            g_psi_m_real, g_psi_m_imag = w.complex_mul(g_real, g_imag, probe_real[tuple(slicer)], -probe_imag[tuple(slicer)])
             g_psi_real = g_psi_real + g_psi_m_real
             g_psi_imag = g_psi_imag + g_psi_m_imag
 
@@ -911,11 +912,14 @@ class AlignmentSubproblem(Subproblem):
         self.n_theta = len(theta_ls)
         self.w_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2],
                                         device=self.device)
-        self.lambda1_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2],
-                                              device=self.device)
+        # self.lambda1_theta_ls_local = w.stack([w.ones([len(self.theta_ind_ls_local), *self.whole_object_size[:2]], device=self.device),
+        #                                        w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2]], device=self.device)],
+        #                                       axis=-1)
+        self.lambda1_theta_ls_local = w.zeros([len(self.theta_ind_ls_local), *self.whole_object_size[:2], 2], device=self.device)
 
         self.optimizer.create_param_arrays(self.w_theta_ls_local.shape, device=None)
         self.shift_params = w.zeros([self.n_theta, 2], device=self.device)
+        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
     def update_psi_data_mpi(self):
         """
@@ -1143,6 +1147,7 @@ class BackpropSubproblem(Subproblem):
         self.local_comm = comm.Split(self.group_ind, rank)
         self.local_rank = self.local_comm.Get_rank()
         self.n_local_ranks = self.ranks_per_angle
+        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
         for i_theta in theta_ind_ls[rank::n_ranks]:
             # u arrays are to be stored on HDD, and will get a memmap pointer in self.u_theta_ls.
@@ -1154,6 +1159,8 @@ class BackpropSubproblem(Subproblem):
             self.save_variable(u, 'u_{:04d}'.format(i_theta))
 
             # lambda2 arrays are to be stored both on HDD and in RAM in self.lambda2_theta_ls.
+            # lmbda2 = np.stack([np.ones([*self.whole_object_size[0:2]]),
+            #                    np.zeros([*self.whole_object_size[0:2]])], axis=-1)
             lmbda2 = np.zeros([*self.whole_object_size[0:2], 2])
             self.save_variable(lmbda2, 'lambda2_{:04d}'.format(i_theta))
 
@@ -1613,6 +1620,8 @@ class TomographySubproblem(Subproblem):
         self.optimizer.distribution_mode = 'distributed_object'
         self.optimizer.create_container([*self.whole_object_size, 2], use_checkpoint=False, device_obj=None)
         self.optimizer.set_index_in_grad_return(0)
+        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank,
+                    **self.stdout_options)
 
     def forward(self, x, theta, reverse=False):
         # return w.rotate(x, theta, axis=0, device=None)
@@ -2229,3 +2238,4 @@ def reconstruct_ptychography(
                 print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
                     w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()),
                     rank, rank, **stdout_options)
+            print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **stdout_options)
