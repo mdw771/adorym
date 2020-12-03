@@ -223,7 +223,6 @@ class PhaseRetrievalSubproblem(Subproblem):
                 self.probe_optimizer.create_param_arrays([self.n_theta, max(self.n_pos_ls), *self.probe_real.shape, 2],
                                                          device=None)
             self.probe_optimizer.set_index_in_grad_return(0)
-        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
     def allocate_over_theta(self):
         """
@@ -919,7 +918,6 @@ class AlignmentSubproblem(Subproblem):
 
         self.optimizer.create_param_arrays(self.w_theta_ls_local.shape, device=None)
         self.shift_params = w.zeros([self.n_theta, 2], device=self.device)
-        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
     def update_psi_data_mpi(self):
         """
@@ -1147,7 +1145,6 @@ class BackpropSubproblem(Subproblem):
         self.local_comm = comm.Split(self.group_ind, rank)
         self.local_rank = self.local_comm.Get_rank()
         self.n_local_ranks = self.ranks_per_angle
-        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **self.stdout_options)
 
         for i_theta in theta_ind_ls[rank::n_ranks]:
             # u arrays are to be stored on HDD, and will get a memmap pointer in self.u_theta_ls.
@@ -1620,8 +1617,6 @@ class TomographySubproblem(Subproblem):
         self.optimizer.distribution_mode = 'distributed_object'
         self.optimizer.create_container([*self.whole_object_size, 2], use_checkpoint=False, device_obj=None)
         self.optimizer.set_index_in_grad_return(0)
-        print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank,
-                    **self.stdout_options)
 
     def forward(self, x, theta, reverse=False):
         # return w.rotate(x, theta, axis=0, device=None)
@@ -2238,4 +2233,3 @@ def reconstruct_ptychography(
                 print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
                     w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()),
                     rank, rank, **stdout_options)
-            print_flush('Rank 0 CPU memory usage: {} MB.'.format(get_process_memory_usage()), 0, rank, **stdout_options)

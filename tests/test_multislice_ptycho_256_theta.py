@@ -73,7 +73,7 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm_fine_2.h5',
                         'free_prop_cm': 'inf',
                         'backend': 'pytorch',
                         'binning': 8,
-                          'gpu_index': 1}
+                        'gpu_index': 1}
 
 params = params_cone_marc_theta
 
