@@ -30,8 +30,6 @@ except:
 
 warnings.warn('Module under construction.')
 
-sameline = not adorym.global_settings.disable_sameline_output
-
 
 class Schedule():
 
@@ -66,6 +64,8 @@ class Subproblem():
         self.output_folder = None
         self.temp_folder = None
         self.rho_schedule = rho_schedule
+        self.optimizer = None
+        self.initialize_array_vars = True
 
     def initialize(self, *args, **kwargs):
         self.update_rho()
@@ -118,6 +118,23 @@ class Subproblem():
         plt.savefig(os.path.join(self.temp_folder, 'debug', name))
         plt.close()
 
+    def save_checkpoint(self, output_folder):
+        arr = None
+        if isinstance(self, TomographySubproblem):
+            arr = self.x.arr
+        save_checkpoint(self.i_epoch, self.total_iter, output_folder, distribution_mode='distributed_object', obj_array=arr,
+                        optimizer=self.optimizer)
+
+    def load_checkpoint(self, output_folder):
+        try:
+            starting_epoch, starting_iter, obj_arr = restore_checkpoint(output_folder, 'distributed_object',
+                                                                         self.optimizer, dtype='float32')
+            self.i_epoch = starting_epoch
+            self.total_iter = starting_iter
+            self.initialize_array_vars = False
+        except:
+            pass
+
 
 class PhaseRetrievalSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., theta_downsample=None, optimizer=None, device=None,
@@ -153,6 +170,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.randomize_probe_pos = randomize_probe_pos
         self.debug = debug
         self.probe_update_interval = probe_update_interval
+        self.initialize_probe_ls = True
+        self.is_checked_probe_latest = True
 
     def initialize(self, probe_exit, probe_incident, prj, theta_ls=None, probe_pos=None, n_pos_ls=None, probe_pos_ls=None,
                    output_folder='.'):
@@ -194,19 +213,27 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.probe_pos_ls = probe_pos_ls
         if probe_pos is not None:
             self.n_pos_ls = [len(probe_pos)] * self.n_theta
-        self.psi_theta_ls = []
-        if not self.common_probe:
+
+        if not self.common_probe and self.initialize_probe_ls:
             self.probe_real_ls = np.full([self.n_theta_local, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
             self.probe_imag_ls = np.full([self.n_theta_local, max(self.n_pos_ls), *probe_exit[0].shape], np.nan)
-        for i, theta in enumerate(self.theta_ind_ls_local):
-            psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
-                                                          random_guess_means_sigmas=(1, 0, 0, 0),
-                                                          verbose=False)
-            psi_real = psi_real[:, :, 0]
-            psi_imag = psi_imag[:, :, 0]
-            psi = w.create_constant(np.stack([psi_real, psi_imag], axis=-1), device=self.device)
-            self.psi_theta_ls.append(psi)
-        self.psi_theta_ls = w.stack(self.psi_theta_ls)
+
+        self.psi_theta_ls = []
+        if self.initialize_array_vars:
+            for i, i_theta in enumerate(self.theta_ind_ls_local):
+                psi_real, psi_imag = initialize_object_for_dp([*self.whole_object_size[0:2], 1],
+                                                              random_guess_means_sigmas=(1, 0, 0, 0),
+                                                              verbose=False)
+                psi_real = psi_real[:, :, 0]
+                psi_imag = psi_imag[:, :, 0]
+                psi = w.create_constant(np.stack([psi_real, psi_imag], axis=-1), device=self.device)
+                self.psi_theta_ls.append(psi)
+            self.psi_theta_ls = w.stack(self.psi_theta_ls)
+        else:
+            for i, i_theta in enumerate(self.theta_ind_ls_local):
+                psi = self.load_variable('psi_{:04d}'.format(i_theta))
+                self.psi_theta_ls.append(psi)
+            self.psi_theta_ls = w.stack(self.psi_theta_ls)
         self.probe_real = w.create_constant(probe_exit[0], device=self.device)
         self.probe_imag = w.create_constant(probe_exit[1], device=self.device)
         self.probe_i_real = w.create_constant(probe_incident[0], device=self.device)
@@ -214,7 +241,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.probe_size = probe_exit[0].shape[1:]
         self.n_probe_modes = probe_exit[0].shape[0]
         self.prj = prj
-        self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=None)
+        if self.initialize_array_vars:
+            self.optimizer.create_param_arrays(self.psi_theta_ls.shape, device=None)
         self.optimizer.set_index_in_grad_return(0)
         if self.optimize_probe:
             if self.common_probe:
@@ -509,7 +537,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             tile_shape = bp_sp.tile_shape
             tile_shape_padded = np.array(tile_shape) + 2 * szw
             for i, i_theta in enumerate(my_theta_ind_ls):
-                print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, same_line=sameline,
+                print_flush('  PHR: I-theta {} started.'.format(i_theta), 0, rank, 
                             **self.stdout_options)
                 if ri_variable == 'u':
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
@@ -596,8 +624,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 # Initialize batch.
                 # ================================================================================
                 print_flush('  PHR: Iter {}, batch {} of {} started.'.format(i_iteration, i_batch, n_batch),
-                            0, rank, same_line=sameline, **self.stdout_options)
-                starting_batch = 0
+                            0, rank, **self.stdout_options)
 
                 # ================================================================================
                 # Get scan position, rotation angle indices, and raw data for current batch.
@@ -618,6 +645,9 @@ class PhaseRetrievalSubproblem(Subproblem):
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or self.ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 self.local_comm.Barrier()
 
+                # Get probe for the current batch. For non-common probe, first try fetching probe function from
+                # the probe library (self.probe_real/imag_ls). If the data stored in the probe library is NaN,
+                # then use pre-supplied exiting probe self.probe_real/imag.
                 if not self.common_probe:
                     this_probe_real = []
                     this_probe_imag = []
@@ -775,7 +805,7 @@ class PhaseRetrievalSubproblem(Subproblem):
             # Initialize batch.
             # ================================================================================
             print_flush('  PHR: Probe update: batch {} of {} started.'.format(i_batch, n_batch),
-                        0, rank, same_line=sameline, **self.stdout_options)
+                        0, rank, **self.stdout_options)
             starting_batch = 0
 
             # ================================================================================
@@ -870,11 +900,29 @@ class PhaseRetrievalSubproblem(Subproblem):
                 self.probe_real_ls[this_local_i_theta, ind] = w.to_numpy(this_probe_e_real_ls[i])
                 self.probe_imag_ls[this_local_i_theta, ind] = w.to_numpy(this_probe_e_imag_ls[i])
 
+        self.is_checked_probe_latest = False
         # p_r = self.probe_real_ls[0, :, 0, :, :]
         # p_i = self.probe_imag_ls[0, :, 0, :, :]
         # dxchange.write_tiff(np.sqrt(p_r ** 2 + p_i ** 2), os.path.join(self.output_folder, 'intermediate', 'debug', 'p_mag_{}_rank{}'.format(self.total_iter, rank)), dtype='float32')
         # dxchange.write_tiff(np.arctan2(p_i, p_r), os.path.join(self.output_folder, 'intermediate', 'debug', 'p_phase_{}_rank{}'.format(self.total_iter, rank)), dtype='float32')
 
+    def save_checkpoint(self, output_folder):
+        super(PhaseRetrievalSubproblem, self).save_checkpoint(output_folder)
+        if not self.common_probe and not self.is_checked_probe_latest:
+            np.save(os.path.join(output_folder, 'checkpoint', 'probe_real_ls_rank_{}.npy'.format(rank)), self.probe_real_ls)
+            np.save(os.path.join(output_folder, 'checkpoint', 'probe_imag_ls_rank_{}.npy'.format(rank)), self.probe_imag_ls)
+            self.is_checked_probe_latest = True
+
+    def load_checkpoint(self, output_folder):
+        super(PhaseRetrievalSubproblem, self).load_checkpoint(output_folder)
+        if not self.common_probe:
+            try:
+                self.probe_real_ls = np.load(os.path.join(output_folder, 'checkpoint', 'probe_real_ls_rank_{}.npy'.format(rank)))
+                self.probe_imag_ls = np.load(os.path.join(output_folder, 'checkpoint', 'probe_imag_ls_rank_{}.npy'.format(rank)))
+                self.initialize_probe_ls = False
+            except:
+                warnings.warn('Error loading probe library.')
+                self.initialize_probe_ls = True
 
 class AlignmentSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., optimizer=None, rho_schedule=None, device=None, stdout_options={}):
@@ -1037,7 +1085,7 @@ class AlignmentSubproblem(Subproblem):
         for i_iteration in range(n_iterations):
             for i, i_theta in enumerate(self.theta_ind_ls_local):
                 print_flush('  ALN: Iter {}, theta {} started.'.format(i_iteration, i),
-                            0, rank, same_line=sameline, **self.stdout_options)
+                            0, rank, **self.stdout_options)
                 g_u_ls = self.load_variable('g_u_{:04d}'.format(i_theta))[None]
                 psi_ls = self._psi_theta_ls_local[i][None]
                 lambda1_ls = self.lambda1_theta_ls_local[i][None]
@@ -1146,22 +1194,23 @@ class BackpropSubproblem(Subproblem):
         self.local_rank = self.local_comm.Get_rank()
         self.n_local_ranks = self.ranks_per_angle
 
-        for i_theta in theta_ind_ls[rank::n_ranks]:
-            # u arrays are to be stored on HDD, and will get a memmap pointer in self.u_theta_ls.
-            u_delta, u_beta = initialize_object_for_dp(self.whole_object_size,
-                                                       # random_guess_means_sigmas=[8.7e-7, 5.1e-8, 1e-7, 1e-8],
-                                                       random_guess_means_sigmas=[0, 0, 0, 0],
-                                                       verbose=False)
-            u = np.stack([u_delta, u_beta], axis=-1)
-            self.save_variable(u, 'u_{:04d}'.format(i_theta))
+        if self.initialize_array_vars:
+            for i_theta in theta_ind_ls[rank::n_ranks]:
+                # u arrays are to be stored on HDD, and will get a memmap pointer in self.u_theta_ls.
+                u_delta, u_beta = initialize_object_for_dp(self.whole_object_size,
+                                                           # random_guess_means_sigmas=[8.7e-7, 5.1e-8, 1e-7, 1e-8],
+                                                           random_guess_means_sigmas=[0, 0, 0, 0],
+                                                           verbose=False)
+                u = np.stack([u_delta, u_beta], axis=-1)
+                self.save_variable(u, 'u_{:04d}'.format(i_theta))
 
-            # lambda2 arrays are to be stored both on HDD and in RAM in self.lambda2_theta_ls.
-            # lmbda2 = np.stack([np.ones([*self.whole_object_size[0:2]]),
-            #                    np.zeros([*self.whole_object_size[0:2]])], axis=-1)
-            lmbda2 = np.zeros([*self.whole_object_size[0:2], 2])
-            self.save_variable(lmbda2, 'lambda2_{:04d}'.format(i_theta))
+                # lambda2 arrays are to be stored both on HDD and in RAM in self.lambda2_theta_ls.
+                # lmbda2 = np.stack([np.ones([*self.whole_object_size[0:2]]),
+                #                    np.zeros([*self.whole_object_size[0:2]])], axis=-1)
+                lmbda2 = np.zeros([*self.whole_object_size[0:2], 2])
+                self.save_variable(lmbda2, 'lambda2_{:04d}'.format(i_theta))
 
-        self.optimizer.create_param_arrays([self.n_theta_local, *self.tile_shape, self.whole_object_size[2], 2],
+            self.optimizer.create_param_arrays([self.n_theta_local, *self.tile_shape, self.whole_object_size[2], 2],
                                            device=None)
         self.optimizer.set_index_in_grad_return(0)
 
@@ -1472,7 +1521,7 @@ class BackpropSubproblem(Subproblem):
         for i_iteration in range(n_iterations):
             for i, i_theta in enumerate(self.theta_ind_ls_local):
                 print_flush('  BKP: Iter {}, theta {} started.'.format(i_iteration, i),
-                            0, rank, same_line=sameline, **self.stdout_options)
+                            0, rank, **self.stdout_options)
                 u_ls = self.prepare_u_tile(self.load_mmap('u_{:04d}'.format(i_theta)), self.local_rank)[None]
                 r_x = w.create_constant(self._r_x_ls_local[i][None], device=self.device)
                 lambda2_ls = self.load_variable('lambda2_{:04d}'.format(i_theta))[None]
@@ -1610,12 +1659,12 @@ class TomographySubproblem(Subproblem):
         self.slice_range_local = self.slice_range_ls[rank]
 
         # lambda3 is saved on HDD and have a list of pointers.
-        for i_theta, theta in list(enumerate(self.theta_ls))[rank::n_ranks]:
-            lmbda3 = np.zeros([*self.whole_object_size, 2])
-            self.save_variable(lmbda3, 'lambda3_{:04d}'.format(i_theta))
-
+        if self.initialize_array_vars:
+            for i_theta, theta in list(enumerate(self.theta_ls))[rank::n_ranks]:
+                lmbda3 = np.zeros([*self.whole_object_size, 2])
+                self.save_variable(lmbda3, 'lambda3_{:04d}'.format(i_theta))
+            self.optimizer.create_container([*self.whole_object_size, 2], use_checkpoint=False, device_obj=None)
         self.optimizer.distribution_mode = 'distributed_object'
-        self.optimizer.create_container([*self.whole_object_size, 2], use_checkpoint=False, device_obj=None)
         self.optimizer.set_index_in_grad_return(0)
 
     def forward(self, x, theta, reverse=False):
@@ -1662,7 +1711,7 @@ class TomographySubproblem(Subproblem):
                 np.random.shuffle(theta_ind_ls)
                 for i, i_theta in enumerate(theta_ind_ls):
                     print_flush('  TMO: Iter {}, theta {} started.'.format(i_iteration, i),
-                                0, rank, same_line=sameline, **self.stdout_options)
+                                0, rank, **self.stdout_options)
                     self.this_i_theta = i_theta
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                     u = u_mmap[self.slice_range_local[0]:self.slice_range_local[1]]
@@ -1842,8 +1891,6 @@ def reconstruct_ptychography(
         # Useful for working with supercomputers' job dependency system, where the dependent may start only
         # if the parent job exits with status 0.
         **kwargs,):
-
-
 
     t_zero = time.time()
 
@@ -2114,16 +2161,26 @@ def reconstruct_ptychography(
         assert isinstance(sp_bkp, BackpropSubproblem)
         assert isinstance(sp_tmo, TomographySubproblem)
 
+        i_starting_epoch = 0
+        if use_checkpoint:
+            sp_phr.load_checkpoint(output_folder)
+            if sp_aln is not None:
+                sp_aln.load_checkpoint(output_folder)
+            sp_bkp.load_checkpoint(output_folder)
+            sp_tmo.load_checkpoint(output_folder)
+            i_starting_epoch = sp_phr.i_epoch
+
         sp_phr.initialize(probe_exit=[probe_real_exit, probe_imag_exit], probe_incident=[probe_real, probe_imag],
                           prj=prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
-        if sp_aln is not None: sp_aln.initialize(theta_ls=theta_ls, output_folder=output_folder)
+        if sp_aln is not None:
+            sp_aln.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_bkp.initialize(theta_ls=theta_ls, output_folder=output_folder)
         sp_tmo.initialize(theta_ls=theta_ls, output_folder=output_folder)
 
         # ================================================================================
         # Enter ADMM iterations.
         # ================================================================================
-        for i_epoch in range(n_epochs):
+        for i_epoch in range(i_starting_epoch, n_epochs):
             t0 = time.time()
             t00 = time.time()
 
@@ -2152,10 +2209,10 @@ def reconstruct_ptychography(
             print_flush('PHR done in {} s. Loss: {}/{}.'.format(time.time() - t00, sp_phr.last_iter_part1_loss,
                                                                 sp_phr.last_iter_part2_loss), sto_rank, rank,
                         **stdout_options)
-            for i, i_theta in tuple(enumerate(sp_phr.theta_ind_ls_local))[::50]:
-                output_probe(sp_phr.psi_theta_ls[i][:, :, 0], sp_phr.psi_theta_ls[i][:, :, 1],
-                             os.path.join(output_folder, 'intermediate', 'ptycho'), custom_name='psi_{}'.format(i_theta),
-                             full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
+            # for i, i_theta in tuple(enumerate(sp_phr.theta_ind_ls_local))[::50]:
+            #     output_probe(sp_phr.psi_theta_ls[i][:, :, 0], sp_phr.psi_theta_ls[i][:, :, 1],
+            #                  os.path.join(output_folder, 'intermediate', 'ptycho'), custom_name='psi_{}'.format(i_theta),
+            #                  full_output=False, ds_level=1, i_epoch=i_epoch, save_history=True)
 
             t00 = time.time()
             # import matplotlib.pyplot as plt
@@ -2215,7 +2272,7 @@ def reconstruct_ptychography(
                         rank, **stdout_options)
 
             # ================================================================================
-            # Save reconstruction after an epoch.
+            # Save reconstruction and checkpoint after an epoch.
             # ================================================================================
             obj = sp_tmo.x
             output_object(obj, 'distributed_object', os.path.join(output_folder, 'intermediate', 'object'),
@@ -2232,4 +2289,12 @@ def reconstruct_ptychography(
             if not cpu_only:
                 print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
                     w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()),
-                    rank, rank, **stdout_options)
+                    0, rank, **stdout_options)
+
+            if store_checkpoint:
+                create_directory_multirank(os.path.join(output_folder, 'checkpoint'))
+                sp_phr.save_checkpoint(output_folder)
+                if sp_aln is not None:
+                    sp_aln.save_checkpoint(output_folder)
+                sp_bkp.save_checkpoint(output_folder)
+                sp_tmo.save_checkpoint(output_folder)

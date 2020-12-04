@@ -183,10 +183,13 @@ def save_checkpoint(i_epoch, i_batch, output_folder, distribution_mode=None, obj
                np.array([i_epoch, i_batch]), fmt='%d')
     if distribution_mode is None:
         np.save(os.path.join(path, 'obj_checkpoint.npy'), obj_array)
-        optimizer.save_param_arrays_to_checkpoint()
+        if optimizer is not None:
+            optimizer.save_param_arrays_to_checkpoint()
     elif distribution_mode == 'distributed_object':
-        np.save(os.path.join(path, 'obj_checkpoint_rank_{}.npy'.format(rank)), obj_array)
-        optimizer.save_distributed_param_arrays_to_checkpoint()
+        if obj_array is not None:
+            np.save(os.path.join(path, 'obj_checkpoint_rank_{}.npy'.format(rank)), obj_array)
+        if optimizer is not None:
+            optimizer.save_distributed_param_arrays_to_checkpoint()
     else:
         pass
     return
@@ -227,9 +230,10 @@ def parse_source_folder(src_dir, prefix):
     return flist, n_theta, n_dist, raw_img_shape
 
 
-def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_line=False,
+def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_line=None,
                 output_folder='', timestamp='', **kwargs):
-
+    if same_line is None:
+        sameline = not global_settings.disable_sameline_output
     a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
     if designate_rank is not None:
         if this_rank == designate_rank:

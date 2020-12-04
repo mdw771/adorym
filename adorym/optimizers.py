@@ -142,7 +142,7 @@ class Optimizer(object):
 
     def restore_param_arrays_from_checkpoint(self, device=None, use_numpy=False):
         if len(self.params_list) > 0:
-            arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint.npy'))
+            arr = np.load(os.path.join(self.output_folder, 'checkpoint', 'opt_{}_params_checkpoint.npy'.format(self.name)))
             if use_numpy == False:
                 arr = w.create_variable(arr, device=device, requires_grad=False)
             if len(self.params_list) > 0:
@@ -152,7 +152,7 @@ class Optimizer(object):
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False, dtype='float32'):
         if len(self.params_list) > 0:
-            path = os.path.join(self.output_folder, 'checkpoint', 'opt_params_checkpoint_rank_{}.npy'.format(rank))
+            path = os.path.join(self.output_folder, 'checkpoint', 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank))
             if os.path.exists(path):
                 arr = np.load(path)
                 if use_numpy == False:
@@ -171,7 +171,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_params_checkpoint.npy'), w.to_numpy(arr))
+            np.save(os.path.join(path, 'opt_{}_params_checkpoint.npy'.format(self.name)), w.to_numpy(arr))
         return
 
     def save_distributed_param_arrays_to_checkpoint(self, use_numpy=True):
@@ -184,7 +184,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_params_checkpoint_rank_{}.npy'.format(rank)), w.to_numpy(arr))
+            np.save(os.path.join(path, 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank)), w.to_numpy(arr))
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size=None):
