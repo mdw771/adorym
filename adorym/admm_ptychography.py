@@ -74,24 +74,62 @@ class Subproblem():
         self.prev_sp = prev_sp
         self.next_sp = next_sp
 
-    def save_variable(self, var, fname, to_numpy=True):
+    def save_variable(self, var, fname, to_numpy=True, format='hdf5'):
         if to_numpy:
             var = w.to_numpy(var)
-        np.save(os.path.join(self.temp_folder, fname), var)
+        if format == 'hdf5':
+            if len(fname) < 3 or fname[-3:] != '.h5':
+                fname += '.h5'
+            try:
+                f = h5py.File(os.path.join(self.temp_folder, fname), 'a', driver='mpio', comm=comm)
+            except:
+                f = h5py.File(os.path.join(self.temp_folder, fname), 'a')
+            try:
+                f.create_dataset('data', data=var)
+            except:
+                f['data'][...] = var
+            f.close()
+        elif format == 'npy':
+            np.save(os.path.join(self.temp_folder, fname), var)
 
-    def load_variable(self, fname, create_variable=True):
-        if len(fname) < 4 or fname[-4:] != '.npy':
-            fname += '.npy'
-        var = np.load(os.path.join(self.temp_folder, fname))
+    def load_variable(self, fname, create_variable=True, format='hdf5'):
+        if format == 'hdf5':
+            if len(fname) < 3 or fname[-3:] != '.h5':
+                fname += '.h5'
+            try:
+                f = h5py.File(os.path.join(self.temp_folder, fname), 'r', driver='mpio', comm=comm)
+            except:
+                f = h5py.File(os.path.join(self.temp_folder, fname.format(fname)), 'r')
+            var = f['data'][...]
+            f.close()
+        elif format == 'npy':
+            if len(fname) < 4 or fname[-4:] != '.npy':
+                fname += '.npy'
+            var = np.load(os.path.join(self.temp_folder, fname))
         if create_variable:
             var = w.create_variable(var, requires_grad=False, device=self.device)
         return var
 
-    def load_mmap(self, fname, mode='r'):
-        if len(fname) < 4 or fname[-4:] != '.npy':
-            fname += '.npy'
-        var = np.load(os.path.join(self.temp_folder, fname), allow_pickle=True, mmap_mode=mode)
+    def load_mmap(self, fname, mode='r', format='hdf5'):
+        if format == 'hdf5':
+            if len(fname) < 3 or fname[-3:] != '.h5':
+                fname += '.h5'
+            try:
+                f = h5py.File(os.path.join(self.temp_folder, fname), mode, driver='mpio', comm=comm)
+            except:
+                f = h5py.File(os.path.join(self.temp_folder, fname), mode)
+            var = f['data']
+        elif format == 'npy':
+            if len(fname) < 4 or fname[-4:] != '.npy':
+                fname += '.npy'
+            var = np.load(os.path.join(self.temp_folder, fname), allow_pickle=True, mmap_mode=mode)
         return var
+
+    def close_mmap(self, var, format='hdf5'):
+        if format == 'hdf5':
+            var.file.close()
+        elif format == 'npy':
+            del var
 
     def setup_temp_folder(self, output_folder):
         self.output_folder = output_folder
@@ -542,7 +580,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 if ri_variable == 'u':
                     u_mmap = self.load_mmap('u_{:04d}'.format(i_theta))
                     u = bp_sp.prepare_u_tile(u_mmap, my_local_rank)
-                    del u_mmap
+                    self.close_mmap(u_mmap)
                 elif ri_variable == 'r_x':
                     u = w.create_constant(bp_sp._r_x_ls_local[i], device=self.device)
                 else:
@@ -840,7 +878,7 @@ class PhaseRetrievalSubproblem(Subproblem):
                 u = w.create_constant(u, device=self.device)
                 u, _ = pad_object(u, self.whole_object_size, probe_pos_int[ind:ind + 1], self.probe_size)
                 u_ls.append(u)
-            del u_mmap
+            self.close_mmap(u_mmap)
             u_ls = w.stack(u_ls)
 
             # Plane wave propagation.
@@ -1392,7 +1430,7 @@ class BackpropSubproblem(Subproblem):
                     psi1 = pad_object_edge(psi1, None, None, None, pad_arr=np.array([[self.safe_zone_width] * 2] * 2))
                 exit_real, exit_imag = w.split_channel(ex)
                 psi_forward_real_ls, psi_forward_imag_ls = w.split_channel(psi1)
-                del ex_mmap
+                self.close_mmap(ex_mmap)
             except:
                 warnings.warn('Cannot get multislice results from previous subproblem.')
                 exit_real, exit_imag, psi_forward_real_ls, psi_forward_imag_ls = \
@@ -1570,7 +1608,9 @@ class BackpropSubproblem(Subproblem):
                 if i_iteration == n_iterations - 1:
                     self.last_iter_part1_loss = self.last_iter_part1_loss + this_part1_loss
                     self.last_iter_part2_loss = self.last_iter_part2_loss + this_part2_loss
-                del u_mmap, lambda3_mmap, lambda2_ls, u_ls, r_x
+                self.close_mmap(u_mmap)
+                self.close_mmap(lambda3_mmap)
+                del lambda2_ls, u_ls, r_x
                 try:
                     del psi_ls
                 except:
@@ -1585,7 +1625,7 @@ class BackpropSubproblem(Subproblem):
         for i, i_theta in enumerate(self.theta_ind_ls_local):
             u_mmap = self.load_mmap('u_{:04d}'.format(i_theta), mode='r+')
             u_ls = self.prepare_u_tile(u_mmap, self.local_rank)[None]
-            del u_mmap
+            self.close_mmap(u_mmap)
             g_u_real, g_u_imag = self.forward(u_ls, return_intermediate_wavefields=False)
             g_u = w.stack([g_u_real, g_u_imag], axis=-1)[0]
             if isinstance(self.prev_sp, AlignmentSubproblem):
@@ -1606,7 +1646,8 @@ class BackpropSubproblem(Subproblem):
             lambda2 = w.create_variable(lambda2, requires_grad=False, device=self.device)
             lambda2 = lambda2 + self.rho * this_r[:line_end - line_st, :px_end - px_st, :]
             lambda2_mmap[line_st:line_end, px_st:px_end, :] = w.to_numpy(lambda2)
-            del lambda2_mmap, lambda2
+            self.close_mmap(lambda2_mmap)
+            del lambda2
             rr, ri = w.split_channel(this_r)
             self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
         self.rsquare = self.rsquare / self.n_theta
@@ -1741,7 +1782,9 @@ class TomographySubproblem(Subproblem):
                     x = self.optimizer.apply_gradient(x, w.cast(grad, 'float32'), i_batch=self.total_iter,
                                                       **self.optimizer.options_dict)
                     self.x.arr = w.to_numpy(x)
-                    del u_mmap, lambda3_mmap, u, lambda3, x
+                    self.close_mmap(u_mmap)
+                    self.close_mmap(lambda3_mmap)
+                    del u, lambda3, x
                     if i_iteration == n_iterations - 1:
                         self.last_iter_part1_loss = self.last_iter_part1_loss + this_loss
                 self.update_iter_and_epoch_count(n_iterations)
@@ -1763,7 +1806,9 @@ class TomographySubproblem(Subproblem):
                 lambda3_mmap[self.slice_range_local[0]:self.slice_range_local[1]] = w.to_numpy(lambda3)
                 rr, ri = w.split_channel(this_r)
                 self.rsquare = self.rsquare + w.mean(rr ** 2 + ri ** 2)
-                del u_mmap, lambda3_mmap, u, lambda3
+                self.close_mmap(u_mmap)
+                self.close_mmap(lambda3_mmap)
+                del u, lambda3
             self.rsquare = self.rsquare / self.n_theta
         self.update_rho()
 
