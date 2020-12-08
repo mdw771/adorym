@@ -1548,7 +1548,7 @@ class BackpropSubproblem(Subproblem):
 
         # Dump x at various angles right before exiting probes are updated in PHR
         assert isinstance(phr_sp, PhaseRetrievalSubproblem)
-        flag_dump_x = (phr_sp.total_iter % phr_sp.probe_update_interval == (phr_sp.probe_update_interval - 2))
+        flag_dump_x = (phr_sp.total_iter % phr_sp.probe_update_interval == (phr_sp.probe_update_interval - 1))
         self.update_x_data(dump_rotated_x=flag_dump_x)
 
         self.last_iter_part1_loss = 0
