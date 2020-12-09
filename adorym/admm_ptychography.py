@@ -1312,12 +1312,15 @@ class BackpropSubproblem(Subproblem):
             psi = self.load_variable('psi_{:04d}'.format(i_theta), create_variable=False)
             self._psi_theta_ls_local.append(psi)
 
-    def update_x_data(self, dump_rotated_x=False):
+    def update_x_data(self, dump_rotated_x=False, use_mpi=True):
         """
         Update r(x) tile from distributedly stored x in the TMO subproblem.
         """
         assert isinstance(self.next_sp, TomographySubproblem)
         tile_y, tile_x = self.get_tile_position(self.local_rank)
+
+        if not use_mpi:
+            dump_rotated_x = True
 
         self._r_x_ls_local = []
         for i_theta, theta in enumerate(self.theta_ls):
@@ -1333,28 +1336,36 @@ class BackpropSubproblem(Subproblem):
                 if self.next_sp.x.arr is not None:
                     f = self.load_mmap('x_{:04d}'.format(i_theta), mode='r+')
                     f[slice(*self.next_sp.slice_range_local)] = self.next_sp.x.arr_rot
-                    del f
+                    self.close_mmap(f)
 
-            # Create an all-rank batch index array like [(0, 0), (0, 1), (0, 2), ..., (0, n_ranks)].
-            this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks).astype(int)], axis=-1)
-            # Create a probe position array like
-            # [(-999, -999), (-999, -999), ..., (-999, -999), (0, 0), (0, 20), (0, 40), ..., (20, 0), ..., (100, 100),
-            # (-999, -999), ..., (-999, -999)].
-            # Out-of-bound positions are to prevent the read_chunks function from sending data to these ranks.
-            # Valid positions correspond to ranks handling the current i_theta.
-            probe_pos = np.stack([np.full(n_ranks, fill_value=-self.tile_shape_padded[0] - 1).astype(int),
-                                  np.full(n_ranks, fill_value=-self.tile_shape_padded[1] - 1).astype(int)], axis=-1)
-            t_rank, _ = self.locate_theta_data(i_theta)
-            probe_pos_valid = np.stack(np.mgrid[:self.whole_object_size[0]:self.tile_shape[0],
-                                                :self.whole_object_size[1]:self.tile_shape[1]], axis=-1).reshape(-1, 2)
-            probe_pos_valid = probe_pos_valid - self.safe_zone_width
-            probe_pos[t_rank:t_rank + self.ranks_per_angle] = probe_pos_valid
-            x = self.next_sp.x.read_chunks_from_distributed_object(probe_pos, this_ind_batch_allranks, 1,
-                                                self.tile_shape_padded, device=None, unknown_type='delta_beta',
-                                                apply_to_arr_rot=True, dtype='float32',
-                                                n_split=self.next_sp.n_all2all_split, create_variable=False)
-            if rank >= t_rank and rank < t_rank + self.ranks_per_angle:
-                self._r_x_ls_local.append(x[0])
+            if use_mpi:
+                # Create an all-rank batch index array like [(0, 0), (0, 1), (0, 2), ..., (0, n_ranks)].
+                this_ind_batch_allranks = np.stack([np.zeros(n_ranks).astype(int), np.arange(n_ranks).astype(int)], axis=-1)
+                # Create a probe position array like
+                # [(-999, -999), (-999, -999), ..., (-999, -999), (0, 0), (0, 20), (0, 40), ..., (20, 0), ..., (100, 100),
+                # (-999, -999), ..., (-999, -999)].
+                # Out-of-bound positions are to prevent the read_chunks function from sending data to these ranks.
+                # Valid positions correspond to ranks handling the current i_theta.
+                probe_pos = np.stack([np.full(n_ranks, fill_value=-self.tile_shape_padded[0] - 1).astype(int),
+                                      np.full(n_ranks, fill_value=-self.tile_shape_padded[1] - 1).astype(int)], axis=-1)
+                t_rank, _ = self.locate_theta_data(i_theta)
+                probe_pos_valid = np.stack(np.mgrid[:self.whole_object_size[0]:self.tile_shape[0],
+                                           :self.whole_object_size[1]:self.tile_shape[1]], axis=-1).reshape(-1, 2)
+                probe_pos_valid = probe_pos_valid - self.safe_zone_width
+                probe_pos[t_rank:t_rank + self.ranks_per_angle] = probe_pos_valid
+                x = self.next_sp.x.read_chunks_from_distributed_object(probe_pos, this_ind_batch_allranks, 1,
+                                                    self.tile_shape_padded, device=None, unknown_type='delta_beta',
+                                                    apply_to_arr_rot=True, dtype='float32',
+                                                    n_split=self.next_sp.n_all2all_split, create_variable=False)
+                if rank >= t_rank and rank < t_rank + self.ranks_per_angle:
+                    self._r_x_ls_local.append(x[0])
+
+        if not use_mpi:
+            for i_theta in self.theta_ind_ls_local:
+                x_mmap = self.load_mmap('x_{:04d}'.format(i_theta))
+                x = self.prepare_u_tile(x_mmap, self.local_rank)
+                self.close_mmap(x_mmap)
+                self._r_x_ls_local.append(x)
 
     def get_my_batch(self):
         """
@@ -1533,7 +1544,7 @@ class BackpropSubproblem(Subproblem):
         px_st = max([0, tile_x - self.safe_zone_width])
         px_end = min([self.whole_object_size[1], tile_x + self.tile_shape[1] + self.safe_zone_width])
         u = u_mmap[line_st:line_end, px_st:px_end, :, :]
-        u = w.create_variable(u, requires_grad=False, device=self.device)
+        u = w.create_constant(u, device=self.device)
         u, _ = pad_object_edge(u, self.whole_object_size,
                                np.array([[tile_y - self.safe_zone_width, tile_x - self.safe_zone_width]]),
                                self.tile_shape_padded)
@@ -1572,7 +1583,7 @@ class BackpropSubproblem(Subproblem):
         print_flush('  BKP: Updating x data...', 0, rank, *self.stdout_options)
         assert isinstance(phr_sp, PhaseRetrievalSubproblem)
         flag_dump_x = (phr_sp.total_iter % phr_sp.probe_update_interval == (phr_sp.probe_update_interval - 1))
-        self.update_x_data(dump_rotated_x=flag_dump_x)
+        self.update_x_data(dump_rotated_x=flag_dump_x, use_mpi=False)
 
         self.last_iter_part1_loss = 0
         self.last_iter_part2_loss = 0
