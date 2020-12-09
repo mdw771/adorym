@@ -866,8 +866,12 @@ class PhaseRetrievalSubproblem(Subproblem):
             is_last_batch_of_this_theta = i_batch == n_batch - 1 or self.ind_list_rand[i_batch + 1][0, 0] != this_i_theta
             self.local_comm.Barrier()
 
+            # Load object and plane wave propagation results previously calculated in update_g_u.
             u_ls = []
+            psi_1_real_ls = []
+            psi_1_imag_ls = []
             u_mmap = self.load_mmap('x_{:04d}'.format(this_i_theta))
+            psi_1_mmap = self.load_mmap('g_u_{:04d}'.format(this_i_theta))
             for ind in this_ind_batch:
                 pos_y, pos_x = probe_pos_int[ind]
                 line_st = max([0, pos_y])
@@ -878,16 +882,26 @@ class PhaseRetrievalSubproblem(Subproblem):
                 u = w.create_constant(u, device=self.device)
                 u, _ = pad_object(u, self.whole_object_size, probe_pos_int[ind:ind + 1], self.probe_size)
                 u_ls.append(u)
+
+                psi_1 = psi_1_mmap[line_st:line_end, px_st:px_end, :]
+                psi_1 = w.create_constant(psi_1, device=self.device)
+                psi_1, _ = pad_object_edge(psi_1[:, :, None, :], self.whole_object_size, probe_pos_int[ind:ind + 1],
+                                           self.probe_size)
+                psi_1_real_ls.append(psi_1[:, :, 0, 0])
+                psi_1_imag_ls.append(psi_1[:, :, 0, 1])
             self.close_mmap(u_mmap)
             u_ls = w.stack(u_ls)
+            psi_1_real_ls = w.stack(psi_1_real_ls)
+            psi_1_imag_ls = w.stack(psi_1_imag_ls)
 
-            # Plane wave propagation.
+            # Load plane wave propagation result previously calculated in update_g_u.
             if isinstance(self.next_sp, BackpropSubproblem):
                 nsp = self.next_sp
             else:
                 nsp = self.next_sp.next_sp
             assert isinstance(nsp, BackpropSubproblem)
-            psi_1_real_ls, psi_1_imag_ls = nsp.forward(u_ls, return_intermediate_wavefields=False)
+            # psi_1_real_ls, psi_1_imag_ls = nsp.forward(u_ls, return_intermediate_wavefields=False)
+            # psi_1 = self.load_variable('g_u_{:04d}'.format(this_i_theta))[]
 
             # Probe propagation.
             # Shift probes to make up floating point positions. Using positive correction for probes.
@@ -1411,6 +1425,13 @@ class BackpropSubproblem(Subproblem):
         this_loss = this_part1_loss + this_part2_loss
         return this_loss
 
+    def get_grad_ad(self, u_ls, w_ls, r_x, lambda2_ls, lambda3_ls, i_theta, get_multislice_results_from_prevsp=False):
+        w.reattach(u_ls)
+        grad = w.get_gradients(self.get_loss, [0], u_ls=u_ls, w_ls=w_ls, r_x=r_x, lambda2_ls=lambda2_ls,
+                               lambda3_ls=lambda3_ls)
+        w.detach(u_ls)
+        return grad[0], (0, 0)
+
     def get_grad(self, u_ls, w_ls, r_x, lambda2_ls, lambda3_ls, i_theta, get_multislice_results_from_prevsp=False):
         lmbda_nm = 1240. / self.energy_ev
         delta_nm = self.psize_cm * 1e7
@@ -1540,6 +1561,7 @@ class BackpropSubproblem(Subproblem):
         return u
 
     def solve(self, n_iterations=3):
+        print_flush('  BKP: Updating psi data...', 0, rank, *self.stdout_options)
         if isinstance(self.prev_sp, PhaseRetrievalSubproblem):
             self.update_psi_data()
             phr_sp = self.prev_sp
@@ -1547,6 +1569,7 @@ class BackpropSubproblem(Subproblem):
             phr_sp = self.prev_sp.prev_sp
 
         # Dump x at various angles right before exiting probes are updated in PHR
+        print_flush('  BKP: Updating x data...', 0, rank, *self.stdout_options)
         assert isinstance(phr_sp, PhaseRetrievalSubproblem)
         flag_dump_x = (phr_sp.total_iter % phr_sp.probe_update_interval == (phr_sp.probe_update_interval - 1))
         self.update_x_data(dump_rotated_x=flag_dump_x)

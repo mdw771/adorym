@@ -256,6 +256,15 @@ def prepare_loss_node(loss, opt_args_ls=None, backend='autograd'):
 
 @set_bn
 def get_gradients(loss_node, opt_args_ls=None, backend='autograd', **kwargs):
+    """
+    Get gradient.
+
+    :param loss_node: Callable. A function which, given arguments in kwargs, returns the loss.
+    :param opt_args_ls: List of Int. Indices of optimizable variables in the loss function's argument list.
+    :param backend: Backend.
+    :param kwargs: Keyword arguments of the loss function.
+    :return: A list of gradients.
+    """
     if backend == 'autograd':
         # For Autograd, loss_node is the grad function that takes the loss function arguments and
         # returns the gradients.
