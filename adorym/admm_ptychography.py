@@ -422,7 +422,7 @@ class PhaseRetrievalSubproblem(Subproblem):
         return probe_real_ls_new, probe_imag_ls_new
 
     def forward(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                probe_pos_correction, this_ind_batch):
+                probe_pos_correction, this_ind_batch, epsilon=1e-11):
         """
         Calculate diffraction pattern of patches in a minibatch.
 
@@ -447,9 +447,11 @@ class PhaseRetrievalSubproblem(Subproblem):
             wave_real, wave_imag = w.complex_mul(patches[:, :, :, 0], patches[:, :, :, 1], this_probe_mode_real,
                                                  this_probe_mode_imag)
             wave_real, wave_imag = w.fft2_and_shift(wave_real, wave_imag, axes=(1, 2))
+            # wave_real = wave_real + 1e-8
+            # wave_imag = wave_imag + 1e-8
             det_real_mode_ls[:, i_mode, :, :] = wave_real
             det_imag_mode_ls[:, i_mode, :, :] = wave_imag
-            ex_int = ex_int + wave_real ** 2 + wave_imag ** 2
+            ex_int = ex_int + wave_real ** 2 + wave_imag ** 2 + epsilon ** 2
         y_pred_ls = w.sqrt(ex_int)
         return y_pred_ls, det_real_mode_ls, det_imag_mode_ls
 
@@ -462,12 +464,30 @@ class PhaseRetrievalSubproblem(Subproblem):
         return this_prj_batch
 
     def get_part1_loss(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                       probe_pos_correction, this_ind_batch):
+                       probe_pos_correction, this_ind_batch, epsilon=1e-11):
         y_pred_ls, _, _ = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
-                                       probe_pos_correction, this_ind_batch)
+                                       probe_pos_correction, this_ind_batch, epsilon=epsilon)
         y_ls = self.get_data(this_i_theta, this_ind_batch, self.theta_downsample)
         loss = w.sum((y_pred_ls - y_ls) ** 2)
         return loss
+
+    def get_part1_grad_ad(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
+                          probe_pos_correction, this_ind_batch, epsilon=1e-11):
+        w.reattach(patches)
+        w.reattach(probe_real)
+        w.reattach(probe_imag)
+        grad = w.get_gradients(self.get_part1_loss, [0, 1, 2],
+                               patches=patches, probe_real=probe_real, probe_imag=probe_imag,
+                               this_i_theta=this_i_theta, this_pos_batch=this_pos_batch,
+                               probe_pos_correction=probe_pos_correction, this_ind_batch=this_ind_batch,
+                               epsilon=epsilon)
+        w.detach(patches)
+        w.detach(probe_real)
+        w.detach(probe_imag)
+        g_psi_real, g_psi_imag = w.split_channel(grad[0])
+        g_p_real = grad[1]
+        g_p_imag = grad[2]
+        return (g_psi_real, g_psi_imag), (g_p_real, g_p_imag), 0
 
     def get_part1_grad(self, patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                        probe_pos_correction, this_ind_batch, epsilon=1e-11):
@@ -535,6 +555,13 @@ class PhaseRetrievalSubproblem(Subproblem):
 
     def get_part2_loss(self, psi=None, w_=None, lambda1=None, g_u=None, lambda2=None):
         return self.get_part2_grad(psi=psi, w_=w_, lambda1=lambda1, g_u=g_u, lambda2=lambda2)[1]
+
+    def get_part2_grad_ad(self, psi=None, w_=None, lambda1=None, g_u=None, lambda2=None):
+        w.reattach(psi)
+        grad = w.get_gradients(self.get_part2_loss, [0],
+                               psi=psi, w_=w_, lambda1=lambda1, g_u=g_u, lambda2=lambda2)
+        w.detach(psi)
+        return grad[0], 0
 
     def get_part2_grad(self, psi=None, w_=None, lambda1=None, g_u=None, lambda2=None):
         if w_ is not None:
@@ -1363,7 +1390,7 @@ class BackpropSubproblem(Subproblem):
         if not use_mpi:
             for i_theta in self.theta_ind_ls_local:
                 x_mmap = self.load_mmap('x_{:04d}'.format(i_theta))
-                x = self.prepare_u_tile(x_mmap, self.local_rank)
+                x = self.prepare_u_tile(x_mmap, self.local_rank, on_ram=True)
                 self.close_mmap(x_mmap)
                 self._r_x_ls_local.append(x)
 
@@ -1530,7 +1557,7 @@ class BackpropSubproblem(Subproblem):
 
         return w.stack([grad_delta, grad_beta], axis=-1), (this_part1_loss, this_part2_loss)
 
-    def prepare_u_tile(self, u_mmap, my_local_rank):
+    def prepare_u_tile(self, u_mmap, my_local_rank, on_ram=False):
         """
         Extract u tile from the pointed u array, and pad with safe zone width.
 
@@ -1544,7 +1571,8 @@ class BackpropSubproblem(Subproblem):
         px_st = max([0, tile_x - self.safe_zone_width])
         px_end = min([self.whole_object_size[1], tile_x + self.tile_shape[1] + self.safe_zone_width])
         u = u_mmap[line_st:line_end, px_st:px_end, :, :]
-        u = w.create_constant(u, device=self.device)
+        d = None if on_ram else self.device
+        u = w.create_constant(u, device=d)
         u, _ = pad_object_edge(u, self.whole_object_size,
                                np.array([[tile_y - self.safe_zone_width, tile_x - self.safe_zone_width]]),
                                self.tile_shape_padded)
@@ -1755,6 +1783,12 @@ class TomographySubproblem(Subproblem):
         grad_delta, grad_beta = w.split_channel(grad)
         this_loss = w.sum(grad_delta ** 2 + grad_beta ** 2) * self.rho
         return this_loss
+
+    def get_grad_ad(self, x, u, lambda3, theta, i_theta=None):
+        w.reattach(x)
+        grad = w.get_gradients(self.get_loss, [0], x=x, u=u, lambda3=lambda3, theta=theta)
+        w.detach(x)
+        return grad[0], 0
 
     def get_grad(self, x, u, lambda3, theta, i_theta=None):
         grad = u - self.forward(x, theta, reverse=False) + lambda3 / self.rho
