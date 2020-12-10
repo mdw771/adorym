@@ -74,15 +74,18 @@ class Subproblem():
         self.prev_sp = prev_sp
         self.next_sp = next_sp
 
-    def save_variable(self, var, fname, to_numpy=True, format='hdf5'):
+    def save_variable(self, var, fname, to_numpy=True, format='hdf5', collective=False):
         if to_numpy:
             var = w.to_numpy(var)
         if format == 'hdf5':
             if len(fname) < 3 or fname[-3:] != '.h5':
                 fname += '.h5'
-            try:
-                f = h5py.File(os.path.join(self.temp_folder, fname), 'a', driver='mpio', comm=comm)
-            except:
+            if collective:
+                try:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), 'a', driver='mpio', comm=comm)
+                except:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), 'a')
+            else:
                 f = h5py.File(os.path.join(self.temp_folder, fname), 'a')
             try:
                 f.create_dataset('data', data=var)
@@ -110,13 +113,16 @@ class Subproblem():
             var = w.create_variable(var, requires_grad=False, device=self.device)
         return var
 
-    def load_mmap(self, fname, mode='r', format='hdf5'):
+    def load_mmap(self, fname, mode='r', format='hdf5', collective=False):
         if format == 'hdf5':
             if len(fname) < 3 or fname[-3:] != '.h5':
                 fname += '.h5'
-            try:
-                f = h5py.File(os.path.join(self.temp_folder, fname), mode, driver='mpio', comm=comm)
-            except:
+            if collective:
+                try:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), mode, driver='mpio', comm=comm)
+                except:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), mode)
+            else:
                 f = h5py.File(os.path.join(self.temp_folder, fname), mode)
             var = f['data']
         elif format == 'npy':
@@ -1361,7 +1367,7 @@ class BackpropSubproblem(Subproblem):
                         self.save_variable(np.zeros([*self.whole_object_size, 2]), 'x_{:04d}'.format(i_theta))
                 comm.barrier()
                 if self.next_sp.x.arr is not None:
-                    f = self.load_mmap('x_{:04d}'.format(i_theta), mode='r+')
+                    f = self.load_mmap('x_{:04d}'.format(i_theta), mode='r+', collective=True)
                     f[slice(*self.next_sp.slice_range_local)] = self.next_sp.x.arr_rot
                     self.close_mmap(f)
 
@@ -1389,7 +1395,7 @@ class BackpropSubproblem(Subproblem):
 
         if not use_mpi:
             for i_theta in self.theta_ind_ls_local:
-                x_mmap = self.load_mmap('x_{:04d}'.format(i_theta))
+                x_mmap = self.load_mmap('x_{:04d}'.format(i_theta), collective=False)
                 x = self.prepare_u_tile(x_mmap, self.local_rank, on_ram=True)
                 self.close_mmap(x_mmap)
                 self._r_x_ls_local.append(x)
