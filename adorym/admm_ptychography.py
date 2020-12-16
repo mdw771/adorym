@@ -113,6 +113,24 @@ class Subproblem():
             var = w.create_variable(var, requires_grad=False, device=self.device)
         return var
 
+    def create_mmap(self, fname, shape, dtype, mode='w', format='hdf5', collective=False):
+        if format == 'hdf5':
+            if len(fname) < 3 or fname[-3:] != '.h5':
+                fname += '.h5'
+            if collective:
+                try:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), mode, driver='mpio', comm=comm)
+                except:
+                    f = h5py.File(os.path.join(self.temp_folder, fname), mode)
+            else:
+                f = h5py.File(os.path.join(self.temp_folder, fname), mode)
+            f.create_dataset('data', shape=shape, dtype=dtype)
+            f.close()
+        elif format == 'npy':
+            if len(fname) < 4 or fname[-4:] != '.npy':
+                fname += '.npy'
+            self.save_variable(np.zeros(shape, dtype=dtype), fname, format='npy')
+
     def load_mmap(self, fname, mode='r', format='hdf5', collective=False):
         if format == 'hdf5':
             if len(fname) < 3 or fname[-3:] != '.h5':
@@ -1371,8 +1389,9 @@ class BackpropSubproblem(Subproblem):
 
             if dump_rotated_x:
                 if rank == 0:
-                    if not os.path.exists(os.path.join(self.temp_folder, 'x_{:04d}'.format(i_theta))):
-                        self.save_variable(np.zeros([*self.whole_object_size, 2]), 'x_{:04d}'.format(i_theta))
+                    if not os.path.exists(os.path.join(self.temp_folder, 'x_{:04d}.h5'.format(i_theta))):
+                        self.create_mmap('x_{:04d}.h5'.format(i_theta), shape=[*self.whole_object_size, 2],
+                                         dtype=self.next_sp.x.arr_rot.dtype, mode='w', format='hdf5')
                 comm.barrier()
                 if self.next_sp.x.arr is not None:
                     f = self.load_mmap('x_{:04d}'.format(i_theta), mode='r+', collective=True)
