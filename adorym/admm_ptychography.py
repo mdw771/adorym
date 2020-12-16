@@ -183,8 +183,9 @@ class Subproblem():
 class PhaseRetrievalSubproblem(Subproblem):
     def __init__(self, whole_object_size, rho=1., theta_downsample=None, optimizer=None, device=None,
                  minibatch_size=23, probe_update_delay=30, probe_update_interval=4, optimize_probe=False,
-                 probe_optimizer=None, common_probe=True, randomize_probe_pos=False, rho_schedule=None,
-                 debug=False, stdout_options={}):
+                 probe_optimizer=None, common_probe=True, randomize_probe_pos=False, raw_data_type='magnitude',
+                 probe_phase_offset=None, probe_mag_scaler=None,
+                 rho_schedule=None, debug=False, stdout_options={}):
         """
         Phase retrieval subproblem solver.
 
@@ -216,6 +217,9 @@ class PhaseRetrievalSubproblem(Subproblem):
         self.probe_update_interval = probe_update_interval
         self.initialize_probe_ls = True
         self.is_checked_probe_latest = True
+        self.raw_data_type = raw_data_type
+        self.probe_phase_offset = probe_phase_offset
+        self.probe_mag_scaler = probe_mag_scaler
 
     def initialize(self, probe_exit, probe_incident, prj, theta_ls=None, probe_pos=None, n_pos_ls=None, probe_pos_ls=None,
                    output_folder='.'):
@@ -474,6 +478,8 @@ class PhaseRetrievalSubproblem(Subproblem):
         y_pred_ls, _, _ = self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                                        probe_pos_correction, this_ind_batch, epsilon=epsilon)
         y_ls = self.get_data(this_i_theta, this_ind_batch, self.theta_downsample)
+        if self.raw_data_type == 'intensity':
+            y_ls = w.sqrt(y_ls)
         loss = w.sum((y_pred_ls - y_ls) ** 2)
         return loss
 
@@ -511,6 +517,8 @@ class PhaseRetrievalSubproblem(Subproblem):
             self.forward(patches, probe_real, probe_imag, this_i_theta, this_pos_batch,
                          probe_pos_correction, this_ind_batch)
         y_ls = self.get_data(this_i_theta, this_ind_batch, theta_downsample=self.theta_downsample)
+        if self.raw_data_type == 'intensity':
+            y_ls = w.sqrt(y_ls)
         g = (y_pred_ls - y_ls)
         this_loss = w.sum(g ** 2)
 
@@ -2267,10 +2275,19 @@ def reconstruct_ptychography(
         probe_real = comm.bcast(probe_real, root=0)
         probe_imag = comm.bcast(probe_imag, root=0)
 
-        # Forward propagate probe to exiting plane.
+        # Estimate exiting probe as propagated probe / propagated plane wave.
         voxel_nm = np.array([psize_cm] * 3) * 1.e7
         probe_real_exit, probe_imag_exit = fresnel_propagate(probe_real, probe_imag, psize_cm * this_obj_size[2] * 1e7,
                                                              lmbda_nm, voxel_nm, override_backend='autograd')
+        one_real_exit, one_imag_exit = fresnel_propagate(np.ones_like(probe_real), np.zeros_like(probe_imag),
+                                                         psize_cm * this_obj_size[2] * 1e7,
+                                                         lmbda_nm, voxel_nm, override_backend='autograd')
+        probe_real_exit, probe_imag_exit = w.complex_mul(probe_real_exit, probe_imag_exit,
+                                                         one_real_exit, -one_imag_exit,
+                                                         override_backend='autograd')
+        norm = one_real_exit ** 2 + one_imag_exit ** 2
+        probe_real_exit = probe_real_exit / norm
+        probe_imag_exit = probe_imag_exit / norm
 
         # ================================================================================
         # Declare and initialize subproblems.
@@ -2289,6 +2306,7 @@ def reconstruct_ptychography(
             sp_tmo.load_checkpoint(output_folder)
             i_starting_epoch = sp_phr.i_epoch
 
+        sp_phr.raw_data_type = raw_data_type
         sp_phr.initialize(probe_exit=[probe_real_exit, probe_imag_exit], probe_incident=[probe_real, probe_imag],
                           prj=prj, theta_ls=theta_ls, probe_pos=probe_pos, output_folder=output_folder)
         if sp_aln is not None:
