@@ -105,7 +105,7 @@ class EmptyWith(object):
             pass
 
 @set_bn
-def create_variable(arr, dtype=None, device=None, requires_grad=True, backend='autograd'):
+def create_variable(arr, dtype='float32', device=None, requires_grad=True, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
@@ -128,7 +128,7 @@ def create_variable(arr, dtype=None, device=None, requires_grad=True, backend='a
 
 
 @set_bn
-def create_constant(arr, dtype=None, device=None, backend='autograd'):
+def create_constant(arr, dtype='float32', device=None, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
@@ -427,6 +427,19 @@ def reattach(var, backend='autograd'):
 
 # ________________
 # |Maths functions|_____________________________________________________________
+
+@set_bn
+def get_dtype(arr, backend='autograd'):
+    """
+    Get dtype of array in standard string format ('float32', 'float64' etc.)
+
+    :param arr: Tensor.
+    :return: Dtype string.
+    """
+    if backend == 'pytorch':
+        return pytorch_dtype_query_mapping_dict[arr.dtype]
+    elif backend == 'autograd':
+        return arr.dtype
 
 @set_bn
 def zeros(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):

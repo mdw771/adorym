@@ -2298,6 +2298,7 @@ def reconstruct_ptychography(
         voxel_nm = np.array([psize_cm] * 3) * 1.e7
         probe_real_exit, probe_imag_exit = fresnel_propagate(probe_real, probe_imag, psize_cm * this_obj_size[2] * 1e7,
                                                              lmbda_nm, voxel_nm, override_backend='autograd')
+
         one_real_exit, one_imag_exit = fresnel_propagate(np.ones_like(probe_real), np.zeros_like(probe_imag),
                                                          psize_cm * this_obj_size[2] * 1e7,
                                                          lmbda_nm, voxel_nm, override_backend='autograd')
@@ -2307,6 +2308,8 @@ def reconstruct_ptychography(
         norm = one_real_exit ** 2 + one_imag_exit ** 2
         probe_real_exit = probe_real_exit / norm
         probe_imag_exit = probe_imag_exit / norm
+
+
 
         # ================================================================================
         # Declare and initialize subproblems.
