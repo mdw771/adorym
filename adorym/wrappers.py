@@ -1237,3 +1237,11 @@ def tensordot(a, b, axes=None, backend='autograd'):
         return tc.tensordot(a, b, dims=dims)
     elif backend == 'autograd':
         return anp.tensordot(a, b, axes=dims)
+
+
+@set_bn
+def isnan(arr, backend='autograd'):
+    if backend == 'pytorch':
+        return tc.isnan(arr)
+    elif backend == 'autograd':
+        return anp.isnan(arr)
