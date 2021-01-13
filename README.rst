@@ -1,7 +1,8 @@
 Adorym: Automatic Differentiation-based Object Reconstruction with DynaMical Scattering
 =======================================================================================
 
-For a more comprehensive (and more detailed) documentation, please visit the official `documentation <https://adorym.readthedocs.io>`_.
+- This repository contains the stable version of Adorym. For the most updated version, see `https://github.com/mdw771/adorym_dev <https://github.com/mdw771/adorym_dev>`_.
+- For a more comprehensive (and more detailed) documentation, please visit the official `documentation <https://adorym.readthedocs.io>`_.
 
 Table of contents
 -----------------
