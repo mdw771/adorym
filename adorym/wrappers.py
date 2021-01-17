@@ -439,7 +439,7 @@ def get_dtype(arr, backend='autograd'):
     if backend == 'pytorch':
         return pytorch_dtype_query_mapping_dict[arr.dtype]
     elif backend == 'autograd':
-        return arr.dtype
+        return str(arr.dtype)
 
 @set_bn
 def zeros(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):
