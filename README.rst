@@ -329,7 +329,7 @@ steps:
 Publications
 ------------
 
-- \M. Du, S. Kandel, J. Deng, X. Huang, A. Demortiere, T. T. Nguyen, R. Tucoulou, V. D. Andrade, Q. Jin, C. Jacobsen, Adorym: A multi-platform generic x-ray image reconstruction framework based on automatic differentiation. *Arxiv*, arXiv:2012.12686 (2020).
+- \M. Du, S. Kandel, J. Deng, X. Huang, A. Demortiere, T. T. Nguyen, R. Tucoulou, V. D. Andrade, Q. Jin, C. Jacobsen, Adorym: a multi-platform generic X-ray image reconstruction framework based on automatic differentiation. *Opt Express*. **29**, 10000 (2021).
 
 The early version of Adorym, which was used to demonstrate 3D
 reconstruction of continuous object beyond the depth of focus, is
