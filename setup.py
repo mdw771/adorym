@@ -2,12 +2,12 @@ import setuptools
 
 setuptools.setup(
     name='adorym',
-    version='1.0.0',
+    version='1.0.1',
     author='Ming Du',
     description='Automatic differentiation-based object retrieval with dynamic modeling.',
     packages=setuptools.find_packages(exclude=['docs']),
     include_package_data=True,
-    url='http://github.com/mdw771/adorym_dev.git',
+    url='http://github.com/mdw771/adorym.git',
     keywords=['adorym'],
     license='BSD-3',
     platforms='Any',

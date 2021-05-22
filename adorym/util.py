@@ -243,7 +243,10 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
     if rescale_intensity:
         n_probe_modes = kwargs['n_probe_modes']
         f = h5py.File(os.path.join(save_path, fname), 'r')
-        dat = f['exchange/data'][0, min([1000, f['exchange/data'].shape[1]]), :, :]
+        if f['exchange/data'].shape[0] == 1:
+            dat = f['exchange/data'][...]
+        else:
+            dat = f['exchange/data'][0:1, :, :, :]
         if kwargs['raw_data_type'] == 'magnitude':
             dat = dat ** 2
         if not kwargs['normalize_fft']:
@@ -256,6 +259,8 @@ def initialize_probe(probe_size, probe_type, pupil_function=None, probe_initial=
         else:
             intensity_target = np.sum(np.mean(np.abs(dat), axis=(0, 1)))
         intensity_current = np.sum(probe_real ** 2 + probe_imag ** 2)
+        if len(probe_real) == 3:
+            intensity_current /= probe_real.shape[0]
         s = np.sqrt(intensity_target / intensity_current)
         # s = np.sqrt(intensity_target / intensity_current / n_probe_modes)
         probe_real = probe_real * s
@@ -452,7 +457,10 @@ def calculate_original_coordinates_for_rotation(array_size, coord_new, theta, ov
     coord_old = w.matmul(m_rot, coord_new, override_backend=override_backend)
     coord1_old = coord_old[0, :] + image_center[1]
     coord2_old = coord_old[1, :] + image_center[2]
-    coord_old = np.stack([coord1_old, coord2_old], axis=1)
+    if override_backend is not None:
+        coord_old = w.stack([coord1_old, coord2_old], axis=1, backend=override_backend)
+    else:
+        coord_old = w.stack([coord1_old, coord2_old], axis=1)
     return coord_old
 
 
@@ -462,28 +470,34 @@ def rotate_no_grad(obj, theta, axis=0, override_backend=None, interpolation='bil
     """
     arr_size = obj.shape[:-1]
     coord_new = get_cooridnates_stack_for_rotation(arr_size, axis=axis)
-    coord_new = w.create_variable(coord_new, device=device, override_backend=override_backend)
+    coord_new = w.create_variable(coord_new, device=device, override_backend=override_backend, requires_grad=False)
     coord_old = calculate_original_coordinates_for_rotation(arr_size, coord_new, theta, override_backend=override_backend)
     obj_rot = apply_rotation(obj, coord_old, interpolation, axis=axis, device=device, override_backend=override_backend)
     return obj_rot
 
 
-def save_rotation_lookup(array_size, theta_ls, dest_folder=None):
+def save_rotation_lookup(array_size, theta_ls, dest_folder=None, override_backend=None):
 
     # create matrix of coordinates
     coord_new = get_cooridnates_stack_for_rotation(array_size, axis=0)
+    coord_new = w.create_constant(coord_new, override_backend=override_backend)
 
     n_theta = len(theta_ls)
     if dest_folder is None:
         dest_folder = 'arrsize_{}_{}_{}_ntheta_{}'.format(array_size[0], array_size[1], array_size[2], n_theta)
     if not os.path.exists(dest_folder):
         os.mkdir(dest_folder)
+    theta_ls = w.create_constant(theta_ls)
     for i, theta in enumerate(theta_ls[rank:n_theta:n_ranks]):
         i_theta = rank + n_ranks * i
-        coord_old = calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend='autograd')
-        coord_inv = calculate_original_coordinates_for_rotation(array_size, coord_new, -theta, override_backend='autograd')
         # coord_old_ls are the coordinates in original (0-deg) object frame at each angle, corresponding to each
         # voxel in the object at that angle.
+        coord_old = calculate_original_coordinates_for_rotation(array_size, coord_new, theta, override_backend=override_backend)
+        coord_inv = calculate_original_coordinates_for_rotation(array_size, coord_new, -theta, override_backend=override_backend)
+        # If the coordinates arrays are not numpy.ndarray, cast them so that they can be saved in npy format.
+        if not isinstance(coord_old, np.ndarray):
+            coord_old = w.to_numpy(coord_old)
+            coord_inv = w.to_numpy(coord_inv)
         np.save(os.path.join(dest_folder, '{:.5f}'.format(theta)), coord_old.astype('float16'))
         np.save(os.path.join(dest_folder, '_{:.5f}'.format(theta)), coord_inv.astype('float16'))
     return None

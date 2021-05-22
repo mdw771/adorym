@@ -129,7 +129,7 @@ def reconstruct_ptychography(
         probe_update_delay=0, probe_update_limit=None,
         optimize_probe_defocusing=False, probe_defocusing_learning_rate=1e-5, optimizer_probe_defocusing=None,
         optimize_probe_pos_offset=False, probe_pos_offset_learning_rate=1e-2, optimizer_probe_pos_offset=None,
-        optimize_prj_pos_offset=False, probe_prj_offset_learning_rate=1e-2, optimizer_prj_pos_offset=None,
+        optimize_prj_pos_offset=False, prj_pos_offset_learning_rate=1e-2, optimizer_prj_pos_offset=None,
         optimize_all_probe_pos=False, all_probe_pos_learning_rate=1e-2, optimizer_all_probe_pos=None,
         optimize_slice_pos=False, slice_pos_learning_rate=1e-4, optimizer_slice_pos=None,
         optimize_free_prop=False, free_prop_learning_rate=1e-2, optimizer_free_prop=None,
@@ -590,12 +590,24 @@ def reconstruct_ptychography(
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options,
                                                       sign_convention=sign_convention, **probe_init_kwargs)
             if n_probe_modes == 1:
-                probe_real = np.stack([np.squeeze(probe_real_init)])
-                probe_imag = np.stack([np.squeeze(probe_imag_init)])
+                if len(probe_real_init.shape) == 3:
+                    if len(probe_real_init) > n_probe_modes:
+                        probe_real = probe_real_init[:n_probe_modes]
+                        probe_imag = probe_imag_init[:n_probe_modes]
+                        print_flush('Supplied probe mode number is larger than specified. Only the first {} '
+                                    'are used.'.format(n_probe_modes), 0, rank)
+                else:
+                    probe_real = np.stack([np.squeeze(probe_real_init)])
+                    probe_imag = np.stack([np.squeeze(probe_imag_init)])
             else:
-                if len(probe_real_init.shape) == 3 and len(probe_real_init) == n_probe_modes:
+                if len(probe_real_init.shape) == 3:
                     probe_real = probe_real_init
                     probe_imag = probe_imag_init
+                    if len(probe_real_init) > n_probe_modes:
+                        probe_real = probe_real[:n_probe_modes]
+                        probe_imag = probe_imag[:n_probe_modes]
+                        print_flush('Supplied probe mode number is larger than specified. Only the first {} '
+                                    'are used.'.format(n_probe_modes), 0, rank)
                 elif len(probe_real_init.shape) == 2 or len(probe_real_init) == 1:
                     probe_real = []
                     probe_imag = []
@@ -741,7 +753,6 @@ def reconstruct_ptychography(
         # ================================================================================
         cont = True
         i_epoch = starting_epoch
-        i_opt_batch = 0
         while cont:
             t0 = time.time()
 
@@ -757,7 +768,7 @@ def reconstruct_ptychography(
                 np.random.shuffle(theta_ind_ls)
                 comm.Bcast(theta_ind_ls, root=0)
             else:
-                temp = abs(theta_ls - theta_st) < 1e-5
+                temp = abs(theta_ls - theta_ls[0]) < 1e-5
                 i_theta = np.nonzero(temp)[0][0]
                 theta_ind_ls = np.array([i_theta])
 
@@ -807,6 +818,7 @@ def reconstruct_ptychography(
                         ind_list_rand = np.concatenate([ind_list_rand, temp], axis=0)
             ind_list_rand = split_tasks(ind_list_rand, n_tot_per_batch)
             n_batch = len(ind_list_rand)
+            i_opt_batch = starting_epoch * n_batch + starting_batch
 
             print_flush('Allocation done in {} s.'.format(time.time() - t00), sto_rank, rank, **stdout_options)
 
