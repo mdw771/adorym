@@ -293,8 +293,8 @@ class AdamOptimizer(Optimizer):
                 m = self.params_chunk_array_dict['m']
                 v = self.params_chunk_array_dict['v']
             else:
-                m = self.params_whole_array_dict['m'][ss]
-                v = self.params_whole_array_dict['v'][ss]
+                m = self.params_whole_array_dict['m'][tuple(ss)]
+                v = self.params_whole_array_dict['v'][tuple(ss)]
                 device_0 = w.get_var_device(m)
                 device_type_0 = w.get_var_device_type(m)
                 if w.get_var_device_type(x) == 'cuda':
@@ -323,8 +323,8 @@ class AdamOptimizer(Optimizer):
             else:
                 m = w.to_gpu(m, device_0)
                 v = w.to_gpu(v, device_0)
-            self.params_whole_array_dict['m'][ss] = m
-            self.params_whole_array_dict['v'][ss] = v
+            self.params_whole_array_dict['m'][tuple(ss)] = m
+            self.params_whole_array_dict['v'][tuple(ss)] = v
         if update_batch_count:
             self.i_batch += 1
         del mhat, vhat
