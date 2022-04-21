@@ -54,15 +54,15 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
                      }
 
-dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
-                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double', 'numpy': 'float64'},
-                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',   'numpy': 'float16'},
-                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',   'numpy': 'int8'},
-                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',  'numpy': 'int16'},
-                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',    'numpy': 'int32'},
-                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',   'numpy': 'int64'},
-                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',   'numpy': 'bool'},
-                      }
+dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',     'numpy': 'float32'},
+                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double',    'numpy': 'float64'},
+                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',      'numpy': 'float16'},
+                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',      'numpy': 'int8'},
+                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',     'numpy': 'int16'},
+                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',       'numpy': 'int32'},
+                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',      'numpy': 'int64'},
+                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',      'numpy': 'bool'},
+                      'complex64':  {'autograd': 'complex64',  'tensorflow': 'complex64',  'pytorch': 'complex64', 'numpy':'complex64'}}
 
 if flag_pytorch_avail:
     try:

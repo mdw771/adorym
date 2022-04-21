@@ -1116,6 +1116,7 @@ def reconstruct_ptychography(
                             if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
                             if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
                         elif unknown_type == 'real_imag':
+                            # TODO should this be turned back into real and imag?
                             if object_type == 'absorption_only':
                                 delta, beta = malias.split_channel(obj.arr)
                                 delta = malias.norm(delta, beta)
