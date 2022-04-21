@@ -899,7 +899,7 @@ class MultiDistModel(ForwardModel):
 
         # Pad probe with safe zone width.
         if safe_zone_width > 0:
-            pad_arr = calculate_pad_len(probe_size, this_pos_batch - szw_arr, subprobe_size + 2 * szw_arr, unknown_type=unknown_type)
+            pad_arr = calculate_pad_len(probe_size, this_pos_batch - szw_arr, subprobe_size + 2 * szw_arr)
             probe_real_sz = w.pad(probe_real, [[0, 0]] + pad_arr, mode='constant', constant_values=1)
             probe_imag_sz = w.pad(probe_imag, [[0, 0]] + pad_arr, mode='constant', constant_values=0)
         else:

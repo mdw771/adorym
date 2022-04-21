@@ -1317,7 +1317,7 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
 
     :return: padded object and padding lengths.
     """
-    pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type)
+    pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size)
     if np.count_nonzero(pad_arr) > 0:
         if unknown_type == 'delta_beta':
             paap = [[0, 0]] * (len(obj_rot.shape) - 2)
@@ -1332,8 +1332,8 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
             args_2 = {}
             if mode == 'constant': args_1['constant_values'] = 1
             if mode == 'constant': args_2['constant_values'] = 0
-            obj_rot = w.stack([w.pad(obj_rot[slicer0], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_1),
-                               w.pad(obj_rot[slicer1], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_2)],
+            obj_rot = w.stack([w.pad(obj_rot[tuple(slicer0)], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_1),
+                               w.pad(obj_rot[tuple(slicer1)], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_2)],
                                axis=-1)
     return obj_rot, pad_arr
 
@@ -1345,7 +1345,7 @@ def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_back
     :return: padded object and padding lengths.
     """
     if pad_arr is None:
-        pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta')
+        pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size)
     obj_rot = w.permute_axes(obj_rot, [2, 3, 0, 1])
     if np.count_nonzero(pad_arr) > 0:
         paap = [[0, 0]] * (len(obj_rot.shape) - 2)
@@ -1358,38 +1358,24 @@ def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_back
     return obj_rot, pad_arr
 
 
-def calculate_pad_len(this_obj_size, probe_pos, probe_size, unknown_type='delta_beta'):
+def calculate_pad_len(this_obj_size, probe_pos, probe_size):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary.
     :return: padded object and padding lengths.
     """
     pad_arr = np.array([[0, 0], [0, 0]])
-    if unknown_type == 'delta_beta':
-        if min(probe_pos[:, 0]) < 0:
-            pad_len = -int(min(probe_pos[:, 0]))
-            pad_arr[0, 0] = pad_len
-        if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
-            pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
-            pad_arr[0, 1] = pad_len
-        if min(probe_pos[:, 1]) < 0:
-            pad_len = -int(min(probe_pos[:, 1]))
-            pad_arr[1, 0] = pad_len
-        if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-            pad_len = int(max(probe_pos[:, 1])) + probe_size[1] - this_obj_size[1]
-            pad_arr[1, 1] = pad_len
-    elif unknown_type == 'real_imag':
-        if min(probe_pos[:, 0]) < 0:
-            pad_len = -int(min(probe_pos[:, 0]))
-            pad_arr[0, 0] = pad_len
-        if max(probe_pos[:, 0]) + probe_size[0] > this_obj_size[0]:
-            pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0]
-            pad_arr[0, 1] = pad_len
-        if min(probe_pos[:, 1]) < 0:
-            pad_len = -int(min(probe_pos[:, 1]))
-            pad_arr[1, 0] = pad_len
-        if max(probe_pos[:, 1]) + probe_size[1] > this_obj_size[1]:
-            pad_len = int(max(probe_pos[:, 1])) + probe_size[1] - this_obj_size[1]
-            pad_arr[1, 1] = pad_len
+    if min(probe_pos[:, 0]) < 0:
+        pad_len = -int(min(probe_pos[:, 0]))
+        pad_arr[0, 0] = pad_len
+    if min(probe_pos[:, 1]) < 0:
+        pad_len = -int(min(probe_pos[:, 1]))
+        pad_arr[1, 0] = pad_len
+    if max(probe_pos[:, 0]) + probe_size[0] + pad_arr[0,0] > this_obj_size[0]:
+        pad_len = int(max(probe_pos[:, 0])) + probe_size[0] - this_obj_size[0] + pad_arr[0, 0]
+        pad_arr[0, 1] = pad_len
+    if max(probe_pos[:, 1]) + probe_size[1] + pad_arr[1,0] > this_obj_size[1]:
+        pad_len = int(max(probe_pos[:, 1])) + probe_size[1] - this_obj_size[1] + pad_arr[1,0]
+        pad_arr[1, 1] = pad_len
     return pad_arr
 
 

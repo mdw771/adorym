@@ -33,8 +33,8 @@ def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_po
         probe_imag_ls = []
         for i_epoch in range(n_epochs):
             for j in range(len(probe_pos)):
-                print('Batch {}/{}; Epoch {}/{}.'.format(j, len(probe_pos), i_epoch, n_epochs))
-                pos = probe_pos[j]
+                # print('Batch {}/{}; Epoch {}/{}.'.format(j, len(probe_pos), i_epoch, n_epochs))
+                pos = probe_pos[j].copy()
                 pos[0] = pos[0] + pad_arr[0, 0]
                 pos[1] = pos[1] + pad_arr[1, 0]
                 subobj = obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
@@ -53,8 +53,8 @@ def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_po
                 if i_batch < minibatch_size and i_batch < prj.shape[1]:
                     continue
                 else:
-                    this_prj_batch = prj[0, j * minibatch_size:j * minibatch_size + i_batch, :, :]
-                    this_prj_batch = w.create_variable(this_prj_batch, requires_grad=False, device=device_obj)
+                    this_prj_batch = prj[0, (j-i_batch+1):j+1, :, :]
+                    this_prj_batch = w.create_variable(np.abs(this_prj_batch), requires_grad=False, device=device_obj)
                     if raw_data_type == 'intensity':
                         this_prj_batch = w.sqrt(this_prj_batch)
                     subobj_ls = w.stack(subobj_ls)
@@ -83,12 +83,12 @@ def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_po
                     p_up = w.stack([p_up_real, p_up_imag], axis=-1)
                     p_up = w.reshape(p_up, [i_batch, probe_size[0], probe_size[1], 1, 2])
                     p_up = w.mean(p_up, axis=0)
-                    probe_real = probe_real + alpha * p_up
-                    probe_imag = probe_imag + alpha * p_up
+                    probe_real = probe_real + alpha * p_up[:,:,0,0]
+                    probe_imag = probe_imag + alpha * p_up[:,:,0,1]
 
                     # Put back.
-                    for i, k in enumerate(range(j * minibatch_size, j * minibatch_size + i_batch)):
-                        pos = probe_pos[k]
+                    for i, k in enumerate(range((j-i_batch+1),j+1)):
+                        pos = probe_pos[k].copy()
                         pos[0] = pos[0] + pad_arr[0, 0]
                         pos[1] = pos[1] + pad_arr[1, 0]
                         obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :] = subobj_ls[i]

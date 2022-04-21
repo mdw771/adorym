@@ -327,7 +327,7 @@ def reconstruct_ptychography(
                       'batch.')
 
     for ds_level in range(multiscale_level - 1, -1, -1):
-
+        # TODO TOM I think this does reconstructions at different resolutions and increases the resolution over time
         # ================================================================================
         # Set metadata.
         # ================================================================================
@@ -362,6 +362,7 @@ def reconstruct_ptychography(
         # ================================================================================
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
         lmbda_nm = 1240. / energy_ev
+        # lmbda_nm = 12.398 / np.sqrt((2*511 + energy_ev)*energy_ev) / 10 # angstrom to nm for electrons
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
 
@@ -710,12 +711,13 @@ def reconstruct_ptychography(
 
         # ================================================================================
         # Use ePIE?
+        # This does not work as obj.delta and obj.beta are not implemented
         # ================================================================================
         if use_epie:
             print_flush('WARNING: Reconstructing using ePIE!', sto_rank, rank, **stdout_options)
             warnings.warn('use_epie is True. I will reconstruct using ePIE instead of AD!')
             time.sleep(0.5)
-            alt_reconstruction_epie(obj.delta, obj.beta, probe_real, probe_imag, probe_pos,
+            alt_reconstruction_epie(obj.arr[:, :, :, 0], obj.arr[:,:,:,1], probe_real, probe_imag, probe_pos,
                                     optimizable_params['probe_pos_correction'], prj, device_obj=device_obj,
                                     minibatch_size=minibatch_size, alpha=epie_alpha, n_epochs=n_epochs, energy_ev=energy_ev,
                                     psize_cm=psize_cm, output_folder=output_folder,
