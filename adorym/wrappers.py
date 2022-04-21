@@ -667,13 +667,18 @@ def fft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normal
         var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.fft.fft2(var, dim=axes, norm=norm)
+        var = tc.fft.fftshift(tc.fft.fft2(var, dim=axes, norm=norm), dim=axes)
         var_real, var_imag = tc.real(var), tc.imag(var)
-        var_real = var_real
-        var_imag = var_imag
-        var_real = fftshift(var_real, axes=axes)
-        var_imag = fftshift(var_imag, axes=axes)
         return var_real, var_imag
+
+@set_bn
+def fft2_and_shift_complex(var, axes=(-2,-1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
+    elif backend == 'pytorch':
+        var = tc.fft.fftshift(tc.fft.fft2(var, dim=axes, norm=norm), dim=axes)
+    return var
 
 
 @set_bn
@@ -684,12 +689,8 @@ def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', norma
         var = anp.fft.fftshift(anp.fft.ifft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.fft.ifft2(var, dim=axes, norm=norm)
+        var = tc.fft.fftshift(tc.fft.ifft2(var, dim=axes, norm=norm), dim=axes)
         var_real, var_imag = tc.real(var), tc.imag(var)
-        var_real = var_real
-        var_imag = var_imag
-        var_real = fftshift(var_real, axes=axes)
-        var_imag = fftshift(var_imag, axes=axes)
         return var_real, var_imag
 
 
@@ -706,6 +707,15 @@ def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', norm
         var_real = var_real
         var_imag = var_imag
         return var_real, var_imag
+
+@set_bn
+def ishift_and_ifft2_complex(var, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.ifft2(tc.fft.ifftshift(var, dim=axes), dim=axes, norm=norm)
+    return var
 
 
 @set_bn
@@ -738,16 +748,7 @@ def fftshift(var, axes=(1, 2), backend='autograd'):
     if backend == 'autograd':
         return anp.fft.fftshift(var, axes=axes)
     elif backend == 'pytorch':
-        s = var.shape
-        for i in axes:
-            p2 = (s[i] + 1) // 2
-            v = tc.split(var, p2, dim=i)
-            if len(v) == 3:
-                v1, v2 = (v[0], tc.cat([v[1], v[2]], dim=i))
-            else:
-                v1, v2 = v
-            var = tc.cat([v2, v1], dim=i)
-        return var
+        return tc.fft.fftshift(var, dim=axes)
 
 
 @set_bn
@@ -758,16 +759,7 @@ def ifftshift(var, axes=(1, 2), backend='autograd'):
     if backend == 'autograd':
         return anp.fft.ifftshift(var, axes=axes)
     elif backend == 'pytorch':
-        s = var.shape
-        for i in axes:
-            p2 = s[i] - (s[i] + 1) // 2
-            v = tc.split(var, p2, dim=i)
-            if len(v) == 3:
-                v1, v2 = (v[0], tc.cat([v[1], v[2]], dim=i))
-            else:
-                v1, v2 = v
-            var = tc.cat([v2, v1], dim=i)
-        return var
+        return tc.fft.ifftshift(var, dim=axes)
 
 
 @set_bn
@@ -921,7 +913,7 @@ def flip(var, axis=[0], backend='autograd'):
 
 
 @set_bn
-def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd'):
+def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd', **args):
     """
     Pad array.
     [ATTENTION: The behavior of this function is different between Autograd and Pytorch backend.]
@@ -929,13 +921,14 @@ def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd'):
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
     :param mode: Choose from 'constant', 'reflect'.
     """
-    args = {}
     mode_dict = {'constant': {'autograd': 'constant', 'pytorch': 'constant'},
                  'edge':    {'autograd': 'edge',    'pytorch': 'replicate'},
                  'reflect': {'autograd': 'reflect', 'pytorch': 'reflect'},
                  'wrap':    {'autograd': 'wrap',    'pytorch': 'circular'}}
-    if mode == 'constant':
+    if mode == 'constant' and constant_values is None:
         args['constant_values'] = 0
+    else:
+        args['constant_values'] = constant_values
     if backend == 'autograd':
         return anp.pad(var, pad_len, mode=mode_dict[mode][backend], **args)
     elif backend == 'pytorch':

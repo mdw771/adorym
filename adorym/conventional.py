@@ -4,108 +4,98 @@ from adorym.util import *
 import adorym.wrappers as w
 
 
-def alt_reconstruction_epie(obj_real, obj_imag, probe_real, probe_imag, probe_pos, probe_pos_correction,
+def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
                             prj, device_obj=None, minibatch_size=1, alpha=1., n_epochs=100, **kwargs):
     """
     Reconstruct a 2D object and probe function using ePIE.
     """
     with w.no_grad():
-        probe_real = probe_real[0]
-        probe_imag = probe_imag[0]
         probe_pos = probe_pos.astype(int)
         energy_ev = kwargs['energy_ev']
         psize_cm = kwargs['psize_cm']
         output_folder = kwargs['output_folder']
         raw_data_type = kwargs['raw_data_type']
-        this_obj_size = obj_real.shape
-        if len(probe_real) == 2:
-            probe_size = probe_real.shape
-        else:
-            probe_size = probe_imag.shape
-        obj_stack = w.stack([obj_real, obj_imag], axis=3)
+        this_obj_size = obj.shape
+        probe_size = probe.shape
 
         # Pad if needed
-        obj_stack, pad_arr = pad_object(obj_stack, this_obj_size, probe_pos, probe_size, unknown_type='real_imag')
+        obj, pad_arr = pad_object(obj, this_obj_size, probe_pos, probe_size, unknown_type='real_imag')
 
+        obj = .0001 + 1j * obj.imag
         i_batch = 0
         subobj_ls = []
-        probe_real_ls = []
-        probe_imag_ls = []
+        probe_ls = []
+        pos_ls = []
         for i_epoch in range(n_epochs):
-            for j in range(len(probe_pos)):
-                # print('Batch {}/{}; Epoch {}/{}.'.format(j, len(probe_pos), i_epoch, n_epochs))
-                pos = probe_pos[j].copy()
+            print(f'Epoch {i_epoch}/{n_epochs}')
+            for j, pos in enumerate(probe_pos):
+                # print(f'Batch {j}/{len(probe_pos)}; Epoch {i_epoch}/{n_epochs}.')
+                pos = pos.copy()
                 pos[0] = pos[0] + pad_arr[0, 0]
                 pos[1] = pos[1] + pad_arr[1, 0]
-                subobj = obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :]
+                pos_ls.append(pos)
+                subobj = obj[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], 0]
+                if len(subobj_ls) > 0:
+                    assert subobj_ls[i_batch-1].shape == subobj.shape
                 subobj_ls.append(subobj)
                 if len(w.nonzero(probe_pos_correction > 1e-3)) > 0:
                     this_shift = probe_pos_correction[0, j]
-                    probe_real_shifted, probe_imag_shifted = realign_image_fourier(probe_real, probe_imag,
+                    probe_real_shifted, probe_imag_shifted = realign_image_fourier(np.real(probe), np.imag(probe),
                                                                                    this_shift, axes=(0, 1),
                                                                                    device=device_obj)
+                    probe_shifted = probe_real_shifted + 1j * probe_imag_shifted
                 else:
-                    probe_real_shifted = probe_real
-                    probe_imag_shifted = probe_imag
-                probe_real_ls.append(probe_real_shifted)
-                probe_imag_ls.append(probe_imag_shifted)
+                    probe_shifted = probe
+                probe_ls.append(probe_shifted)
                 i_batch += 1
                 if i_batch < minibatch_size and i_batch < prj.shape[1]:
                     continue
                 else:
                     this_prj_batch = prj[0, (j-i_batch+1):j+1, :, :]
-                    this_prj_batch = w.create_variable(np.abs(this_prj_batch), requires_grad=False, device=device_obj)
+                    this_prj_batch = w.create_variable(this_prj_batch, requires_grad=False, device=device_obj, dtype='complex64')
                     if raw_data_type == 'intensity':
                         this_prj_batch = w.sqrt(this_prj_batch)
                     subobj_ls = w.stack(subobj_ls)
-                    probe_real_ls = w.stack(probe_real_ls)
-                    probe_imag_ls = w.stack(probe_imag_ls)
-                    c_real, c_imag = subobj_ls[:, :, :, 0, 0], subobj_ls[:, :, :, 0, 1]
-                    ex_real_ls, ex_imag_ls = (probe_real_ls * c_real - probe_imag_ls * c_imag, probe_real_ls * c_imag + probe_imag_ls * c_real)
-                    dp_real_ls, dp_imag_ls = w.fft2_and_shift(ex_real_ls, ex_imag_ls)
-                    mag_replace_factor = this_prj_batch / w.sqrt(dp_real_ls ** 2 + dp_imag_ls ** 2)
-                    dp_real_ls = dp_real_ls * mag_replace_factor
-                    dp_imag_ls = dp_imag_ls * mag_replace_factor
-                    phi_real_ls, phi_imag_ls = w.ishift_and_ifft2(dp_real_ls, dp_imag_ls)
-                    d_real_ls = phi_real_ls - ex_real_ls
-                    d_imag_ls = phi_imag_ls - ex_imag_ls
+                    probe_ls = w.stack(probe_ls)
 
-                    norm = w.max(probe_real_ls ** 2 + probe_imag_ls ** 2)
-                    o_up_real = (probe_real_ls * d_real_ls + probe_imag_ls * d_imag_ls) / norm
-                    o_up_imag = (probe_real_ls * d_imag_ls - probe_imag_ls * d_real_ls) / norm
-                    o_up = w.stack([o_up_real, o_up_imag], axis=-1)
-                    o_up = w.reshape(o_up, [i_batch, probe_size[0], probe_size[1], 1, 2])
-                    subobj_ls = subobj_ls + alpha * o_up
+                    ex_ls = probe_ls * subobj_ls
+                    ex_ls[np.abs(ex_ls)<1e-10] = 0
+                    dp_ls = w.fft2_and_shift_complex(ex_ls)
+                    mag_replace_factor = this_prj_batch / (np.abs(dp_ls) + np.finfo(float).eps)
+                    dp_ls = dp_ls * mag_replace_factor
+                    phi_ls = w.ishift_and_ifft2_complex(dp_ls)
 
-                    norm = w.max(subobj_ls[:, :, :, 0, 0] ** 2 + subobj_ls[:, :, :, 0, 1] ** 2)
-                    p_up_real = (subobj_ls[:, :, :, 0, 0] * d_real_ls + subobj_ls[:, :, :, 0, 1] * d_imag_ls) / norm
-                    p_up_imag = (subobj_ls[:, :, :, 0, 0] * d_imag_ls - subobj_ls[:, :, :, 0, 1] * d_real_ls) / norm
-                    p_up = w.stack([p_up_real, p_up_imag], axis=-1)
-                    p_up = w.reshape(p_up, [i_batch, probe_size[0], probe_size[1], 1, 2])
-                    p_up = w.mean(p_up, axis=0)
-                    probe_real = probe_real + alpha * p_up[:,:,0,0]
-                    probe_imag = probe_imag + alpha * p_up[:,:,0,1]
+                    d_ls = phi_ls - ex_ls
+
+                    norm_probe = w.max(w.abs(probe_ls)**2)
+                    norm_subobj = w.max(w.abs(subobj_ls)**2)
+                    # subobj_ls = subobj_ls + alpha * np.conj(probe_ls) * d_ls / (norm_probe + np.finfo('float').eps)
+                    subobj_ls_diff =  alpha * np.conj(probe_ls) * d_ls / (norm_probe + np.finfo('float').eps) 
+                    subobj_ls_diff *= np.abs(subobj_ls_diff)
+                    # probe update
+                    probe_ls = probe_ls + alpha/4 * np.conj(subobj_ls) * d_ls  / (norm_subobj + np.finfo('float').eps)
+
+
 
                     # Put back.
-                    for i, k in enumerate(range((j-i_batch+1),j+1)):
-                        pos = probe_pos[k].copy()
-                        pos[0] = pos[0] + pad_arr[0, 0]
-                        pos[1] = pos[1] + pad_arr[1, 0]
-                        obj_stack[pos[0]:pos[0] + probe_size[0], pos[1]:pos[1] + probe_size[1], :, :] = subobj_ls[i]
+                    # TODO this fails because I think successive spots overwrite eachother
+                    for i, pos_batch in enumerate(pos_ls):
+                        obj[pos_batch[0]:pos_batch[0] + probe_size[0], pos_batch[1]:pos_batch[1] + probe_size[1], 0] += subobj_ls_diff[i]
 
                     i_batch = 0
                     subobj_ls = []
-                    probe_real_ls = []
-                    probe_imag_ls = []
+                    probe_ls = []
+                    pos_ls = []
+
 
             fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
             fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
-            obj0, obj1 = w.split_channel(obj_stack)
-            obj0 = w.to_numpy(obj0)
-            obj1 = w.to_numpy(obj1)
-            dxchange.write_tiff(np.sqrt(obj0 ** 2 + obj1 ** 2), os.path.join(output_folder, fname0), dtype='float32',
+            # obj0, obj1 = w.split_channel(obj)
+            # obj0 = w.to_numpy(obj0)
+            # obj1 = w.to_numpy(obj1)
+            dxchange.write_tiff(np.abs(obj), os.path.join(output_folder, fname0), dtype='float32',
                                 overwrite=True)
-            dxchange.write_tiff(np.arctan2(obj1, obj0), os.path.join(output_folder, fname1), dtype='float32',
+            dxchange.write_tiff(np.angle(obj), os.path.join(output_folder, fname1), dtype='float32',
                                 overwrite=True)
 
 

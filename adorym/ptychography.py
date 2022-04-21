@@ -139,7 +139,7 @@ def reconstruct_ptychography(
         other_params_update_delay=0,
         # _________________________
         # |Alternative algorithms |_____________________________________________
-        use_epie=False, epie_alpha=0.8,
+        use_epie=False, epie_alpha=0.1,
         # ________________
         # |Other settings|______________________________________________________
         dynamic_rate=True, pupil_function=None, probe_circ_mask=0.9, dynamic_dropping=False, dropping_threshold=8e-5,
@@ -717,7 +717,7 @@ def reconstruct_ptychography(
             print_flush('WARNING: Reconstructing using ePIE!', sto_rank, rank, **stdout_options)
             warnings.warn('use_epie is True. I will reconstruct using ePIE instead of AD!')
             time.sleep(0.5)
-            alt_reconstruction_epie(obj.arr[:, :, :, 0], obj.arr[:,:,:,1], probe_real, probe_imag, probe_pos,
+            alt_reconstruction_epie(obj.arr[:,:,:,0] + 1j*obj.arr[:,:,:,1], np.squeeze(probe_real + 1j*probe_imag), probe_pos,
                                     optimizable_params['probe_pos_correction'], prj, device_obj=device_obj,
                                     minibatch_size=minibatch_size, alpha=epie_alpha, n_epochs=n_epochs, energy_ev=energy_ev,
                                     psize_cm=psize_cm, output_folder=output_folder,

@@ -1325,16 +1325,10 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
             if mode == 'constant': args['constant_values'] = 0
             obj_rot = w.pad(obj_rot, pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args)
         elif unknown_type == 'real_imag':
-            paap = [[0, 0]] * (len(obj_rot.shape) - 3)
-            slicer0 = [slice(None)] * (len(obj_rot.shape) - 1) + [0]
-            slicer1 = [slice(None)] * (len(obj_rot.shape) - 1) + [1]
+            paap = [[0, 0]] * (len(obj_rot.shape) - 2)
             args_1 = {}
-            args_2 = {}
-            if mode == 'constant': args_1['constant_values'] = 1
-            if mode == 'constant': args_2['constant_values'] = 0
-            obj_rot = w.stack([w.pad(obj_rot[tuple(slicer0)], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_1),
-                               w.pad(obj_rot[tuple(slicer1)], pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_2)],
-                               axis=-1)
+            if mode == 'constant': args_1['constant_values'] = 0 + 0j
+            obj_rot = w.pad(obj_rot, pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args_1)
     return obj_rot, pad_arr
 
 
