@@ -30,7 +30,7 @@ params_cameraman = {'fname': 'data_cameraman_err_10.h5',
                     'psize_cm': 1.e-7,
                     'minibatch_size': 2704,
                     'n_batch_per_update': 1,
-                    'output_folder': 'recon',
+                    'output_folder': 'recon_pytorch',
                     'cpu_only': True,
                     'save_path': 'cameraman_pos_error',
                     'multiscale_level': 1,
@@ -52,7 +52,9 @@ params_cameraman = {'fname': 'data_cameraman_err_10.h5',
                     'use_checkpoint': False,
                     'optimize_all_probe_pos': True,
                     'save_history': True,
-                    'backend': 'pytorch'
+                    'use_epie': False,
+                    'backend': 'pytorch',
+                    # 'unknown_type':'delta_beta'
                     }
 
 params = params_cameraman
