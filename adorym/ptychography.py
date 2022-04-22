@@ -721,7 +721,8 @@ def reconstruct_ptychography(
                                     optimizable_params['probe_pos_correction'], prj, device_obj=device_obj,
                                     minibatch_size=minibatch_size, alpha=epie_alpha, n_epochs=n_epochs, energy_ev=energy_ev,
                                     psize_cm=psize_cm, output_folder=output_folder,
-                                    raw_data_type=raw_data_type)
+                                    raw_data_type=raw_data_type, 
+                                    random_guess_means_sigmas=random_guess_means_sigmas)
             return
 
         # ================================================================================

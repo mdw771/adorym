@@ -1332,6 +1332,19 @@ def pad_object(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', u
     return obj_rot, pad_arr
 
 
+def pad_object_complex(obj_rot, this_obj_size, probe_pos, probe_size, mode='constant', override_backend=None, **args):
+    """
+    Pad the object with 0 if any of the probes' extents go beyond the object boundary.
+
+    :return: padded object and padding lengths.
+    """
+    pad_arr = calculate_pad_len(this_obj_size, probe_pos, probe_size)
+    paap = [[0, 0]] * (len(obj_rot.shape) - 2)
+    if np.count_nonzero(pad_arr) > 0:
+            obj_rot = w.pad(obj_rot, pad_arr.tolist() + paap, mode=mode, override_backend=override_backend, **args)
+    return obj_rot, pad_arr
+
+
 def pad_object_edge(obj_rot, this_obj_size, probe_pos, probe_size, override_backend=None, pad_arr=None):
     """
     Pad the object with 0 if any of the probes' extents go beyond the object boundary, using edge values.

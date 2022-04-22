@@ -15,20 +15,30 @@ def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
         psize_cm = kwargs['psize_cm']
         output_folder = kwargs['output_folder']
         raw_data_type = kwargs['raw_data_type']
+        random_guess_means_sigmas = kwargs['random_guess_means_sigmas']
         this_obj_size = obj.shape
         probe_size = probe.shape
 
         # Pad if needed
-        obj, pad_arr = pad_object(obj, this_obj_size, probe_pos, probe_size, unknown_type='real_imag')
+        obj, pad_arr = pad_object_complex(obj, this_obj_size, probe_pos, probe_size, mode='constant', constant_values = complex(1))
 
-        obj = .0001 + 1j * obj.imag
+        # fix the initialization
+        obj[obj.imag==0] += (1j*np.random.normal(random_guess_means_sigmas[1], 
+                                                 random_guess_means_sigmas[3],
+                                                 np.shape(obj[obj.imag==0])[0])).astype(np.complex64)
+        obj = .01 + 1j * obj.imag
+
         i_batch = 0
         subobj_ls = []
         probe_ls = []
         pos_ls = []
+        inds_ls = []
         for i_epoch in range(n_epochs):
             print(f'Epoch {i_epoch}/{n_epochs}')
-            for j, pos in enumerate(probe_pos):
+            inds = np.random.permutation(len(probe_pos))
+            for i in inds:
+                inds_ls.append(i)
+                pos = probe_pos[i]
                 # print(f'Batch {j}/{len(probe_pos)}; Epoch {i_epoch}/{n_epochs}.')
                 pos = pos.copy()
                 pos[0] = pos[0] + pad_arr[0, 0]
@@ -39,7 +49,7 @@ def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
                     assert subobj_ls[i_batch-1].shape == subobj.shape
                 subobj_ls.append(subobj)
                 if len(w.nonzero(probe_pos_correction > 1e-3)) > 0:
-                    this_shift = probe_pos_correction[0, j]
+                    this_shift = probe_pos_correction[0, i]
                     probe_real_shifted, probe_imag_shifted = realign_image_fourier(np.real(probe), np.imag(probe),
                                                                                    this_shift, axes=(0, 1),
                                                                                    device=device_obj)
@@ -51,7 +61,8 @@ def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
                 if i_batch < minibatch_size and i_batch < prj.shape[1]:
                     continue
                 else:
-                    this_prj_batch = prj[0, (j-i_batch+1):j+1, :, :]
+                    
+                    this_prj_batch = prj[0, np.asarray(inds_ls)[np.argsort(inds_ls)], :, :]
                     this_prj_batch = w.create_variable(this_prj_batch, requires_grad=False, device=device_obj, dtype='complex64')
                     if raw_data_type == 'intensity':
                         this_prj_batch = w.sqrt(this_prj_batch)
@@ -70,10 +81,10 @@ def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
                     norm_probe = w.max(w.abs(probe_ls)**2)
                     norm_subobj = w.max(w.abs(subobj_ls)**2)
                     # subobj_ls = subobj_ls + alpha * np.conj(probe_ls) * d_ls / (norm_probe + np.finfo('float').eps)
-                    subobj_ls_diff =  alpha * np.conj(probe_ls) * d_ls / (norm_probe + np.finfo('float').eps) 
-                    subobj_ls_diff *= np.abs(subobj_ls_diff)
+                    subobj_ls_diff =  alpha * np.conj(probe_ls) * d_ls / (norm_probe + 10*np.finfo('float').eps) 
+                    # subobj_ls_diff *= np.abs(subobj_ls_diff)
                     # probe update
-                    probe_ls = probe_ls + alpha/4 * np.conj(subobj_ls) * d_ls  / (norm_subobj + np.finfo('float').eps)
+                    probe_ls = probe_ls + alpha/4 * np.conj(subobj_ls) * d_ls  / (norm_subobj + 10*np.finfo('float').eps)
 
 
 
@@ -86,10 +97,11 @@ def alt_reconstruction_epie(obj, probe, probe_pos, probe_pos_correction,
                     subobj_ls = []
                     probe_ls = []
                     pos_ls = []
+                    inds_ls = []
 
 
-            fname0 = 'obj_mag_{}_{}'.format(i_epoch, i_batch)
-            fname1 = 'obj_phase_{}_{}'.format(i_epoch, i_batch)
+            fname0 = f'obj_mag_{i_epoch}_{i_batch}'
+            fname1 = f'obj_phase_{i_epoch}_{i_batch}'
             # obj0, obj1 = w.split_channel(obj)
             # obj0 = w.to_numpy(obj0)
             # obj1 = w.to_numpy(obj1)

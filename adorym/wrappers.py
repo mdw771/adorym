@@ -62,7 +62,8 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
                       'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',       'numpy': 'int32'},
                       'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',      'numpy': 'int64'},
                       'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',      'numpy': 'bool'},
-                      'complex64':  {'autograd': 'complex64',  'tensorflow': 'complex64',  'pytorch': 'complex64', 'numpy':'complex64'}}
+                      'complex64':  {'autograd': 'complex64',  'tensorflow': 'complex64',  'pytorch': 'complex64', 'numpy':'complex64'},
+                      'complex128': {'autograd': 'complex128', 'tensorflow': 'complex128', 'pytorch': 'complex128','numpy':'complex128'}}
 
 if flag_pytorch_avail:
     try:
@@ -71,7 +72,12 @@ if flag_pytorch_avail:
                                             'float32': 'float32',
                                             'float64': 'float64',
                                             'single': 'float32',
-                                            'double': 'float64'}
+                                            'double': 'float64',
+                                            'complex64': 'complex64',
+                                            'complex128': 'complex128',
+                                            tc.complex128: 'complex128',
+                                            tc.complex64: 'complex64',
+                                            }
     except:
         pass
 
