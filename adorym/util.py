@@ -498,8 +498,8 @@ def save_rotation_lookup(array_size, theta_ls, dest_folder=None, override_backen
         if not isinstance(coord_old, np.ndarray):
             coord_old = w.to_numpy(coord_old)
             coord_inv = w.to_numpy(coord_inv)
-        np.save(os.path.join(dest_folder, '{:.5f}'.format(theta)), coord_old.astype('float16'))
-        np.save(os.path.join(dest_folder, '_{:.5f}'.format(theta)), coord_inv.astype('float16'))
+        np.save(os.path.join(dest_folder, f'{theta:.5f}'), coord_old.astype('float16'))
+        np.save(os.path.join(dest_folder, f'_{theta:.5f}'), coord_inv.astype('float16'))
     return None
 
 

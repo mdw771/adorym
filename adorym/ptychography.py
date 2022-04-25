@@ -202,7 +202,7 @@ def reconstruct_ptychography(
     stdout_options = {'save_stdout': save_stdout, 'output_folder': output_folder,
                       'timestamp': timestr}
     sto_rank = 0 if not debug else rank
-    print_flush('Output folder is {}'.format(output_folder), sto_rank, rank, **stdout_options)
+    print_flush(f'Output folder is {output_folder}', sto_rank, rank, **stdout_options)
 
     # ================================================================================
     # Create pointer for raw data.
@@ -1179,7 +1179,7 @@ def reconstruct_ptychography(
                     del obj.arr_rot
                     obj.arr_rot = None
                     gc.collect()
-                    print_flush('  Invadidating obj.arr and garbage collection done in {}'.format(time.time() - t0_nonify), sto_rank, rank)
+                    print_flush(f'  Invadidating obj.arr and garbage collection done in {time.time() - t0_nonify}', sto_rank, rank)
 
                 # ================================================================================
                 # Apply finite support mask if specified.

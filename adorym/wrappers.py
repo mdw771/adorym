@@ -1001,6 +1001,13 @@ def norm(var_real, var_imag, backend='autograd'):
         return abs(var_real + 1j * var_imag)
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
+        
+@set_bn
+def norm_complex(var, backend='autograd'):
+    if backend == 'autograd':
+        return abs(var)
+    elif backend == 'pytorch':
+        return tc.norm(var)
 
 
 @set_bn
