@@ -62,6 +62,10 @@ def gen_freq_mesh(voxel_nm, shape):
 def get_kernel(dist_nm, lmbda_nm, voxel_nm, grid_shape, fresnel_approx=True, sign_convention=1):
     """Get unshifted Fresnel propagation kernel for TF algorithm.
 
+    :param dist_nm: propogation distance
+    :param lmbda_nm: wavelength
+    :param voxel_nm: pixel size
+    :param grid_shape: probe shape
     :param u, v: Reciprocal space meshgrids.
     :param dist_nm: Propagation distance in nm.
     """

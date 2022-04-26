@@ -368,6 +368,8 @@ def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1), device=None):
     """
     Returns real and imaginary parts as a list.
     """
+    if np.all(shift == [0,0]):
+        return a_real, a_imag
     f_real, f_imag = w.fft2(a_real, a_imag, axes=axes)
     s = f_real.shape
     freq_x, freq_y = np.meshgrid(np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1))

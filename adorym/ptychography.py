@@ -54,7 +54,7 @@ def reconstruct_ptychography(
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
         # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
         n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
-        update_scheme='immediate', # Choose from 'immediate' or 'per angle'
+        update_scheme='immediate', # Choose from 'immediate' or 'per_angle'
         unknown_type='delta_beta', # Choose from 'delta_beta' or 'real_imag'
         randomize_probe_pos=False,
         common_probe_pos=True, # Set to False if the values/number of probe positions vary with projection angle
@@ -684,7 +684,10 @@ def reconstruct_ptychography(
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
             else:
                 if common_probe_pos:
-                    optimizable_params['probe_pos_correction'] = w.create_variable(np.tile(probe_pos - probe_pos_int, [n_theta, 1, 1]),
+                    probe_pos_correction = (probe_pos - probe_pos_int)
+                    probe_pos_correction[np.abs(probe_pos_correction) < 1e-10] = 0
+                    probe_pos_correction = np.tile(probe_pos_correction, [n_theta, 1, 1])
+                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction,
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
                 else:
                     optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
@@ -793,7 +796,7 @@ def reconstruct_ptychography(
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % minibatch_size],
                                                                     minibatch_size - (n_pos % minibatch_size),
                                                                     replace=False))
-                elif (distribution_mode is not None or update_scheme == 'per angle') and n_pos % n_tot_per_batch != 0:
+                elif (distribution_mode is not None or update_scheme == 'per_angle') and n_pos % n_tot_per_batch != 0:
                     spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % n_tot_per_batch],
                                                                     n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                                     replace=False))
@@ -1069,7 +1072,7 @@ def reconstruct_ptychography(
                 #     initialize_gradients = True
 
                 if distribution_mode is None:
-                    if update_scheme == 'per angle' and not is_last_batch_of_this_theta:
+                    if update_scheme == 'per_angle' and not is_last_batch_of_this_theta:
                         continue
                     else:
                         initialize_gradients = True
@@ -1110,14 +1113,13 @@ def reconstruct_ptychography(
                 # ================================================================================
                 with w.no_grad():
                     malias = np if distribution_mode == 'distributed_object' else w
-                    if distribution_mode is not 'shared_file' and obj.arr is not None:
+                    if distribution_mode != 'shared_file' and obj.arr is not None:
                         if non_negativity and unknown_type != 'real_imag':
                             obj.arr = malias.clip(obj.arr, 0, None)
                         if unknown_type == 'delta_beta':
                             if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
                             if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
                         elif unknown_type == 'real_imag':
-                            # TODO should this be turned back into real and imag?
                             if object_type == 'absorption_only':
                                 delta, beta = malias.split_channel(obj.arr)
                                 delta = malias.norm(delta, beta)
