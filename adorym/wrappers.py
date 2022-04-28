@@ -52,6 +52,7 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'sign':        {'autograd': 'sign',       'tensorflow': 'sign',       'pytorch': 'sign',       'numpy': 'sign'},
                      'argmax':      {'autograd': 'argmax',     'tensorflow': 'argmax',     'pytorch': 'argmax',     'numpy': 'argmax'},
                      'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
+                     'conj':        {'autograd': 'conj',       'tensorflow': 'math.conj',  'pytorch': 'conj',       'numpy': 'conj'},
                      }
 
 dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',     'numpy': 'float32'},
@@ -218,7 +219,7 @@ def get_device(index=None, backend='autograd'):
     elif backend == 'pytorch':
         if index is None: return None
         else:
-            return tc.device('cuda:{}'.format(index))
+            return tc.device(f'cuda:{index}')
 
 
 @set_bn
@@ -547,7 +548,7 @@ def exp_complex(var_real, var_imag, backend='autograd'):
         if not isinstance(var_real, tc.Tensor):
             var_real = tc.tensor(var_real)
         if not isinstance(var_imag, tc.Tensor):
-            var_real = tc.tensor(var_imag)
+            var_imag = tc.tensor(var_imag)
     e = exp(var_real)
     return e * cos(var_imag), e * sin(var_imag)
 
@@ -935,6 +936,12 @@ def real(var, backend='autograd'):
 @set_bn
 def imag(var, backend='autograd'):
     func = getattr(engine_dict[backend], func_mapping_dict['imag'][backend])
+    arr = func(var)
+    return arr
+
+@set_bn
+def conj(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['conj'][backend])
     arr = func(var)
     return arr
 

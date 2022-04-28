@@ -427,7 +427,7 @@ class MomentumOptimizer(Optimizer):
 class GDOptimizer(Optimizer):
 
     def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(GDOptimizer, self).__init__(name, output_folder=output_folder, params_list=[],
+        super().__init__(name, output_folder=output_folder, params_list=[],
                                           distribution_mode=distribution_mode, options_dict=options_dict,
                                           forward_model=forward_model)
         return
