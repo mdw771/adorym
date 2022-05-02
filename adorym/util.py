@@ -23,7 +23,7 @@ from scipy.special import erf
 
 from adorym.constants import *
 import adorym.wrappers as w
-from adorym.propagate import *
+import adorym.propagate as p
 from adorym.misc import *
 import adorym.global_settings as global_settings
 
@@ -76,7 +76,7 @@ def initialize_object_for_dp(
     seed = comm.bcast(seed, root=0)
     np.random.seed(seed)
 
-    if not_first_level == False:
+    if not not_first_level:
         if initial_guess is None:
             if verbose:
                 print_flush(
@@ -122,17 +122,17 @@ def initialize_object_for_dp(
             )
         if unknown_type == "delta_beta":
             obj_delta = dxchange.read_tiff(
-                os.path.join(output_folder, "delta_ds_{}.tiff".format(ds_level * 2))
+                os.path.join(output_folder, f"delta_ds_{ds_level * 2}.tiff")
             )
             obj_beta = dxchange.read_tiff(
-                os.path.join(output_folder, "beta_ds_{}.tiff".format(ds_level * 2))
+                os.path.join(output_folder, f"beta_ds_{ds_level * 2}.tiff")
             )
         elif unknown_type == "real_imag":
             obj_delta = dxchange.read_tiff(
-                os.path.join(output_folder, "obj_mag_ds_{}.tiff".format(ds_level * 2))
+                os.path.join(output_folder, f"obj_mag_ds_{ds_level * 2}.tiff")
             )
             obj_beta = dxchange.read_tiff(
-                os.path.join(output_folder, "obj_phase_ds_{}.tiff".format(ds_level * 2))
+                os.path.join(output_folder, f"obj_phase_ds_{ds_level * 2}.tiff")
             )
         obj_delta = upsample_2x(obj_delta)
         obj_beta = upsample_2x(obj_beta)
@@ -180,7 +180,7 @@ def initialize_object_for_sf(
     not_first_level=False,
     random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
     unknown_type="delta_beta",
-    dtype="float32",
+    dtype="complex64",
     non_negativity=False,
 ):
     if initial_guess is None:
@@ -350,7 +350,7 @@ def initialize_probe(
         probe_real, probe_imag = mag_phase_to_real_imag(
             probe_mag, np.zeros_like(probe_mag)
         )
-        probe_real, probe_imag = fresnel_propagate(
+        probe_real, probe_imag = p.fresnel_propagate(
             probe_real,
             probe_imag,
             defocus_cm * 1e7,
@@ -397,7 +397,7 @@ def initialize_probe(
     if extra_defocus_cm is not None:
         lmbda_nm = kwargs["lmbda_nm"]
         psize_cm = kwargs["psize_cm"]
-        probe_real, probe_imag = fresnel_propagate(
+        probe_real, probe_imag = p.fresnel_propagate(
             probe_real,
             probe_imag,
             extra_defocus_cm * 1e7,
@@ -461,7 +461,7 @@ def create_probe_initial_guess(
     # NOTE: this is for toy model
     wavefront = np.mean(np.abs(dat), axis=0)
     lmbda_nm = 1.24 / energy_ev
-    h = get_kernel(-dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
+    h = p.get_kernel(-dist_nm, lmbda_nm, [psize_nm, psize_nm], wavefront.shape)
     wavefront = np.fft.fftshift(np.fft.fft2(wavefront)) * h
     wavefront = np.fft.ifft2(np.fft.ifftshift(wavefront))
     return wavefront
@@ -590,10 +590,34 @@ def realign_image_fourier(a_real, a_imag, shift, axes=(0, 1), device=None):
         f_real * mult_imag + f_imag * mult_real,
     )
     return w.ifft2(a_real, a_imag, axes=axes)
+def realign_image_fourier_complex(a, shift, axes=(0, 1), device=None):
+    """
+    Returns real and imaginary parts as a list.
+    """
+    if np.all(shift == [0, 0]):
+        return a
+    f = w.fft2_complex(a, axes=axes)
+    s = f.shape
+    freq_x, freq_y = np.meshgrid(
+        np.fft.fftfreq(s[axes[1]], 1), np.fft.fftfreq(s[axes[0]], 1)
+    )
+    freq_x = w.create_variable(
+        freq_x, requires_grad=False, device=device, dtype=w.get_dtype(freq_x)
+    )
+    freq_y = w.create_variable(
+        freq_y, requires_grad=False, device=device, dtype=w.get_dtype(freq_y)
+    )
+    mult = w.exp(-2 * np.pi * (freq_x * shift[1] + freq_y * shift[0])
+    )
+    # Reshape for broadcasting
+    if len(s) > max(axes) + 1:
+        mult = w.reshape(mult, list(mult.shape) + [1] * (len(s) - (max(axes) + 1)))
+        mult = w.tile(mult, [1, 1] + list(s[max(axes) + 1 :]))
+    a = f*mult
+    return w.ifft2_complex(a, axes=axes)
 
 
 def create_batches(arr, batch_size):
-
     arr_len = len(arr)
     i = 0
     batches = []
@@ -709,7 +733,7 @@ def calculate_original_coordinates_for_rotation(
     coord1_old = coord_old[0, :] + image_center[1]
     coord2_old = coord_old[1, :] + image_center[2]
     if override_backend is not None:
-        coord_old = w.stack([coord1_old, coord2_old], axis=1, backend=override_backend)
+        coord_old = w.stack([coord1_old, coord2_old], axis=1, override_backend=override_backend)
     else:
         coord_old = w.stack([coord1_old, coord2_old], axis=1)
     return coord_old
@@ -748,9 +772,7 @@ def save_rotation_lookup(array_size, theta_ls, dest_folder=None, override_backen
 
     n_theta = len(theta_ls)
     if dest_folder is None:
-        dest_folder = "arrsize_{}_{}_{}_ntheta_{}".format(
-            array_size[0], array_size[1], array_size[2], n_theta
-        )
+        dest_folder = f"arrsize_{array_size[0]}_{array_size[1]}_{array_size[2]}_ntheta_{n_theta}"
     if not os.path.exists(dest_folder):
         os.mkdir(dest_folder)
     theta_ls = w.create_constant(theta_ls)

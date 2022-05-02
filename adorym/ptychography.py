@@ -39,7 +39,7 @@ def reconstruct_ptychography(
         # ______________________________________
         # |Raw data and experimental parameters|________________________________
         fname, obj_size, probe_pos=None, theta_st=0, theta_end=PI, n_theta=None, theta_downsample=None,
-        energy_ev=None, psize_cm=None, free_prop_cm=None,
+        energy_ev=None, beam_type='xray', psize_cm=None, free_prop_cm=None,
         raw_data_type='magnitude', # Choose from 'magnitude' or 'intensity'
         is_minus_logged=False, # Select True if raw data (usually conventional tomography) is minus-logged
         slice_pos_cm_ls=None,
@@ -253,6 +253,10 @@ def reconstruct_ptychography(
     if energy_ev is None:
         energy_ev = float(f['metadata/energy_ev'][...])
 
+    if beam_type is None:
+        beam_type = 'xray'
+        print('Defaulting to x-ray ptychography, change beam_type to "electron" for e-')
+
     # Pixel size on sample plane.
     if psize_cm is None:
         psize_cm = float(f['metadata/psize_cm'][...])
@@ -361,8 +365,10 @@ def reconstruct_ptychography(
         # generate Fresnel kernel.
         # ================================================================================
         voxel_nm = np.array([psize_cm] * 3) * 1.e7 * ds_level
-        lmbda_nm = 1240. / energy_ev
-        # lmbda_nm = 12.398 / np.sqrt((2*511 + energy_ev)*energy_ev) / 10 # angstrom to nm for electrons
+        if beam_type == 'xray':
+            lmbda_nm = 1240. / energy_ev
+        elif beam_type == 'electron':
+            lmbda_nm = 12.398 / np.sqrt((2*511 + energy_ev)*energy_ev) / 10 # angstrom to nm for electrons
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
 
@@ -370,10 +376,10 @@ def reconstruct_ptychography(
         # Read or write rotation transformation coordinates.
         # ================================================================================
         if precalculate_rotation_coords:
-            if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
+            if not os.path.exists(f'arrsize_{this_obj_size[0]}_{this_obj_size[1]}_{this_obj_size[2]}_ntheta_{n_theta}'):
                 comm.Barrier()
                 if rank == 0:
-                    os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
+                    os.makedirs(f'arrsize_{this_obj_size[0]}_{this_obj_size[1]}_{this_obj_size[2]}_ntheta_{n_theta}')
                 comm.Barrier()
                 print_flush('Saving rotation coordinates...', sto_rank, rank, **stdout_options)
                 save_rotation_lookup(this_obj_size, theta_ls)
@@ -465,7 +471,7 @@ def reconstruct_ptychography(
         # ================================================================================
         # Create object class.
         # ================================================================================
-        obj = ObjectFunction([*this_obj_size, 2], distribution_mode=distribution_mode,
+        obj = ObjectFunction(this_obj_size, distribution_mode=distribution_mode,
                              output_folder=output_folder, ds_level=ds_level, object_type=object_type)
         if distribution_mode == 'shared_file':
             obj.create_file_object(use_checkpoint)
@@ -996,10 +1002,8 @@ def reconstruct_ptychography(
                 for arg in forward_model.argument_ls:
                     if arg == 'obj':
                         grad_func_args[arg] = obj_arr
-                    elif arg == 'probe_real' and not shared_probe_among_angles:
-                        grad_func_args[arg] = probe_real[this_i_theta]
-                    elif arg == 'probe_imag' and not shared_probe_among_angles:
-                        grad_func_args[arg] = probe_imag[this_i_theta]
+                    elif arg == 'probe' and not shared_probe_among_angles:
+                        grad_func_args[arg] = probe[this_i_theta]
                     else:
                         try:
                             grad_func_args[arg] = optimizable_params[arg]

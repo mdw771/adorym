@@ -196,12 +196,12 @@ class LargeArray(object):
                 if self.distribution_mode == "distributed_object":
                     self.arr = self.arr.astype(dtype)
                 else:
-                    self.arr = w.cast(self.arr, dtype, backend=override_backend)
+                    self.arr = w.cast(self.arr, dtype, override_backend=override_backend)
             else:
                 if self.distribution_mode == "distributed_object":
                     self.arr_rot = self.arr_rot.astype(dtype)
                 else:
-                    self.arr_rot = w.cast(self.arr_rot, dtype, backend=override_backend)
+                    self.arr_rot = w.cast(self.arr_rot, dtype, override_backend=override_backend)
 
     def write_chunks_to_file(
         self,
@@ -273,7 +273,7 @@ class ObjectFunction(LargeArray):
         object_type="normal",
         device=None,
     ):
-        super(ObjectFunction, self).__init__(
+        super().__init__(
             full_size,
             distribution_mode=distribution_mode,
             monochannel=False,
@@ -287,7 +287,7 @@ class ObjectFunction(LargeArray):
         self.dset_rot = None
 
     def create_file_object(self, use_checkpoint=False):
-        super(ObjectFunction, self).create_file_object(
+        super().create_file_object(
             "intermediate_obj.h5", use_checkpoint=use_checkpoint
         )
 
@@ -336,7 +336,7 @@ class ObjectFunction(LargeArray):
             non_negativity=non_negativity,
         )
         self.arr = w.create_variable(
-            np.stack([temp_delta, temp_beta], -1), device=device, requires_grad=True
+            temp_delta + 1j * temp_beta, device=device, requires_grad=True
         )
         del temp_delta
         del temp_beta
@@ -344,7 +344,7 @@ class ObjectFunction(LargeArray):
 
     def initialize_array_with_values(self, obj_delta, obj_beta, device=None):
         self.arr = w.create_variable(
-            np.stack([obj_delta, obj_beta], -1), device=device, requires_grad=True
+            obj_delta + 1j * obj_beta, device=device, requires_grad=True
         )
 
     def initialize_distributed_array(
@@ -355,7 +355,7 @@ class ObjectFunction(LargeArray):
         initial_guess=None,
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
         unknown_type="delta_beta",
-        dtype="float32",
+        dtype="complex64",
         non_negativity=False,
     ):
         if self.slice_catalog[rank] is not None:
@@ -374,17 +374,17 @@ class ObjectFunction(LargeArray):
                 dtype=dtype,
                 non_negativity=non_negativity,
             )
-            self.arr = np.stack([delta, beta], -1)
+            self.arr = delta + 1j * beta 
 
     def initialize_distributed_array_with_values(
-        self, obj_delta, obj_beta, dtype="float32"
+        self, obj_delta, obj_beta, dtype="complex64"
     ):
         if self.slice_catalog[rank] is not None:
             delta = obj_delta[slice(*self.slice_catalog[rank])]
             beta = obj_beta[slice(*self.slice_catalog[rank])]
-            self.arr = np.stack([delta, beta], -1).astype(dtype)
+            self.arr = (delta + 1j * beta).astype(dtype)
 
-    def initialize_distributed_array_with_zeros(self, dtype="float32"):
+    def initialize_distributed_array_with_zeros(self, dtype="complex64"):
         if self.slice_catalog[rank] is not None:
             delta = np.zeros(
                 [
@@ -400,7 +400,7 @@ class ObjectFunction(LargeArray):
                 ],
                 dtype=dtype,
             )
-            self.arr = np.stack([delta, beta], -1)
+            self.arr = delta + 1j * beta
 
     def initialize_file_object(
         self,
@@ -410,7 +410,7 @@ class ObjectFunction(LargeArray):
         initial_guess=None,
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
         unknown_type="delta_beta",
-        dtype="float32",
+        dtype="complex64",
         non_negativity=False,
     ):
         initialize_object_for_sf(
