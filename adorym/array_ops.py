@@ -64,7 +64,7 @@ class LargeArray(object):
         try:
             # If dataset doesn't exist, create it.
             self.dset = self.f.create_dataset(
-                "obj", shape=self.full_size, dtype="float64"
+                "obj", shape=self.full_size, dtype="complex128"
             )
         except:
             # If dataset exists, create a pointer to it.
@@ -448,6 +448,26 @@ class ObjectFunction(LargeArray):
                 beta = self.arr[:, :, :, 1] * mask.mask + zeros_arr * (1 - mask.mask)
             self.arr = w.stack([delta, beta], -1)
         w.reattach(self.arr)
+    def apply_finite_support_mask_to_array_complex(
+        self, mask, unknown_type="delta_beta", device=None
+    ):
+        assert isinstance(mask, Mask)
+        with w.no_grad():
+            if unknown_type == "delta_beta":
+                self.arr = self.arr * mask.mask
+            elif unknown_type == "real_imag":
+                ones_arr = w.ones(
+                    self.arr.shape[:-1], requires_grad=False, device=device
+                )
+                zeros_arr = w.zeros(
+                    self.arr.shape[:-1], requires_grad=False, device=device
+                )
+                delta = w.real(self.arr) * mask.mask + ones_arr * (1 - mask.mask)
+                beta = w.imag(self.arr) * mask.mask + zeros_arr * (1 - mask.mask)
+                self.arr = delta + 1j * beta
+        w.reattach(self.arr)
+
+
 
     def apply_finite_support_mask_to_file(
         self, mask, unknown_type="delta_beta", device=None
@@ -472,6 +492,31 @@ class ObjectFunction(LargeArray):
                 obj_arr[:, :, 1] = obj_arr[:, :, 1] * mask_arr + zeros_arr * (
                     1 - mask_arr
                 )
+            self.dset[i_slice] = obj_arr
+    def apply_finite_support_mask_to_file_complex(
+        self, mask, unknown_type="delta_beta", device=None
+    ):
+        assert isinstance(mask, Mask)
+        slice_ls = range(rank, self.full_size[0], n_ranks)
+        if unknown_type == "real_imag":
+            ones_arr = w.ones(mask.dset.shape[1:3], requires_grad=False, device=device)
+            zeros_arr = w.zeros(
+                mask.dset.shape[1:3], requires_grad=False, device=device
+            )
+        for i_slice in slice_ls:
+            mask_arr = mask.dset[i_slice]
+            obj_arr = self.dset[i_slice]
+            if unknown_type == "delta_beta":
+                obj_arr *= mask_arr
+            elif unknown_type == "real_imag":
+                obj_arr[:, :, 0] = obj_arr[:, :, 0] * mask_arr + ones_arr * (
+                    1 - mask_arr
+                )
+                obj_arr[:, :, 1] = obj_arr[:, :, 1] * mask_arr + zeros_arr * (
+                    1 - mask_arr
+                )
+
+                obj_arr = w.real(obj_arr) * mask_arr + ones_arr * (1 - mask_arr) + 1j * (w.imag(obj_arr) * mask_arr + zeros_arr * (1 - mask_arr))
             self.dset[i_slice] = obj_arr
 
     def update_object(self, obj):
@@ -504,7 +549,7 @@ class ObjectFunction(LargeArray):
 class Gradient(ObjectFunction):
     def __init__(self, obj, forward_model=None):
         assert isinstance(obj, ObjectFunction)
-        super(Gradient, self).__init__(
+        super().__init__(
             obj.full_size,
             obj.distribution_mode,
             obj.output_folder,
@@ -518,7 +563,7 @@ class Gradient(ObjectFunction):
             "intermediate_grad.h5", use_checkpoint=False
         )
 
-    def initialize_gradient_file(self, dtype="float32"):
+    def initialize_gradient_file(self, dtype="complex64"):
         initialize_hdf5_with_constant(self.dset, rank, n_ranks, dtype=dtype)
 
 
@@ -561,7 +606,7 @@ class Mask(LargeArray):
     def update_mask_array(self, obj, threshold=1e-9):
         assert isinstance(obj, ObjectFunction)
         if obj.arr is not None:
-            obj_arr, _ = w.split_channel(obj.arr)
+            obj_arr = w.real(obj.arr)
             self.mask[obj_arr < threshold] = 0
 
     def update_mask_file(self, obj, threshold=1e-9):
@@ -569,7 +614,7 @@ class Mask(LargeArray):
         if self.shared_file_object:
             slice_ls = range(rank, self.full_size[0], n_ranks)
             for i_slice in slice_ls:
-                obj_arr = obj.dset[i_slice, :, :, 0]
+                obj_arr = w.real(obj.dset[i_slice, ...])
                 mask_arr = self.dset[i_slice, :, :]
                 mask_arr[obj_arr < threshold] = 0
                 self.dset[i_slice, :, :] = mask_arr

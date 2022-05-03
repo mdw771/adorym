@@ -166,6 +166,116 @@ def initialize_object_for_dp(
     elif unknown_type == "real_imag":
         obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
     return obj_delta, obj_beta
+def initialize_object_for_dp_complex(
+    this_obj_size,
+    dset=None,
+    ds_level=1,
+    object_type="normal",
+    initial_guess=None,
+    output_folder=None,
+    save_stdout=False,
+    timestr="",
+    not_first_level=False,
+    random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
+    unknown_type="delta_beta",
+    non_negativity=False,
+    verbose=True,
+):
+
+    seed = int(time.time() / 60)
+    seed = comm.bcast(seed, root=0)
+    np.random.seed(seed)
+
+    if not not_first_level:
+        if initial_guess is None:
+            if verbose:
+                print_flush(
+                    "Initializing with Gaussian random.",
+                    designate_rank=0,
+                    this_rank=rank,
+                    save_stdout=save_stdout,
+                    output_folder=output_folder,
+                    timestamp=timestr,
+                )
+            obj_delta = np.random.normal(
+                size=this_obj_size,
+                loc=random_guess_means_sigmas[0],
+                scale=random_guess_means_sigmas[2],
+            )
+            obj_beta = np.random.normal(
+                size=this_obj_size,
+                loc=random_guess_means_sigmas[1],
+                scale=random_guess_means_sigmas[3],
+            )
+        else:
+            if verbose:
+                print_flush(
+                    "Using supplied initial guess.",
+                    designate_rank=0,
+                    this_rank=rank,
+                    save_stdout=save_stdout,
+                    output_folder=output_folder,
+                    timestamp=timestr,
+                )
+            sys.stdout.flush()
+            obj_delta = np.array(initial_guess[0])
+            obj_beta = np.array(initial_guess[1])
+    else:
+        if verbose:
+            print_flush(
+                "Initializing with previous pass.",
+                designate_rank=0,
+                this_rank=rank,
+                save_stdout=save_stdout,
+                output_folder=output_folder,
+                timestamp=timestr,
+            )
+        if unknown_type == "delta_beta":
+            obj_delta = dxchange.read_tiff(
+                os.path.join(output_folder, f"delta_ds_{ds_level * 2}.tiff")
+            )
+            obj_beta = dxchange.read_tiff(
+                os.path.join(output_folder, f"beta_ds_{ds_level * 2}.tiff")
+            )
+        elif unknown_type == "real_imag":
+            obj_delta = dxchange.read_tiff(
+                os.path.join(output_folder, f"obj_mag_ds_{ds_level * 2}.tiff")
+            )
+            obj_beta = dxchange.read_tiff(
+                os.path.join(output_folder, f"obj_phase_ds_{ds_level * 2}.tiff")
+            )
+        obj_delta = upsample_2x(obj_delta)
+        obj_beta = upsample_2x(obj_beta)
+        obj_delta += np.random.normal(
+            size=this_obj_size,
+            loc=random_guess_means_sigmas[0],
+            scale=random_guess_means_sigmas[2],
+        )
+        obj_beta += np.random.normal(
+            size=this_obj_size,
+            loc=random_guess_means_sigmas[1],
+            scale=random_guess_means_sigmas[3],
+        )
+
+    # Apply specified constraints.
+    if object_type == "phase_only":
+        if unknown_type == "delta_beta":
+            obj_beta[...] = 0
+        elif unknown_type == "real_imag":
+            obj_delta[...] = 1
+    elif object_type == "absorption_only":
+        if unknown_type == "delta_beta":
+            obj_delta[...] = 0
+        elif unknown_type == "real_imag":
+            obj_beta[...] = 0
+
+    # Apply nonnegativity or convert to real/imag.
+    if unknown_type == "delta_beta" and non_negativity:
+        obj_delta[obj_delta < 0] = 0
+        obj_beta[obj_beta < 0] = 0
+    elif unknown_type == "real_imag":
+        obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
+    return obj_delta + 1j * obj_beta
 
 
 def initialize_object_for_sf(
@@ -241,7 +351,7 @@ def initialize_object_for_do(
     not_first_level=False,
     random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
     unknown_type="delta_beta",
-    dtype="float32",
+    dtype="complex64",
     non_negativity=False,
 ):
     if slice_catalog[rank] is None:
@@ -298,7 +408,7 @@ def initialize_object_for_do(
             obj_beta[obj_beta < 0] = 0
         elif unknown_type == "real_imag":
             obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
-    return obj_delta.astype(dtype), obj_beta.astype(dtype)
+    return obj_delta.astype(dtype) + 1j * obj_beta.astype(dtype)
 
 
 def generate_gaussian_map(size, mag_max, mag_sigma, phase_max, phase_sigma):
@@ -447,7 +557,7 @@ def initialize_probe(
             **kwargs["stdout_options"],
         )
         f.close()
-    return probe_real, probe_imag
+    return probe_real + 1j * probe_imag
 
 
 def create_probe_initial_guess(
@@ -1217,7 +1327,7 @@ def initialize_hdf5_with_gaussian(
     beta_mu,
     beta_sigma,
     unknown_type="delta_beta",
-    dtype="float32",
+    dtype="complex64",
     non_negativity=False,
 ):
 
@@ -1232,7 +1342,7 @@ def initialize_hdf5_with_gaussian(
         slice_beta = np.random.normal(size=[s[1], s[2]], loc=beta_mu, scale=beta_sigma)
         if unknown_type == "real_imag":
             slice_delta, slice_beta = mag_phase_to_real_imag(slice_delta, slice_beta)
-        slice_data = np.stack([slice_delta, slice_beta], axis=-1)
+        slice_data = slice_delta + 1j* slice_beta
         if non_negativity:
             slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data.astype(dtype)
@@ -1240,7 +1350,7 @@ def initialize_hdf5_with_gaussian(
 
 
 def initialize_hdf5_with_constant(
-    dset, rank, n_ranks, constant_value=0, dtype="float32"
+    dset, rank, n_ranks, constant_value=0, dtype="complex64"
 ):
 
     s = dset.shape
@@ -1269,28 +1379,36 @@ def initialize_hdf5_with_arrays(
         slice_data[slice_data < 0] = 0
         dset[i_slice] = slice_data.astype(dtype)
     return None
+def initialize_hdf5_with_arrays_complex(
+    dset, rank, n_ranks, init_delta_beta, dtype="complex64"
+):
 
+    s = dset.shape
+    slice_ls = range(rank, s[0], n_ranks)
+
+    for i_slice in slice_ls:
+        slice_data = np.zeros(s[1:])
+        slice_data[...] = init_delta_beta[i_slice]
+        slice_data[slice_data < 0] = 0
+        dset[i_slice] = slice_data.astype(dtype)
+    return None
 
 def print_alltoall_data_shape(chunk_batch_ls_ls, i_split=0):
     for ii in range(len(chunk_batch_ls_ls[i_split])):
         if chunk_batch_ls_ls[i_split][ii] is not None:
             for iii in range(len(chunk_batch_ls_ls[i_split][ii])):
                 print_flush(
-                    "Source rank: {}; target rank: {}; chunk {}; shape: {}.".format(
-                        rank, ii, iii, chunk_batch_ls_ls[i_split][ii][iii].shape
-                    )
+                    f"Source rank: {rank}; target rank: {ii}; chunk {iii}; shape: {chunk_batch_ls_ls[i_split][ii][iii].shape}."
                 )
         else:
             print_flush(
-                "Source rank: {}; target rank: {}; chunk {}; shape: {}.".format(
-                    rank, ii, iii, chunk_batch_ls_ls[i_split][ii]
-                ),
+                f"Source rank: {rank}; target rank: {ii}; chunk {iii}; shape: {chunk_batch_ls_ls[i_split][ii]}.",
                 0,
                 0,
             )
     return
 
-
+# TODO
 def get_subblocks_from_distributed_object_mpi(
     obj,
     slice_catalog,
@@ -2983,6 +3101,80 @@ def output_object(
                 dtype="float32",
                 overwrite=True,
             )
+def output_object_complex(
+    obj,
+    distribution_mode,
+    output_folder,
+    unknown_type="delta_beta",
+    full_output=True,
+    ds_level=1,
+    i_epoch=0,
+    i_batch=0,
+    save_history=True,
+):
+
+    if distribution_mode == "shared_file":
+        obj0 = obj.dset
+    elif distribution_mode == "distributed_object":
+        if obj.arr is not None:
+            obj0 = obj.arr
+    else:
+        obj0 = w.to_numpy(obj)
+
+    if obj.arr is not None:
+        if unknown_type == "delta_beta":
+            if full_output:
+                fname0 = f"delta_ds_{ds_level}"
+                fname1 = f"beta_ds_{ds_level}"
+            else:
+                if save_history:
+                    fname0 = f"delta_{i_epoch}_{i_batch}"
+                    fname1 = f"beta_{i_epoch}_{i_batch}"
+                else:
+                    fname0 = "delta"
+                    fname1 = "beta"
+            if distribution_mode == "distributed_object":
+                fname0 += f"_rank_{rank}"
+                fname1 += f"_rank_{rank}"
+            dxchange.write_tiff(
+                w.real(obj0),
+                os.path.join(output_folder, fname0),
+                dtype="float32",
+                overwrite=True,
+            )
+            dxchange.write_tiff(
+                w.imag(obj0),
+                os.path.join(output_folder, fname1),
+                dtype="float32",
+                overwrite=True,
+            )
+
+        elif unknown_type == "real_imag":
+            if full_output:
+                fname0 = f"obj_mag_ds_{ds_level}"
+                fname1 = f"obj_phase_ds_{ds_level}"
+            else:
+                if save_history:
+                    fname0 = f"obj_mag_{i_epoch}_{i_batch}"
+                    fname1 = f"obj_phase_{i_epoch}_{i_batch}"
+                else:
+                    fname0 = "obj_mag"
+                    fname1 = "obj_phase"
+            if distribution_mode == "distributed_object":
+                fname0 += f"_rank_{rank}"
+                fname1 += f"_rank_{rank}"
+            dxchange.write_tiff(
+                w.abs(obj0),
+                os.path.join(output_folder, fname0),
+                dtype="float32",
+                overwrite=True,
+            )
+            dxchange.write_tiff(
+                w.angle(obj0),
+                os.path.join(output_folder, fname1),
+                dtype="float32",
+                overwrite=True,
+            )
 
 
 def output_probe(
@@ -3018,6 +3210,39 @@ def output_probe(
     )
     dxchange.write_tiff(
         np.arctan2(probe_imag, probe_real),
+        fname=os.path.join(output_folder, fname1),
+        dtype="float32",
+        overwrite=True,
+    )
+def output_probe_complex(
+    probe,
+    output_folder,
+    full_output=True,
+    ds_level=1,
+    i_epoch=0,
+    i_batch=0,
+    save_history=True,
+    custom_name=None,
+):
+    prefix = "probe" if custom_name is None else custom_name
+    if full_output:
+        fname0 = f"{prefix}_mag_ds_{ds_level}"
+        fname1 = f"{prefix}_phase_ds_{ds_level}"
+    else:
+        if save_history:
+            fname0 = f"{prefix}_mag_{i_epoch}_{i_batch}"
+            fname1 = f"{prefix}_phase_{i_epoch}_{i_batch}"
+        else:
+            fname0 = f"{prefix}_mag"
+            fname1 = f"{prefix}_phase"
+    dxchange.write_tiff(
+        w.abs(probe),
+        fname=os.path.join(output_folder, fname0),
+        dtype="float32",
+        overwrite=True,
+    )
+    dxchange.write_tiff(
+        w.angle(probe),
         fname=os.path.join(output_folder, fname1),
         dtype="float32",
         overwrite=True,

@@ -244,8 +244,8 @@ def reconstruct_ptychography(
             probe_pos_ls = []
             n_pos_ls = []
             for i in range(n_theta):
-                probe_pos_ls.append(f['metadata/probe_pos_px_{}'.format(i)])
-                n_pos_ls.append(len(f['metadata/probe_pos_px_{}'.format(i)]))
+                probe_pos_ls.append(f[f'metadata/probe_pos_px_{i}'])
+                n_pos_ls.append(len(f[f'metadata/probe_pos_px_{i}']))
     else:
         probe_pos = np.array(probe_pos).astype(float)
 
@@ -301,8 +301,8 @@ def reconstruct_ptychography(
         u_free = w.create_variable(u_free, requires_grad=False, device=device_obj)
         v_free = w.create_variable(v_free, requires_grad=False, device=device_obj)
 
-    print_flush('Data reading: {} s'.format(time.time() - t0), sto_rank, rank, **stdout_options)
-    print_flush('Data shape: {}'.format(original_shape), sto_rank, rank, **stdout_options)
+    print_flush(f'Data reading: {time.time() - t0} s', sto_rank, rank, **stdout_options)
+    print_flush(f'Data shape: {original_shape}', sto_rank, rank, **stdout_options)
     comm.Barrier()
 
     not_first_level = False
@@ -336,7 +336,7 @@ def reconstruct_ptychography(
         # Set metadata.
         # ================================================================================
         ds_level = 2 ** ds_level
-        print_flush('Multiscale downsampling level: {}'.format(ds_level), sto_rank, rank, **stdout_options)
+        print_flush(f'Multiscale downsampling level: {ds_level}', sto_rank, rank, **stdout_options)
         comm.Barrier()
 
         prj_shape = original_shape
@@ -358,7 +358,7 @@ def reconstruct_ptychography(
             try:
                 os.makedirs(os.path.join(output_folder))
             except:
-                print_flush('Target folder {} exists.'.format(output_folder), sto_rank, rank, **stdout_options)
+                print_flush(f'Target folder {output_folder} exists.', sto_rank, rank, **stdout_options)
         comm.Barrier()
 
         # ================================================================================
@@ -368,6 +368,7 @@ def reconstruct_ptychography(
         if beam_type == 'xray':
             lmbda_nm = 1240. / energy_ev
         elif beam_type == 'electron':
+            print_flush('Using an electron beam!',sto_rank, rank, **stdout_options)
             lmbda_nm = 12.398 / np.sqrt((2*511 + energy_ev)*energy_ev) / 10 # angstrom to nm for electrons
         delta_nm = voxel_nm[-1]
         h = get_kernel(delta_nm * binning, lmbda_nm, voxel_nm, probe_size, fresnel_approx=fresnel_approx, sign_convention=sign_convention)
@@ -430,7 +431,7 @@ def reconstruct_ptychography(
                                      distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
             else:
                 raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
-        opt.create_container([*this_obj_size, 2], use_checkpoint, device_obj, use_numpy=True)
+        opt.create_container(this_obj_size, use_checkpoint, device_obj, use_numpy=True, dtype='complex128')
         opt.set_index_in_grad_return(0)
         opt_ls = [opt]
 
@@ -521,10 +522,10 @@ def reconstruct_ptychography(
                 forward_model = SingleBatchPtychographyModel(**forwardmodel_args)
             else:
                 forward_model = PtychographyModel(**forwardmodel_args)
-            print_flush('Auto-selected forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
+            print_flush(f'Auto-selected forward model: {type(forward_model).__name__}.', sto_rank, rank, **stdout_options)
         else:
             forward_model = forward_model(**forwardmodel_args)
-            print_flush('Specified forward model: {}.'.format(type(forward_model).__name__), sto_rank, rank, **stdout_options)
+            print_flush(f'Specified forward model: {type(forward_model).__name__}.', sto_rank, rank, **stdout_options)
 
         if regularizers is None:
             regularizers = []
@@ -591,60 +592,48 @@ def reconstruct_ptychography(
             probe_init_kwargs['psize_cm'] = psize_cm
             probe_init_kwargs['normalize_fft'] = normalize_fft
             probe_init_kwargs['n_probe_modes'] = n_probe_modes
-            probe_real_init, probe_imag_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
+            probe_init = initialize_probe(probe_size, probe_type, pupil_function=pupil_function, probe_initial=probe_initial,
                                                       rescale_intensity=rescale_probe_intensity, save_path=save_path, fname=fname,
                                                       extra_defocus_cm=probe_extra_defocus_cm,
                                                       raw_data_type=raw_data_type, stdout_options=stdout_options,
                                                       sign_convention=sign_convention, **probe_init_kwargs)
             if n_probe_modes == 1:
-                if len(probe_real_init.shape) == 3:
-                    if len(probe_real_init) > n_probe_modes:
-                        probe_real = probe_real_init[:n_probe_modes]
-                        probe_imag = probe_imag_init[:n_probe_modes]
-                        print_flush('Supplied probe mode number is larger than specified. Only the first {} '
-                                    'are used.'.format(n_probe_modes), 0, rank)
+                if len(probe_init.shape) == 3:
+                    if len(probe_init) > n_probe_modes:
+                        probe = probe_init[:n_probe_modes]
+                        print_flush(f'Supplied probe mode number is larger than specified. Only the first {n_probe_modes} '
+                                    'are used.', 0, rank)
                 else:
-                    probe_real = np.stack([np.squeeze(probe_real_init)])
-                    probe_imag = np.stack([np.squeeze(probe_imag_init)])
+                    probe = np.stack([np.squeeze(probe_init)])
             else:
-                if len(probe_real_init.shape) == 3:
-                    probe_real = probe_real_init
-                    probe_imag = probe_imag_init
-                    if len(probe_real_init) > n_probe_modes:
-                        probe_real = probe_real[:n_probe_modes]
-                        probe_imag = probe_imag[:n_probe_modes]
-                        print_flush('Supplied probe mode number is larger than specified. Only the first {} '
-                                    'are used.'.format(n_probe_modes), 0, rank)
-                elif len(probe_real_init.shape) == 2 or len(probe_real_init) == 1:
-                    probe_real = []
-                    probe_imag = []
-                    probe_real_init = np.squeeze(probe_real_init)
-                    probe_imag_init = np.squeeze(probe_imag_init)
+                if len(probe_init.shape) == 3:
+                    probe_real = probe_init
+                    if len(probe_init) > n_probe_modes:
+                        probe = probe[:n_probe_modes]
+                        print_flush(f'Supplied probe mode number is larger than specified. Only the first {n_probe_modes} '
+                                    'are used.', 0, rank)
+                elif len(probe_init.shape) == 2 or len(probe_init) == 1:
+                    probe = []
+                    probe_init = np.squeeze(probe_init)
                     i_cum_factor = 0
                     for i_mode in range(n_probe_modes):
-                        probe_real.append(np.random.normal(probe_real_init, abs(probe_real_init) * 0.2))
-                        probe_imag.append(np.random.normal(probe_imag_init, abs(probe_imag_init) * 0.2))
+                        probe.append(np.random.normal(probe_init, abs(probe_init) * 0.2))
                         # if i_mode < n_probe_modes - 1:
-                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor) * 0.85))
+                        #     probe_real.append(probe_init * np.sqrt((1 - i_cum_factor) * 0.85))
                         #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor) * 0.85))
                         #     i_cum_factor += (1 - i_cum_factor) * 0.85
                         # else:
-                        #     probe_real.append(probe_real_init * np.sqrt((1 - i_cum_factor)))
+                        #     probe_real.append(probe_init * np.sqrt((1 - i_cum_factor)))
                         #     probe_imag.append(probe_imag_init * np.sqrt((1 - i_cum_factor)))
-                    probe_real = np.stack(probe_real)
-                    probe_imag = np.stack(probe_imag)
+                    probe = np.stack(probe)
                 else:
                     raise RuntimeError('Length of supplied supplied probe does not match number of probe modes.')
             if not shared_probe_among_angles:
-                probe_real = np.tile(probe_real, [n_theta] + [1] * len(probe_real.shape))
-                probe_imag = np.tile(probe_imag, [n_theta] + [1] * len(probe_imag.shape))
+                probe = np.tile(probe, [n_theta] + [1] * len(probe.shape))
         else:
-            probe_real = None
-            probe_imag = None
-        probe_real = comm.bcast(probe_real, root=0)
-        probe_imag = comm.bcast(probe_imag, root=0)
-        probe_real = w.create_variable(probe_real, device=device_obj)
-        probe_imag = w.create_variable(probe_imag, device=device_obj)
+            probe = None
+        probe = comm.bcast(probe, root=0)
+        probe = w.create_variable(probe, device=device_obj, dtype='complex64')
 
         # ================================================================================
         # Create variables and optimizers for other parameters (probe, probe defocus,
@@ -678,8 +667,7 @@ def reconstruct_ptychography(
         if optimizable_params is None:
             optimizable_params = {}
 
-            optimizable_params['probe_real'] = probe_real
-            optimizable_params['probe_imag'] = probe_imag
+            optimizable_params['probe'] = probe
 
             optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
             optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
@@ -726,7 +714,7 @@ def reconstruct_ptychography(
             print_flush('WARNING: Reconstructing using ePIE!', sto_rank, rank, **stdout_options)
             warnings.warn('use_epie is True. I will reconstruct using ePIE instead of AD!')
             time.sleep(0.5)
-            alt_reconstruction_epie(obj.arr[:,:,:,0] + 1j*obj.arr[:,:,:,1], np.squeeze(probe_real + 1j*probe_imag), probe_pos,
+            alt_reconstruction_epie(obj.arr, probe, probe_pos,
                                     optimizable_params['probe_pos_correction'], prj, device_obj=device_obj,
                                     minibatch_size=minibatch_size, alpha=epie_alpha, n_epochs=n_epochs, energy_ev=energy_ev,
                                     psize_cm=psize_cm, output_folder=output_folder,
@@ -750,7 +738,7 @@ def reconstruct_ptychography(
             except:
                 pass
         comm.Barrier()
-        f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
+        f_conv = open(os.path.join(output_folder, 'convergence', f'loss_rank_{rank}.txt'), 'w')
         f_conv.write('i_epoch,i_batch,loss,time\n')
 
         # ================================================================================
@@ -832,7 +820,7 @@ def reconstruct_ptychography(
             n_batch = len(ind_list_rand)
             i_opt_batch = starting_epoch * n_batch + starting_batch
 
-            print_flush('Allocation done in {} s.'.format(time.time() - t00), sto_rank, rank, **stdout_options)
+            print_flush(f'Allocation done in {time.time() - t00} s.', sto_rank, rank, **stdout_options)
 
             # ================================================================================
             # Initialize runtime indices and flags.
@@ -855,7 +843,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # Initialize batch.
                 # ================================================================================
-                print_flush('Epoch {}, batch {} of {} started.'.format(i_epoch, i_batch, n_batch), sto_rank, rank, **stdout_options)
+                print_flush(f'Epoch {i_epoch}, batch {i_batch} of {n_batch} started.', sto_rank, rank, **stdout_options)
                 starting_batch = 0
 
                 # ================================================================================
@@ -894,7 +882,7 @@ def reconstruct_ptychography(
                 this_pos_batch = probe_pos_int[this_ind_batch]
                 is_last_batch_of_this_theta = i_batch == n_batch - 1 or ind_list_rand[i_batch + 1][0, 0] != this_i_theta
                 comm.Barrier()
-                print_flush('  Current rank is processing angle ID {}.'.format(this_i_theta), sto_rank, rank, **stdout_options)
+                print_flush(f'  Current rank is processing angle ID {this_i_theta}.', sto_rank, rank, **stdout_options)
 
                 # ================================================================================
                 # If moving to a new angle, rotate the HDF5 object and saved
@@ -905,7 +893,7 @@ def reconstruct_ptychography(
                     print_flush('  Rotating dataset...', sto_rank, rank, **stdout_options)
                     t_rot_0 = time.time()
                     if precalculate_rotation_coords:
-                        coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                        coord_ls = read_origin_coords(f'arrsize_{this_obj_size[0]}_{this_obj_size[1]}_{this_obj_size[2]}_ntheta_{n_theta}',
                                                       theta_ls[this_i_theta], reverse=False)
                     else:
                         coord_ls = theta_ls[this_i_theta]
@@ -925,7 +913,7 @@ def reconstruct_ptychography(
                                          apply_to_arr_rot=False, override_device=device_obj)
                     # if mask is not None: mask.rotate_data_in_file(coord_ls[this_i_theta], interpolation=interpolation)
                     comm.Barrier()
-                    print_flush('  Dataset rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
+                    print_flush(f'  Dataset rotation done in {time.time() - t_rot_0} s.', sto_rank, rank, **stdout_options)
 
 
                 if this_i_theta != current_i_theta:
@@ -970,7 +958,7 @@ def reconstruct_ptychography(
                                                                                       unknown_type=unknown_type, apply_to_arr_rot=True,
                                                                                       dtype=cache_dtype, n_split=n_split_mpi_ata)
                     comm.Barrier()
-                    print_flush('  Chunk reading done in {} s.'.format(time.time() - t_read_0), sto_rank, rank, **stdout_options)
+                    print_flush(f'  Chunk reading done in {time.time() - t_read_0} s.', sto_rank, rank, **stdout_options)
                     obj.chunks = obj_rot
 
                 # ================================================================================
@@ -1021,7 +1009,7 @@ def reconstruct_ptychography(
                 else:
                     grads = diff.get_gradients(**grad_func_args)
                 comm.Barrier()
-                print_flush('  Gradient calculation done in {} s.'.format(time.time() - t_grad_0), sto_rank, rank, **stdout_options)
+                print_flush(f'  Gradient calculation done in {time.time() - t_grad_0} s.', sto_rank, rank, **stdout_options)
                 grads = list(grads)
 
                 # ================================================================================
@@ -1032,7 +1020,7 @@ def reconstruct_ptychography(
                     t_grad_write_0 = time.time()
                     gradient.write_chunks_to_file(this_pos_batch, *w.split_channel(obj_grads), probe_size,
                                                   write_difference=False, dtype=cache_dtype)
-                    print_flush('  Gradient writing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
+                    print_flush(f'  Gradient writing done in {time.time() - t_grad_write_0} s.', 0, rank,
                                 **stdout_options)
                 elif distribution_mode == 'distributed_object':
                     obj_grads = w.to_numpy(grads[0])
@@ -1040,7 +1028,7 @@ def reconstruct_ptychography(
                     gradient.sync_chunks_to_distributed_object(obj_grads, probe_pos_int, this_ind_batch_allranks,
                                                                minibatch_size, probe_size, dtype=cache_dtype, n_split=n_split_mpi_ata)
                     comm.Barrier()
-                    print_flush('  Gradient syncing done in {} s.'.format(time.time() - t_grad_write_0), 0, rank,
+                    print_flush(f'  Gradient syncing done in {time.time() - t_grad_write_0} s.', 0, rank,
                                 **stdout_options)
                 else:
                     if initialize_gradients:
@@ -1051,7 +1039,7 @@ def reconstruct_ptychography(
                     # rotated back to 0.
                     if rotate_out_of_loop:
                         if precalculate_rotation_coords:
-                            coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                            coord_new = read_origin_coords(f'arrsize_{this_obj_size[0]}_{this_obj_size[1]}_{this_obj_size[2]}_ntheta_{n_theta}',
                                                            theta_ls[this_i_theta], reverse=True)
                         else:
                             coord_new = -theta_ls[this_i_theta]
@@ -1060,7 +1048,7 @@ def reconstruct_ptychography(
                                               precalculate_rotation_coords=precalculate_rotation_coords,
                                               override_device=device_obj, overwrite_arr=True)
                 if rank == 0 and debug:
-                    print_flush('  Average gradient is {} for rank 0.'.format(w.mean(grads[0])), 0, rank,
+                    print_flush(f'  Average gradient is {w.mean(grads[0])} for rank 0.', 0, rank,
                                 **stdout_options)
 
                 # Initialize gradients for non-object variables if necessary.
@@ -1119,22 +1107,17 @@ def reconstruct_ptychography(
                     malias = np if distribution_mode == 'distributed_object' else w
                     if distribution_mode != 'shared_file' and obj.arr is not None:
                         if non_negativity and unknown_type != 'real_imag':
-                            obj.arr = malias.clip(obj.arr, 0, None)
+                            obj.arr = malias.clip(malias.real(obj.arr), 0, None) + 1j * malias.clip(malias.imag(obj.arr), 0, None)
                         if unknown_type == 'delta_beta':
-                            if object_type == 'absorption_only': obj.arr[:, :, :, 0] *= 0
-                            if object_type == 'phase_only': obj.arr[:, :, :, 1] *= 0
+                            if object_type == 'absorption_only': obj.arr = 0 + 1j * malias.imag(obj.arr)
+                            if object_type == 'phase_only': obj.arr = malias.real(obj.arr) + 0j
                         elif unknown_type == 'real_imag':
                             if object_type == 'absorption_only':
-                                delta, beta = malias.split_channel(obj.arr)
-                                delta = malias.norm(delta, beta)
-                                beta = beta * 0
-                                obj.arr = malias.stack([delta, beta], -1)
+                                delta = malias.abs(obj.arr)
+                                obj.arr = 0 + 1j * delta
                             if object_type == 'phase_only':
-                                delta, beta = malias.split_channel(obj.arr)
-                                obj_norm = malias.norm(delta, beta)
-                                delta = delta / obj_norm
-                                beta = beta / obj_norm
-                                obj.arr = malias.stack([delta, beta], -1)
+                                beta = malias.angle(obj.arr)
+                                obj.arr = beta + 0j
                     if update_using_external_algorithm is not None:
                         obj.update_using_external_algorithm(update_using_external_algorithm, locals(), device_obj)
                 if distribution_mode is None:
@@ -1152,7 +1135,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if distribution_mode and shared_file_update_flag:
                     if precalculate_rotation_coords:
-                        coord_new = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
+                        coord_new = read_origin_coords(f'arrsize_{this_obj_size[0]}_{this_obj_size[1]}_{this_obj_size[2]}_ntheta_{n_theta}',
                                                        theta_ls[this_i_theta], reverse=True)
                     else:
                         coord_new = -theta_ls[this_i_theta]
@@ -1167,7 +1150,7 @@ def reconstruct_ptychography(
                                               apply_to_arr_rot=False, overwrite_arr=True, override_backend='autograd',
                                               dtype=cache_dtype, override_device='cpu')
                     comm.Barrier()
-                    print_flush('  Gradient rotation done in {} s.'.format(time.time() - t_rot_0), sto_rank, rank, **stdout_options)
+                    print_flush(f'  Gradient rotation done in {time.time() - t_rot_0} s.', sto_rank, rank, **stdout_options)
 
                     t_apply_grad_0 = time.time()
                     if distribution_mode == 'shared_file' and optimize_object:
@@ -1178,7 +1161,7 @@ def reconstruct_ptychography(
                         gradient.initialize_distributed_array_with_zeros(dtype=cache_dtype)
 
                     comm.Barrier()
-                    print_flush('  Object update done in {} s.'.format(time.time() - t_apply_grad_0), sto_rank, rank, **stdout_options)
+                    print_flush(f'  Object update done in {time.time() - t_apply_grad_0} s.', sto_rank, rank, **stdout_options)
 
                     comm.Barrier()
                     t0_nonify = time.time()
@@ -1192,9 +1175,9 @@ def reconstruct_ptychography(
                 # ================================================================================
                 if mask is not None:
                     if distribution_mode is None or distribution_mode == 'distributed_object':
-                        obj.apply_finite_support_mask_to_array(mask, unknown_type=unknown_type, device=device_obj)
+                        obj.apply_finite_support_mask_to_array_complex(mask, unknown_type=unknown_type, device=device_obj)
                     elif distribution_mode == 'shared_file':
-                        obj.apply_finite_support_mask_to_file(mask, unknown_type=unknown_type, device=device_obj)
+                        obj.apply_finite_support_mask_to_file_complex(mask, unknown_type=unknown_type, device=device_obj)
                     print_flush('  Mask applied.', sto_rank, rank, **stdout_options)
 
                 # ================================================================================
@@ -1232,13 +1215,12 @@ def reconstruct_ptychography(
                 # Finishing a batch.
                 # ================================================================================
                 current_loss = forward_model.current_loss
-                print_flush('Minibatch/angle done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), sto_rank, rank, **stdout_options)
+                print_flush(f'Minibatch/angle done in {time.time() - t00} s; loss (rank 0) is {current_loss}.', sto_rank, rank, **stdout_options)
 
                 gc.collect()
                 if not cpu_only:
-                    print_flush('GPU memory usage (current/peak): {:.2f}/{:.2f} MB; cache space: {:.2f} MB.'.format(
-                        w.get_gpu_memory_usage_mb(), w.get_peak_gpu_memory_usage_mb(), w.get_gpu_memory_cache_mb()), sto_rank, rank, **stdout_options)
-                f_conv.write('{},{},{},{}\n'.format(i_epoch, i_batch, current_loss, time.time() - t_zero))
+                    print_flush(f'GPU memory usage (current/peak): {w.get_gpu_memory_usage_mb():.2f}/{w.get_peak_gpu_memory_usage_mb():.2f} MB; cache space: {w.get_gpu_memory_cache_mb():.2f} MB.', sto_rank, rank, **stdout_options)
+                f_conv.write(f'{i_epoch},{i_batch},{current_loss},{time.time() - t_zero}\n')
                 f_conv.flush()
 
                 # ================================================================================
@@ -1259,8 +1241,7 @@ def reconstruct_ptychography(
                 if i_epoch == n_epochs - 1: cont = False
 
             print_flush(
-                'Epoch {} (rank {}); Delta-t = {} s; current time = {} s,'.format(i_epoch, rank,
-                                                                    time.time() - t0, time.time() - t_zero),
+                f'Epoch {i_epoch} (rank {rank}); Delta-t = {time.time() - t0} s; current time = { time.time() - t_zero} s,',
                 sto_rank, rank, **stdout_options)
             i_epoch = i_epoch + 1
 
@@ -1268,9 +1249,9 @@ def reconstruct_ptychography(
             # Save reconstruction after an epoch.
             # ================================================================================
             if rank == 0:
-                output_object(obj, distribution_mode, output_folder, unknown_type,
+                output_object_complex(obj, distribution_mode, output_folder, unknown_type,
                               full_output=True, ds_level=ds_level)
-                output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], output_folder,
+                output_probe_complex(optimizable_params['probe'], output_folder,
                              full_output=True, ds_level=ds_level)
             print_flush('Current iteration finished.', sto_rank, rank, **stdout_options)
         comm.Barrier()

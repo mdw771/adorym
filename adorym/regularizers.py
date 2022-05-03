@@ -32,12 +32,12 @@ class L1Regularizer(Regularizer):
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
             if self.alpha_d not in [None, 0]:
-                reg = reg + self.alpha_d * w.mean(w.abs(obj[slicer + [0]]))
+                reg = reg + self.alpha_d * w.mean(w.abs(w.real(obj[slicer])))
             if self.alpha_b not in [None, 0]:
-                reg = reg + self.alpha_b * w.mean(w.abs(obj[slicer + [1]]))
+                reg = reg + self.alpha_b * w.mean(w.abs(w.imag(obj[slicer])))
         elif self.unknown_type == 'real_imag':
-            r = obj[slicer + [0]]
-            i = obj[slicer + [1]]
+            r = w.real(obj[slicer])
+            i = w.imag(obj[slicer])
             if self.alpha_d not in [None, 0]:
                 om = w.sqrt(r ** 2 + i ** 2)
                 reg = reg + self.alpha_d * w.mean(w.abs(om - w.mean(om)))
@@ -66,14 +66,14 @@ class ReweightedL1Regularizer(Regularizer):
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
             if self.alpha_d not in [None, 0]:
-                reg = reg + self.alpha_d * w.mean(self.weight_l1[slicer + [0]] * w.abs(obj[slicer + [0]]))
+                reg = reg + self.alpha_d * w.mean(w.real(self.weight_l1[slicer]) * w.abs(w.real(obj[slicer])))
             if self.alpha_b not in [None, 0]:
-                reg = reg + self.alpha_b * w.mean(self.weight_l1[slicer + [1]] * w.abs(obj[slicer + [1]]))
+                reg = reg + self.alpha_b * w.mean(w.imag(self.weight_l1[slicer]) * w.abs(w.imag(obj[slicer])))
         elif self.unknown_type == 'real_imag':
-            r = obj[slicer + [0]]
-            i = obj[slicer + [1]]
-            wr = self.weight_l1[slicer + [0]]
-            wi = self.weight_l1[slicer + [1]]
+            r = w.real(obj[slicer])
+            i = w.imag(obj[slicer])
+            wr = w.real(self.weight_l1[slicer])
+            wi = w.imag(self.weight_l1[slicer])
             wm = wr ** 2 + wi ** 2
             if self.alpha_d not in [None, 0]:
                 om = w.sqrt(r ** 2 + i ** 2)
@@ -96,14 +96,14 @@ class TVRegularizer(Regularizer):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
-            o1 = obj[slicer + [0]]
-            o2 = obj[slicer + [1]]
+            o1 = w.real(obj[slicer])
+            o2 = w.imag(obj[slicer])
             axis_offset = 0 if distribution_mode is None else 1
             reg = reg + self.gamma * total_variation_3d(o1, axis_offset=axis_offset)
             reg = reg + self.gamma * total_variation_3d(o2, axis_offset=axis_offset)
         elif self.unknown_type == 'real_imag':
-            r = obj[slicer + [0]]
-            i = obj[slicer + [1]]
+            r = w.real(obj[slicer])
+            i = w.imag(obj[slicer])
             axis_offset = 0 if distribution_mode is None else 1
             reg = reg + self.gamma * total_variation_3d(r ** 2 + i ** 2, axis_offset=axis_offset)
             reg = reg + self.gamma * total_variation_3d(w.arctan2(i, r), axis_offset=axis_offset)
@@ -123,11 +123,11 @@ class CorrRegularizer(Regularizer):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
-            o1 = obj[slicer + [0]]
-            o2 = obj[slicer + [1]]
+            o1 = w.real(obj[slicer])
+            o2 = w.imag(obj[slicer])
         elif self.unknown_type == 'real_imag':
-            r = obj[slicer + [0]]
-            i = obj[slicer + [1]]
+            r = w.real(obj[slicer])
+            i = w.imag(obj[slicer])
             o1 = w.sqrt(r ** 2 + i ** 2)
             o2 = w.arctan2(i, r)
         else:
@@ -153,17 +153,15 @@ class GradCorrRegularizer(Regularizer):
         slicer = [slice(None)] * (len(obj.shape) - 1)
         reg = w.create_variable(0., device=device)
         if self.unknown_type == 'delta_beta':
-            o1 = obj[slicer + [0]]
-            o2 = obj[slicer + [1]]
+            o1 = w.real(obj[slicer])
+            o2 = w.imag(obj[slicer])
         elif self.unknown_type == 'real_imag':
-            r = obj[slicer + [0]]
-            i = obj[slicer + [1]]
-            o1 = w.sqrt(r ** 2 + i ** 2)
-            o2 = w.arctan2(i, r)
+            o1 = w.abs(obj[slicer])
+            o2 = w.angle(obj[slicer])
         else:
             raise ValueError('Invalid value for unknown_type.')
-        o1 = image_gradient(o1, axes=[ndim - 4, ndim - 3])
-        o2 = image_gradient(o2, axes=[ndim - 4, ndim - 3])
+        o1 = image_gradient(o1, axes=[ndim - 3, ndim - 2])
+        o2 = image_gradient(o2, axes=[ndim - 3, ndim - 2])
         reg = reg + self.gamma * w.pcc(o1)
         reg = reg + self.gamma * w.pcc(o2)
         return reg

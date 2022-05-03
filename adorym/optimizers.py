@@ -78,7 +78,7 @@ class Optimizer(object):
 
     def create_container(self, whole_object_size, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
         """
-        :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
+        :param whole_object_size: List of int; 3-D complex vector for object function,
                                   or a 3-D vector for probe, or a 1-D scalar for other variables.
                                   Channel must be the last domension. Parameter arrays will be created
                                   following exactly whole_object_size.
@@ -152,10 +152,10 @@ class Optimizer(object):
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False, dtype='float32'):
         if len(self.params_list) > 0:
-            path = os.path.join(self.output_folder, 'checkpoint', 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank))
+            path = os.path.join(self.output_folder, 'checkpoint', f'opt_{self.name}_params_checkpoint_rank_{rank}.npy')
             if os.path.exists(path):
                 arr = np.load(path)
-                if use_numpy == False:
+                if not use_numpy:
                     arr = w.create_variable(arr, device=device, requires_grad=False)
                 if len(self.params_list) > 0:
                     for i, param_name in enumerate(self.params_list):
@@ -171,7 +171,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_{}_params_checkpoint.npy'.format(self.name)), w.to_numpy(arr))
+            np.save(os.path.join(path, f'opt_{self.name}_params_checkpoint.npy'), w.to_numpy(arr))
         return
 
     def save_distributed_param_arrays_to_checkpoint(self, use_numpy=True):
@@ -184,7 +184,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank)), w.to_numpy(arr))
+            np.save(os.path.join(path, f'opt_{self.name}_params_checkpoint_rank_{rank}.npy'), w.to_numpy(arr))
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size=None):
@@ -252,7 +252,7 @@ class Optimizer(object):
         return g
 
     def get_array_slicer(self, slicer):
-        if slicer == None:
+        if slicer is None:
             if len(self.params_list) > 0:
                 if len(self.params_whole_array_dict) > 0:
                     shape = self.params_whole_array_dict[list(self.params_whole_array_dict.keys())[0]].shape

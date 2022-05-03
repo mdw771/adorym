@@ -53,6 +53,7 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'argmax':      {'autograd': 'argmax',     'tensorflow': 'argmax',     'pytorch': 'argmax',     'numpy': 'argmax'},
                      'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
                      'conj':        {'autograd': 'conj',       'tensorflow': 'math.conj',  'pytorch': 'conj',       'numpy': 'conj'},
+                     'angle':       {'autograd': 'angle',      'tensorflow': 'math.angle', 'pytorch': 'angle',      'numpy': 'angle'},
                      }
 
 dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',     'numpy': 'float32'},
@@ -569,6 +570,12 @@ def abs(var, backend='autograd'):
     arr = func(var)
     return arr
 
+@set_bn
+def angle(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['angle'][backend])
+    arr = func(var)
+    return arr
+
 
 @set_bn
 def stack(var_list, axis=0, backend='autograd'):
@@ -1057,12 +1064,6 @@ def norm(var_real, var_imag, backend='autograd'):
         return abs(var_real + 1j * var_imag)
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
-@set_bn
-def norm_complex(var, backend='autograd'):
-    if backend == 'autograd':
-        return abs(var)
-    elif backend == 'pytorch':
-        return tc.norm(var)
 
 
 @set_bn
