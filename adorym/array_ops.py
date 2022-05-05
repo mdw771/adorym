@@ -321,8 +321,8 @@ class ObjectFunction(LargeArray):
         unknown_type="delta_beta",
         non_negativity=False,
     ):
-        temp_delta, temp_beta = initialize_object_for_dp(
-            self.full_size[:-1],
+        temp_obj = initialize_object_for_dp_complex(
+            self.full_size,
             dset=None,
             ds_level=self.ds_level,
             object_type=self.object_type,
@@ -336,15 +336,14 @@ class ObjectFunction(LargeArray):
             non_negativity=non_negativity,
         )
         self.arr = w.create_variable(
-            temp_delta + 1j * temp_beta, device=device, requires_grad=True
+            temp_obj, device=device, requires_grad=True, dtype='complex64'
         )
-        del temp_delta
-        del temp_beta
+        del temp_obj
         gc.collect()
 
     def initialize_array_with_values(self, obj_delta, obj_beta, device=None):
         self.arr = w.create_variable(
-            obj_delta + 1j * obj_beta, device=device, requires_grad=True
+            obj_delta + 1j * obj_beta, device=device, requires_grad=True, dtype='complex64'
         )
 
     def initialize_distributed_array(

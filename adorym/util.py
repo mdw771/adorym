@@ -3119,7 +3119,7 @@ def output_object_complex(
         if obj.arr is not None:
             obj0 = obj.arr
     else:
-        obj0 = w.to_numpy(obj)
+        obj0 = w.to_numpy(obj.arr)
 
     if obj.arr is not None:
         if unknown_type == "delta_beta":
@@ -3137,13 +3137,13 @@ def output_object_complex(
                 fname0 += f"_rank_{rank}"
                 fname1 += f"_rank_{rank}"
             dxchange.write_tiff(
-                w.real(obj0),
+                np.real(obj0),
                 os.path.join(output_folder, fname0),
                 dtype="float32",
                 overwrite=True,
             )
             dxchange.write_tiff(
-                w.imag(obj0),
+                np.imag(obj0),
                 os.path.join(output_folder, fname1),
                 dtype="float32",
                 overwrite=True,
@@ -3164,13 +3164,13 @@ def output_object_complex(
                 fname0 += f"_rank_{rank}"
                 fname1 += f"_rank_{rank}"
             dxchange.write_tiff(
-                w.abs(obj0),
+                np.abs(obj0),
                 os.path.join(output_folder, fname0),
                 dtype="float32",
                 overwrite=True,
             )
             dxchange.write_tiff(
-                w.angle(obj0),
+                np.angle(obj0),
                 os.path.join(output_folder, fname1),
                 dtype="float32",
                 overwrite=True,
@@ -3225,6 +3225,7 @@ def output_probe_complex(
     custom_name=None,
 ):
     prefix = "probe" if custom_name is None else custom_name
+    probe0 = w.to_numpy(probe)
     if full_output:
         fname0 = f"{prefix}_mag_ds_{ds_level}"
         fname1 = f"{prefix}_phase_ds_{ds_level}"
@@ -3236,13 +3237,13 @@ def output_probe_complex(
             fname0 = f"{prefix}_mag"
             fname1 = f"{prefix}_phase"
     dxchange.write_tiff(
-        w.abs(probe),
+        np.abs(probe0),
         fname=os.path.join(output_folder, fname0),
         dtype="float32",
         overwrite=True,
     )
     dxchange.write_tiff(
-        w.angle(probe),
+        np.angle(probe0),
         fname=os.path.join(output_folder, fname1),
         dtype="float32",
         overwrite=True,

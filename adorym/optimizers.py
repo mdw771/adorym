@@ -665,8 +665,7 @@ class CGOptimizer(Optimizer):
         def _loss_and_update_fn(x, y):
             update = x + y
             if self.name == 'probe':
-                loss_kwargs['probe_real'] = update[:, :, :, 0]
-                loss_kwargs['probe_imag'] = update[:, :, :, 1]
+                loss_kwargs['probe'] = update
             else:
                 loss_kwargs[self.name] = update
             loss = loss_fn(**loss_kwargs)
@@ -952,9 +951,14 @@ def initialize_parameter_gradients(opt_ls, device=None, use_numpy=False):
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
+        elif opt.name == 'probe':
+            if not use_numpy:
+                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device, dtype='complex64')
+            else:
+                opt.grads = np.zeros(opt.whole_object_size, dtype='complex64')
         else:
             if not use_numpy:
-                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device)
+                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, dtype='float32', device=device)
             else:
                 opt.grads = np.zeros(opt.whole_object_size)
     return opt_ls
@@ -1013,22 +1017,20 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
                     opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
-                    probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
+                    probe_temp = opt.apply_gradient(optimizable_params['probe'], opt.grads,
                                                           i_full_angle, **opt.options_dict)
-                    optimizable_params['probe_real'], optimizable_params['probe_imag'] = w.split_channel(probe_temp)
+                    optimizable_params['probe'] = probe_temp
                     del opt.grads, probe_temp
-                w.reattach(optimizable_params['probe_real'])
-                w.reattach(optimizable_params['probe_imag'])
+                w.reattach(optimizable_params['probe'])
             else:
-                print_flush('  Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
-                    probe_update_delay, probe_update_limit), 0, rank, **stdout_options)
+                print_flush(f'  Probe is not updated because current batch is out of the specified range ({probe_update_delay}, {probe_update_limit}).', 0, rank, **stdout_options)
 
         elif i_batch + i_epoch * n_batch >= other_params_update_delay:
 
             if opt.name == 'probe_pos_correction':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     probe_pos_correction = optimizable_params['probe_pos_correction']
                     probe_pos_correction = opt.apply_gradient(probe_pos_correction, opt.grads, i_full_angle,
                                                                         **opt.options_dict)
@@ -1040,7 +1042,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             elif opt.name == 'slice_pos_cm_ls':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     slice_pos_cm_ls = optimizable_params['slice_pos_cm_ls']
                     slice_pos_cm_ls = opt.apply_gradient(slice_pos_cm_ls, opt.grads, i_full_angle,
                                                                    **opt.options_dict)
@@ -1051,7 +1053,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             elif opt.name == 'prj_affine_ls':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     optimizable_params['prj_affine_ls'] = opt.apply_gradient(optimizable_params['prj_affine_ls'], opt.grads, i_full_angle,
                                                                   **opt.options_dict)
                     # Regularize transformation of image 0.
@@ -1066,15 +1068,14 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             else:
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     var = optimizable_params[opt.name]
                     optimizable_params[opt.name] = opt.apply_gradient(var, opt.grads, i_full_angle, **opt.options_dict)
                 w.reattach(optimizable_params[opt.name])
 
         else:
             print_flush(
-                'Params are not updated because current epoch is smaller than specified delay ({}).'.format(
-                    other_params_update_delay), 0, rank, **stdout_options)
+                f'Params are not updated because current epoch is smaller than specified delay ({other_params_update_delay}).', 0, rank, **stdout_options)
     return optimizable_params
 
 

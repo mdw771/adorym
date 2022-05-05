@@ -69,12 +69,13 @@ dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'fl
 
 if flag_pytorch_avail:
     try:
-        pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
-                                            tc.float64: 'float64',
+        pytorch_dtype_query_mapping_dict = {'single': 'float32',
+                                            tc.float32: 'float32',
                                             'float32': 'float32',
                                             'float64': 'float64',
-                                            'single': 'float32',
                                             'double': 'float64',
+                                            tc.float64: 'float64',
+                                            np.dtype('float64'): 'float64',
                                             'complex64': 'complex64',
                                             'complex128': 'complex128',
                                             tc.complex128: 'complex128',
@@ -113,7 +114,7 @@ class EmptyWith(object):
         pass
 
 @set_bn
-def create_variable(arr, dtype='float32', device=None, requires_grad=True, backend='autograd'):
+def create_variable(arr, dtype='complex64', device=None, requires_grad=True, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
@@ -1064,7 +1065,11 @@ def norm(var_real, var_imag, backend='autograd'):
         return abs(var_real + 1j * var_imag)
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
-
+def norm_complex(var, backend='autograd'):
+    if backend == 'autograd':
+        return abs(var)
+    elif backend == 'pytorch':
+        return abs(var)
 
 @set_bn
 def vec_norm(arr, backend='autograd'):

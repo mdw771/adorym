@@ -6,6 +6,7 @@
 *.tiff
 *.h5
 *.npy
+*.zip
 loss*.txt
 checkpoint.txt
 probe_pos*.txt

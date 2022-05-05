@@ -99,7 +99,7 @@ class ForwardModel(object):
     def get_data(self, this_i_theta, this_ind_batch, theta_downsample=None, ds_level=1):
         if theta_downsample is None: theta_downsample = 1
         this_prj_batch = self.prj[this_i_theta * theta_downsample, this_ind_batch]
-        this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, device=self.device)
+        this_prj_batch = w.create_variable(abs(this_prj_batch), requires_grad=False, dtype='float32', device=self.device)
         if ds_level > 1:
             this_prj_batch = this_prj_batch[:, ::ds_level, ::ds_level]
         return this_prj_batch
@@ -296,7 +296,7 @@ class PtychographyModel(ForwardModel):
                     for pos in pos_batch:
                         pos_y = pos[0] + pad_arr[0, 0]
                         pos_x = pos[1] + pad_arr[1, 0]
-                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1], :]
+                        subobj = obj_rot[pos_y:pos_y + probe_size[0], pos_x:pos_x + probe_size[1]]
                         subobj_ls.append(subobj)
                     subobj_ls = w.stack(subobj_ls)
             else:
@@ -318,7 +318,7 @@ class PtychographyModel(ForwardModel):
                                 unknown_type=unknown_type, normalize_fft=self.normalize_fft, sign_convention=self.sign_convention,
                                 scale_ri_by_k=self.scale_ri_by_k, is_minus_logged=self.is_minus_logged,
                                 pure_projection_return_sqrt=flag_pp_sqrt, shift_exit_wave=this_prj_offset)
-                ex_mag_ls.append(w.norm(ex))
+                ex_mag_ls.append(w.norm_complex(ex[0]))
             else:
                 for i_mode in range(n_probe_modes):
                     if len(probe_ls.shape) == 3:

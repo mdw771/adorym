@@ -669,39 +669,39 @@ def reconstruct_ptychography(
 
             optimizable_params['probe'] = probe
 
-            optimizable_params['probe_defocus_mm'] = w.create_variable(0.0)
+            optimizable_params['probe_defocus_mm'] = w.create_variable(0.0, dtype='float32')
             optimizable_params['probe_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
             optimizable_params['prj_pos_offset'] = w.zeros([n_theta, 2], requires_grad=True, device=device_obj)
 
             if is_multi_dist:
-                optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]),
+                optimizable_params['probe_pos_correction'] = w.create_variable(np.zeros([n_dists, 2]), dtype='float64',
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
             else:
                 if common_probe_pos:
                     probe_pos_correction = (probe_pos - probe_pos_int)
                     probe_pos_correction[np.abs(probe_pos_correction) < 1e-10] = 0
                     probe_pos_correction = np.tile(probe_pos_correction, [n_theta, 1, 1])
-                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction,
+                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, dtype='float64',
                                                              requires_grad=optimize_all_probe_pos, device=device_obj)
                 else:
-                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, requires_grad=optimize_all_probe_pos, device=device_obj)
+                    optimizable_params['probe_pos_correction'] = w.create_variable(probe_pos_correction, dtype='float64', requires_grad=optimize_all_probe_pos, device=device_obj)
 
             if is_sparse_multislice:
-                optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, requires_grad=optimize_slice_pos, device=device_obj)
+                optimizable_params['slice_pos_cm_ls'] = w.create_variable(slice_pos_cm_ls, dtype='float64', requires_grad=optimize_slice_pos, device=device_obj)
 
             if is_multi_dist:
                 if optimize_free_prop:
-                    optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, requires_grad=optimize_free_prop, device=device_obj)
+                    optimizable_params['free_prop_cm'] = w.create_variable(free_prop_cm, dtype='float64', requires_grad=optimize_free_prop, device=device_obj)
 
             if optimize_tilt:
-                optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, device=device_obj, requires_grad=True)
+                optimizable_params['tilt_ls'] = w.create_variable(tilt_ls, dtype='float64', device=device_obj, requires_grad=True)
             elif initial_tilt is not None:
-                tilt_ls = w.create_variable(tilt_ls, device=device_obj, requires_grad=False)
+                tilt_ls = w.create_variable(tilt_ls, dtype='float64', device=device_obj, requires_grad=False)
 
-            optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, device=device_obj, requires_grad=optimize_prj_affine)
+            optimizable_params['prj_affine_ls'] = w.create_variable(prj_affine_ls, dtype='float64', device=device_obj, requires_grad=optimize_prj_affine)
 
             if optimize_ctf_lg_kappa:
-                optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], requires_grad=True, device=device_obj, dtype='float64')
+                optimizable_params['ctf_lg_kappa'] = w.create_variable([ctf_lg_kappa], dtype='float64', requires_grad=True, device=device_obj)
 
         opt_ls, opt_args_ls = create_and_initialize_parameter_optimizers(optimizable_params, locals())
 
@@ -1033,7 +1033,7 @@ def reconstruct_ptychography(
                 else:
                     if initialize_gradients:
                         del gradient.arr
-                        gradient.arr = w.zeros(grads[0].shape, requires_grad=False, device=device_obj)
+                        gradient.arr = w.zeros(grads[0].shape, requires_grad=False, device=device_obj, dtype='complex64')
                     gradient.arr += grads[0]
                     # If rotation is not done in the AD loop, the above gradient array is at theta, and needs to be
                     # rotated back to 0.
@@ -1199,12 +1199,12 @@ def reconstruct_ptychography(
                     create_directory_multirank(os.path.join(output_folder, 'intermediate', 'object'))
                     create_parameter_output_folders(opt_ls, output_folder)
                     if distribution_mode != 'distributed_object' and rank == 0 and is_last_batch_of_this_theta:
-                        output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                        output_object_complex(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
                                       unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                       save_history=save_history)
                         output_intermediate_parameters(opt_ls, optimizable_params, locals())
                     elif distribution_mode == 'distributed_object' and is_last_batch_of_this_theta:
-                        output_object(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
+                        output_object_complex(obj, distribution_mode, os.path.join(output_folder, 'intermediate', 'object'),
                                       unknown_type, full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                                       save_history=save_history)
                         if rank == 0:

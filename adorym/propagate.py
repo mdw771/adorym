@@ -284,7 +284,7 @@ def multislice_propagate_batch_complex(grid_batch, probe, energy_ev, psize_cm, d
 
     intermediate_wavefield_ls = []
     minibatch_size = grid_batch.shape[0]
-    grid_shape = grid_batch.shape[1:-1]
+    grid_shape = grid_batch.shape[1:]
     if delta_cm is not None:
         voxel_nm = np.array([psize_cm, psize_cm, delta_cm]) * 1.e7
     else:
@@ -294,7 +294,7 @@ def multislice_propagate_batch_complex(grid_batch, probe, energy_ev, psize_cm, d
     mean_voxel_nm = np.prod(voxel_nm) ** (1. / 3)
     size_nm = np.array(grid_shape) * voxel_nm
 
-    n_slices = grid_batch.shape[-2]
+    n_slices = grid_batch.shape[-1]
     delta_nm = voxel_nm[-1]
 
     if repeating_slice is not None:
