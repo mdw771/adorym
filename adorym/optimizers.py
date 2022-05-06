@@ -91,7 +91,7 @@ class Optimizer(object):
         elif self.distribution_mode == 'distributed_object':
             self.create_distributed_param_arrays(whole_object_size, use_numpy=use_numpy, dtype=dtype)
         elif self.distribution_mode is None:
-            self.create_param_arrays(whole_object_size, device=device_obj)
+            self.create_param_arrays(whole_object_size, dtype='complex64', device=device_obj)
 
     def create_file_objects(self, whole_object_size, use_checkpoint=False):
         self.whole_object_size = whole_object_size
@@ -112,16 +112,16 @@ class Optimizer(object):
                 self.params_dset_dict[param_name] = dset_p
         return
 
-    def create_param_arrays(self, whole_object_size, device=None, use_numpy=False):
+    def create_param_arrays(self, whole_object_size, dtype='float32', device=None, use_numpy=False):
         self.whole_object_size = whole_object_size
         malias = np if use_numpy else w
         kwargs = {} if use_numpy else {'device': device}
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 if malias == np:
-                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, dtype=dtype, device=device)
                 else:
-                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device,
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, dtype=dtype, device=device,
                                                                             requires_grad=False)
         return
 
@@ -806,7 +806,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_probe = AdamOptimizer('probe', output_folder=output_folder,
                                       options_dict=optimizer_options_probe, forward_model=forward_model)
         # Shape passed to "opt.create_param_arrays" must match the parameter variable.
-        opt_probe.create_param_arrays([n_probe_modes, *probe_size, 2], device=device_obj)
+        opt_probe.create_param_arrays([n_probe_modes, *probe_size], dtype='complex64', device=device_obj)
         # Just copy this.
         opt_probe.set_index_in_grad_return(len(opt_args_ls))
         # Name passed to "get_argument_index" must match the argument name in the "calculate_loss" method and

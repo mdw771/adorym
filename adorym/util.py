@@ -259,22 +259,21 @@ def initialize_object_for_dp_complex(
 
     # Apply specified constraints.
     if object_type == "phase_only":
-        if unknown_type == "delta_beta":
-            obj_beta[...] = 0
-        elif unknown_type == "real_imag":
-            obj_delta[...] = 1
+        obj_beta[...] = 0
+        # elif unknown_type == "real_imag":
+        #     obj_delta[...] = 1
     elif object_type == "absorption_only":
-        if unknown_type == "delta_beta":
-            obj_delta[...] = 0
-        elif unknown_type == "real_imag":
-            obj_beta[...] = 0
+        obj_delta[...] = 0
+        # elif unknown_type == "real_imag":
+        #     obj_beta[...] = 0
 
     # Apply nonnegativity or convert to real/imag.
-    if unknown_type == "delta_beta" and non_negativity:
+    if non_negativity:
         obj_delta[obj_delta < 0] = 0
         obj_beta[obj_beta < 0] = 0
-    elif unknown_type == "real_imag":
-        obj_delta, obj_beta = mag_phase_to_real_imag(obj_delta, obj_beta)
+    if unknown_type == "real_imag":
+        obj = np.exp(1j*obj_delta+obj_beta)
+        obj_delta, obj_beta = np.real(obj), np.imag(obj)
     return obj_delta + 1j * obj_beta
 
 

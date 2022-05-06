@@ -1,3 +1,4 @@
+
 from adorym.ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
@@ -24,13 +25,13 @@ params_cameraman = {'fname': 'data_cameraman_err_10.h5',
                     'alpha_b': 0,
                     'gamma': 0,
                     'probe_size': (72, 72),
-                    'learning_rate': 4e-3,
+                    'learning_rate': 4e-7,
                     'center': 512,
                     'energy_ev': 5000,
                     'psize_cm': 1.e-7,
                     'minibatch_size': 2704,
                     'n_batch_per_update': 1,
-                    'output_folder': 'recon_dev_epie',
+                    'output_folder': 'bugtestd',
                     'cpu_only': True,
                     'save_path': 'cameraman_pos_error',
                     'multiscale_level': 1,
@@ -54,8 +55,8 @@ params_cameraman = {'fname': 'data_cameraman_err_10.h5',
                     'save_history': True,
                     # 'use_epie': True,
                     # 'epie_alpha': 0.1,
-                    'backend': 'pytorch',
-                    'unknown_type':'delta_beta'
+                    'backend': 'autograd',
+                    'unknown_type':'real_imag'
                     }
 
 params = params_cameraman
