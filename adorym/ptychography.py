@@ -401,33 +401,34 @@ def reconstruct_ptychography(
             opt = optimizer
             opt.name = 'obj'
         else:
+            opt = get_optimizer(optimizer)
             if optimizer == 'adam':
                 optimizer_options_obj = {'step_size': learning_rate}
-                opt = AdamOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                opt = opt('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                     options_dict=optimizer_options_obj)
             elif optimizer == 'gd':
                 optimizer_options_obj = {'step_size': learning_rate,
                                          'dynamic_rate': True,
                                          'first_downrate_iteration': 20}
-                opt = GDOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                opt = opt('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                   options_dict=optimizer_options_obj)
             elif optimizer == 'curveball':
                 optimizer_options_obj = {}
-                opt = CurveballOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                opt = opt('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                   options_dict=optimizer_options_obj)
             elif optimizer == 'cg':
                 optimizer_options_obj = {'step_size': learning_rate}
-                opt = CGOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                opt = opt('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                   options_dict=optimizer_options_obj)
             elif optimizer == 'momentum':
                 optimizer_options_obj = {'step_size': learning_rate}
-                opt = MomentumOptimizer('obj', output_folder=output_folder, distribution_mode=distribution_mode,
+                opt = opt('obj', output_folder=output_folder, distribution_mode=distribution_mode,
                                   options_dict=optimizer_options_obj)
             elif optimizer == 'scipy':
                 if distribution_mode is not None or backend != 'autograd':
                     raise NotImplementedError('ScipyOptimizer supports only data parallelism and Autograd backend.')
                 optimizer_options_obj = {'method': 'CG', 'options': {'maxiter': 20}}
-                opt = ScipyOptimizer('obj', output_folder=output_folder,
+                opt = opt('obj', output_folder=output_folder,
                                      distribution_mode=distribution_mode, options_dict=optimizer_options_obj)
             else:
                 raise ValueError('Invalid optimizer type. Must be "gd" or "adam" or "cg" or "scipy".')
@@ -1112,9 +1113,10 @@ def reconstruct_ptychography(
                             if object_type == 'absorption_only': obj.arr = 0 + 1j * malias.imag(obj.arr)
                             if object_type == 'phase_only': obj.arr = malias.real(obj.arr) + 0j
                         elif unknown_type == 'real_imag':
+                            # TODO I think this part is currently messing up the real_imag reconstruction
                             if object_type == 'absorption_only':
                                 delta = malias.abs(obj.arr)
-                                obj.arr = 0 + 1j * delta
+                                obj.arr = 1 + 1j * delta
                             if object_type == 'phase_only':
                                 beta = malias.angle(obj.arr)
                                 obj.arr = beta + 0j

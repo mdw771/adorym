@@ -305,7 +305,7 @@ def multislice_propagate_batch_complex(grid_batch, probe, energy_ev, psize_cm, d
         if unknown_type == 'delta_beta':
             # Use sign_convention = 1 for Goodman convention: exp(ikz); n = 1 - delta + i * beta
             # Use sign_convention = -1 for opposite convention: exp(-ikz); n = 1 - delta - i * beta
-            p = w.sum(grid_batch, axis=-2)
+            p = w.sum(grid_batch, axis=-1) # this is summing along the slice directino
             delta_slice = w.real(p)
             if kappa is not None:
                 beta_slice = delta_slice * kappa
@@ -324,7 +324,7 @@ def multislice_propagate_batch_complex(grid_batch, probe, energy_ev, psize_cm, d
             else:
                 c = w.exp(-k1 * beta_slice + 1j * -sign_convention * k1 * delta_slice)
         elif unknown_type == 'real_imag':
-            p = w.prod(grid_batch, axis=-2)
+            p = w.prod(grid_batch, axis=-1) # this is multiplying along the slice direction - TODO this might not be ok w/ complex arrays
             c = p[:,:,:]
             if is_minus_logged:
                 if pure_projection_return_sqrt:
@@ -381,7 +381,7 @@ def multislice_propagate_batch_complex(grid_batch, probe, energy_ev, psize_cm, d
                 c = w.exp(-k1 * beta_slice + 1j * -sign_convention * k1 * delta_slice)
             elif unknown_type == 'real_imag':
                 if this_step > 1:
-                    delta_slice = w.prod(delta_slice, axis=3)
+                    delta_slice = w.prod(delta_slice, axis=3) # TODO make sure this also works
                     beta_slice = w.prod(beta_slice, axis=3)
                 c = delta_slice + 1j * beta_slice
             else:

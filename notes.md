@@ -12,3 +12,13 @@
 
 In the object initialization and representation now, util.py also needs to be
 updated.
+
+## Optimizers
+
+Optimizers need to be fixed for complex numbers, especially ADAM. ADAM uses the
+gradients and arrays to calculate momentum and things and this is not correctly
+implemented for complex numbers.
+
+The second problem is that random optimizers are used for the other parameters
+in the parameter list, I think they should all be the same, with whatever is
+specified in the parameter file.
