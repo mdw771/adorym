@@ -1115,11 +1115,9 @@ def reconstruct_ptychography(
                         elif unknown_type == 'real_imag':
                             # TODO I think this part is currently messing up the real_imag reconstruction
                             if object_type == 'absorption_only':
-                                delta = malias.abs(obj.arr)
-                                obj.arr = 1 + 1j * delta
+                                obj.arr = malias.abs(obj.arr) + 0j
                             if object_type == 'phase_only':
-                                beta = malias.angle(obj.arr)
-                                obj.arr = beta + 0j
+                                obj.arr = obj.arr / malias.abs(obj.arr) # TODO is the division going to explode w/ 0
                     if update_using_external_algorithm is not None:
                         obj.update_using_external_algorithm(update_using_external_algorithm, locals(), device_obj)
                 if distribution_mode is None:
