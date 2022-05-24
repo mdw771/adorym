@@ -4,6 +4,9 @@ import adorym
 import adorym.wrappers as w
 
 class Differentiator(object):
+    """
+    Differentiator object
+    """
 
     def __init__(self):
         self.loss_object = None

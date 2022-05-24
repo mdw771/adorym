@@ -889,7 +889,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
             opt_probe_pos = opt('probe_pos_correction', output_folder=output_folder,
                                           options_dict=optimizer_options_probe_pos, forward_model=forward_model)
-        opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj)
+        opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj, dtype='float32')
         opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
         opt_ls.append(opt_probe_pos)
