@@ -5,6 +5,7 @@
 
 *.tiff
 *.h5
+*png
 *.npy
 *.zip
 loss*.txt
