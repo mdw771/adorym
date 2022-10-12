@@ -716,7 +716,7 @@ def realign_image_fourier_complex(a, shift, axes=(0, 1), device=None):
     freq_y = w.create_variable(
         freq_y, requires_grad=False, device=device, dtype=w.get_dtype(freq_y)
     )
-    mult = w.exp(-2 * np.pi * (freq_x * shift[1] + freq_y * shift[0])
+    mult = w.exp(-2 * np.pi * 1j * (freq_x * shift[1] + freq_y * shift[0])
     )
     # Reshape for broadcasting
     if len(s) > max(axes) + 1:

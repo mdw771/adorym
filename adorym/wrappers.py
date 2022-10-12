@@ -508,12 +508,6 @@ def ones_like(var, dtype=None, device=None, requires_grad=True, backend='autogra
     return arr
 
 
-@set_bn
-def exp(var, backend='autograd'):
-    func = getattr(engine_dict[backend], func_mapping_dict['exp'][backend])
-    arr = func(var)
-    return arr
-
 
 @set_bn
 def log(var, backend='autograd'):
@@ -543,6 +537,11 @@ def cos(var, backend='autograd'):
     return arr
 
 
+@set_bn
+def exp(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['exp'][backend])
+    arr = func(var)
+    return arr
 @set_bn
 def exp_complex(var_real, var_imag, backend='autograd'):
     # TODO - remove this eventually
@@ -1066,10 +1065,9 @@ def norm(var_real, var_imag, backend='autograd'):
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
 def norm_complex(var, backend='autograd'):
-    if backend == 'autograd':
-        return abs(var)
-    elif backend == 'pytorch':
-        return abs(var)
+    func = getattr(engine_dict[backend], func_mapping_dict['abs'][backend])
+    arr = func(var)
+    return arr
 
 @set_bn
 def vec_norm(arr, backend='autograd'):
