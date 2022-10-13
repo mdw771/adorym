@@ -6,6 +6,7 @@ import scipy
 import scipy.signal
 
 from adorym import global_settings
+from functools import wraps
 
 engine_dict = {}
 try:
@@ -86,6 +87,7 @@ if flag_pytorch_avail:
 
 
 def set_bn(f):
+    @wraps(f)
     def func(*args, override_backend=None, **kwargs):
         if 'backend' in kwargs.keys():
             # If "backend" in the wrapper function is specified by user, it overrides the
@@ -1065,6 +1067,8 @@ def norm(var_real, var_imag, backend='autograd'):
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
 def norm_complex(var, backend='autograd'):
+    if isinstance(var, tc.Tensor):
+        backend='pytorch'
     func = getattr(engine_dict[backend], func_mapping_dict['abs'][backend])
     arr = func(var)
     return arr
@@ -1072,9 +1076,9 @@ def norm_complex(var, backend='autograd'):
 @set_bn
 def vec_norm(arr, backend='autograd'):
     if backend == 'autograd':
-        return anp.sqrt(anp.sum(abs(arr ** 2)))
+        return anp.linalg.norm(arr)
     elif backend == 'pytorch':
-        return tc.sqrt(tc.sum(arr ** 2))
+        return tc.linalg.vector_norm(arr)
 
 
 @set_bn

@@ -658,7 +658,7 @@ class CGOptimizer(Optimizer):
         s_new = self._descent_dir_t + beta * _s_t
 
         # Ensure that the calculated descent direction actually reduces the objective
-        descent_check = w.sum(s_new * g)
+        descent_check = w.sum(s_new.real * g.real + s_new.imag * g.imag)
         if descent_check >= 0:
             s_new = self._descent_dir_t
 
