@@ -598,7 +598,7 @@ class CGOptimizer(Optimizer):
 
     def _calculate_PR_beta(self, ss, i_batch):
 
-        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
+        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][tuple(ss)]
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
             _descent_dir_old_t = w.to_gpu(_descent_dir_old_t, w.get_var_device(self._descent_dir_t))
         else:
@@ -642,7 +642,7 @@ class CGOptimizer(Optimizer):
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
 
-        _s_t = self.params_whole_array_dict['s'][ss]
+        _s_t = self.params_whole_array_dict['s'][tuple(ss)]
         device_0 = w.get_var_device(_s_t)
         device_type_0 = w.get_var_device_type(_s_t)
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
@@ -658,7 +658,7 @@ class CGOptimizer(Optimizer):
         s_new = self._descent_dir_t + beta * _s_t
 
         # Ensure that the calculated descent direction actually reduces the objective
-        descent_check = w.sum(s_new.real * g.real + s_new.imag * g.imag)
+        descent_check = w.tensordot(s_new.conj().squeeze(), g.squeeze(), axes=2).real
         if descent_check >= 0:
             s_new = self._descent_dir_t
 
@@ -685,8 +685,8 @@ class CGOptimizer(Optimizer):
         else:
             s_new = w.to_gpu(s_new, device_0)
             self._descent_dir_t = w.to_gpu(self._descent_dir_t, device_0)
-        self.params_whole_array_dict['s'][ss] = s_new
-        self.params_whole_array_dict['descent_dir_old'][ss] = self._descent_dir_t
+        self.params_whole_array_dict['s'][tuple(ss)] = s_new
+        self.params_whole_array_dict['descent_dir_old'][tuple(ss)] = self._descent_dir_t
         self.i_batch += 1
         self.i_line_search_step += linesearch_out.step_count
         return x
@@ -821,7 +821,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         # If a pre-declared optimizer is not given, use the default optimizer and parameter settings.
         else:
             optimizer_options_probe = {'step_size': kwargs['probe_learning_rate']}
-            opt_probe = opt('probe', output_folder=output_folder,
+            opt_probe = AdamOptimizer('probe', output_folder=output_folder,
                                       options_dict=optimizer_options_probe, forward_model=forward_model)
         # Shape passed to "opt.create_param_arrays" must match the parameter variable.
         opt_probe.create_param_arrays([n_probe_modes, *probe_size], dtype='complex64', device=device_obj)
@@ -841,7 +841,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_probe_defocus.name = 'probe_defocus_mm'
         else:
             optimizer_options_probe_defocus = {'step_size': kwargs['probe_defocusing_learning_rate']}
-            opt_probe_defocus = opt('probe_defocus_mm', output_folder=output_folder,
+            opt_probe_defocus = AdamOptimizer('probe_defocus_mm', output_folder=output_folder,
                                               options_dict=optimizer_options_probe_defocus, forward_model=forward_model)
         opt_probe_defocus.create_param_arrays([1], device=device_obj)
         opt_probe_defocus.set_index_in_grad_return(len(opt_args_ls))
@@ -859,7 +859,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             #                                    options_dict=optimizer_options_probe_pos_offset, forward_model=forward_model)
             optimizer_options_probe_pos_offset = {'step_size': kwargs['probe_pos_offset_learning_rate'],
                                                   'dynamic_rate': False}
-            opt_probe_pos_offset = opt('probe_pos_offset', output_folder=output_folder,
+            opt_probe_pos_offset = GDOptimizer('probe_pos_offset', output_folder=output_folder,
                                                options_dict=optimizer_options_probe_pos_offset)
         opt_probe_pos_offset.create_param_arrays(optimizable_params['probe_pos_offset'].shape, device=device_obj)
         opt_probe_pos_offset.set_index_in_grad_return(len(opt_args_ls))
@@ -873,7 +873,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         else:
             optimizer_options_prj_pos_offset = {'step_size': kwargs['prj_pos_offset_learning_rate'],
                                                   'dynamic_rate': False}
-            opt_prj_pos_offset = opt('prj_pos_offset', output_folder=output_folder,
+            opt_prj_pos_offset = GDOptimizer('prj_pos_offset', output_folder=output_folder,
                                                options_dict=optimizer_options_prj_pos_offset)
         opt_prj_pos_offset.create_param_arrays(optimizable_params['prj_pos_offset'].shape, device=device_obj)
         opt_prj_pos_offset.set_index_in_grad_return(len(opt_args_ls))
@@ -887,7 +887,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_probe_pos.name = 'probe_pos_correction'
         else:
             optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
-            opt_probe_pos = opt('probe_pos_correction', output_folder=output_folder,
+            opt_probe_pos = AdamOptimizer('probe_pos_correction', output_folder=output_folder,
                                           options_dict=optimizer_options_probe_pos, forward_model=forward_model)
         opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj, dtype='float32')
         opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
@@ -901,7 +901,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
                 opt_slice_pos.name = 'slice_pos_cm_ls'
             else:
                 optimizer_options_slice_pos = {'step_size': kwargs['slice_pos_learning_rate']}
-                opt_slice_pos = opt('slice_pos_cm_ls', output_folder=output_folder,
+                opt_slice_pos = AdamOptimizer('slice_pos_cm_ls', output_folder=output_folder,
                                               options_dict=optimizer_options_slice_pos, forward_model=forward_model)
             opt_slice_pos.create_param_arrays(optimizable_params['slice_pos_cm_ls'].shape, device=device_obj)
             opt_slice_pos.set_index_in_grad_return(len(opt_args_ls))
@@ -915,7 +915,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
                 opt_free_prop.name = 'free_prop_cm'
             else:
                 optimizer_options_free_prop = {'step_size': kwargs['free_prop_learning_rate']}
-                opt_free_prop = opt('free_prop_cm', output_folder=output_folder,
+                opt_free_prop = AdamOptimizer('free_prop_cm', output_folder=output_folder,
                                               options_dict=optimizer_options_free_prop, forward_model=forward_model)
             opt_free_prop.create_param_arrays(optimizable_params['free_prop_cm'].shape, device=device_obj)
             opt_free_prop.set_index_in_grad_return(len(opt_args_ls))
@@ -928,7 +928,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_tilt.name = 'tilt_ls'
         else:
             optimizer_options_tilt = {'step_size': kwargs['tilt_learning_rate']}
-            opt_tilt = opt('tilt_ls', output_folder=output_folder,
+            opt_tilt = AdamOptimizer('tilt_ls', output_folder=output_folder,
                                      options_dict=optimizer_options_tilt, forward_model=forward_model)
         opt_tilt.create_param_arrays(optimizable_params['tilt_ls'].shape, device=device_obj)
         opt_tilt.set_index_in_grad_return(len(opt_args_ls))
@@ -941,7 +941,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_prj_affine.name = 'prj_affine_ls'
         else:
             optimizer_options_prj_scale = {'step_size': kwargs['prj_affine_learning_rate']}
-            opt_prj_affine = opt('prj_affine_ls', output_folder=output_folder,
+            opt_prj_affine = AdamOptimizer('prj_affine_ls', output_folder=output_folder,
                                            options_dict=optimizer_options_prj_scale, forward_model=forward_model)
         opt_prj_affine.create_param_arrays(optimizable_params['prj_affine_ls'].shape, device=device_obj)
         opt_prj_affine.set_index_in_grad_return(len(opt_args_ls))
@@ -954,7 +954,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_ctf_lg_kappa.name = 'ctf_lg_kappa'
         else:
             optimizer_options_ctf_lg_kappa = {'step_size': kwargs['ctf_lg_kappa_learning_rate']}
-            opt_ctf_lg_kappa = opt('ctf_lg_kappa', output_folder=output_folder,
+            opt_ctf_lg_kappa = AdamOptimizer('ctf_lg_kappa', output_folder=output_folder,
                                              options_dict=optimizer_options_ctf_lg_kappa, forward_model=forward_model)
         opt_ctf_lg_kappa.create_param_arrays(optimizable_params['ctf_lg_kappa'].shape, device=device_obj)
         opt_ctf_lg_kappa.set_index_in_grad_return(len(opt_args_ls))
