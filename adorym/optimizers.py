@@ -829,8 +829,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
         opt_probe.set_index_in_grad_return(len(opt_args_ls))
         # Name passed to "get_argument_index" must match the argument name in the "calculate_loss" method and
         # "predict" method of your ForwardModel class.
-        opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'),
-                                     forward_model.get_argument_index('probe_imag')]
+        opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe')]
         # Just copy this.
         opt_ls.append(opt_probe)
 
@@ -987,12 +986,6 @@ def update_parameter_gradients(opt_ls, grads, use_numpy=False):
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
-        elif opt.name == 'probe':
-            if not use_numpy:
-                opt.grads += w.stack(grads[1:3], axis=-1)
-            else:
-                g = w.to_numpy(w.stack(grads[1:3], axis=-1))
-                opt.grads = opt.grads + g
         else:
             if not use_numpy:
                 opt.grads += grads[opt.index_in_grad_returns]
@@ -1130,7 +1123,7 @@ def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
             continue
 
         elif opt.name == 'probe':
-            output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], os.path.join(output_folder, 'intermediate', 'probe'),
+            output_probe_complex(optimizable_params['probe'], os.path.join(output_folder, 'intermediate', 'probe'),
                          full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                          save_history=save_history)
 
