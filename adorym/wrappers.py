@@ -609,78 +609,68 @@ def round_and_cast(var, dtype='int32', backend='autograd'):
 
 @set_bn
 def fft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=1, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.fft(var, dim=axis, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
 
 
 @set_bn
 def ifft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=1, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.ifft(var, dim=axis, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
 
 
 @set_bn
 def fft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.fft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
 
 
 @set_bn
 def ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.ifft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
 
 
 @set_bn
 def fft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
+        var = tc.fft.fft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        var_real = var_real
+        var_imag = var_imag
         var_real = fftshift(var_real, axes=axes)
         var_imag = fftshift(var_imag, axes=axes)
         return var_real, var_imag
@@ -688,18 +678,16 @@ def fft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normal
 
 @set_bn
 def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.ifft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
+        var = tc.fft.ifft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        var_real = var_real
+        var_imag = var_imag
         var_real = fftshift(var_real, axes=axes)
         var_imag = fftshift(var_imag, axes=axes)
         return var_real, var_imag
@@ -707,20 +695,16 @@ def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', norma
 
 @set_bn
 def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var_real = ifftshift(var_real, axes=axes)
-        var_imag = ifftshift(var_imag, axes=axes)
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
+        var = tc.fft.ifft2(tc.fft.ifftshift(var, dim=axes), dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        var_real = var_real
+        var_imag = var_imag
         return var_real, var_imag
 
 
@@ -794,7 +778,7 @@ def split_channel(var, backend='autograd'):
         return var0[tuple(slicer)], var1[tuple(slicer)]
     elif backend == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (var.ndim - 1) + [0]
+        slicer = [slice(None)] * (var.ndim - 1) + [0] #this removes the last singleton dimension...
         return var0[tuple(slicer)], var1[tuple(slicer)]
    
 @set_bn
