@@ -775,11 +775,11 @@ def split_channel(var, backend='autograd'):
     if backend == 'autograd':
         var0, var1 = anp.split(var, var.shape[-1], axis=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
-        return var0, var1
+        return var0[tuple(slicer)], var1[tuple(slicer)]
     elif backend == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (var.ndim - 1) + [0]
-        return var0, var1
+        slicer = [slice(None)] * (var.ndim - 1) + [0] #this removes the last singleton dimension...
+        return var0[tuple(slicer)], var1[tuple(slicer)]
    
 @set_bn
 def clip(var, a1, a2, backend='autograd'):
