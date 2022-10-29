@@ -234,7 +234,7 @@ def print_flush(a, designate_rank=None, this_rank=None, save_stdout=False, same_
                 output_folder='', timestamp='', **kwargs):
     if same_line is None:
         sameline = not global_settings.disable_sameline_output
-    a = '[{}][{}] '.format(str(datetime.datetime.today())[:-3], this_rank) + a
+    a = f'[{str(datetime.datetime.today())[:-3]}][{this_rank}] ' + a
     if designate_rank is not None:
         if this_rank == designate_rank:
             if same_line:

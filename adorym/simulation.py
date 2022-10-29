@@ -51,7 +51,7 @@ def simulate_ptychography(
         random_guess_means_sigmas=(8.7e-7, 5.1e-8, 1e-7, 1e-8),
         # Give as (mean_delta, mean_beta, sigma_delta, sigma_beta) or (mean_mag, mean_phase, sigma_mag, sigma_phase)
         n_batch_per_update=1, reweighted_l1=False, interpolation='bilinear',
-        update_scheme='immediate',  # Choose from 'immediate' or 'per angle'
+        update_scheme='immediate',  # Choose from 'immediate' or 'per_angle'
         unknown_type='delta_beta',  # Choose from 'delta_beta' or 'real_imag'
         randomize_probe_pos=False,
         common_probe_pos=True,  # Set to False if the values/number of probe positions vary with projection angle
@@ -497,7 +497,7 @@ def simulate_ptychography(
             spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % minibatch_size],
                                                             minibatch_size - (n_pos % minibatch_size),
                                                             replace=False))
-        elif (distribution_mode is not None or update_scheme == 'per angle') and n_pos % n_tot_per_batch != 0:
+        elif (distribution_mode is not None or update_scheme == 'per_angle') and n_pos % n_tot_per_batch != 0:
             spots_ls = np.append(spots_ls, np.random.choice(spots_ls[:-n_pos % n_tot_per_batch],
                                                             n_tot_per_batch - (n_pos % n_tot_per_batch),
                                                             replace=False))

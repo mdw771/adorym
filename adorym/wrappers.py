@@ -5,7 +5,8 @@ import numpy as np
 import scipy
 import scipy.signal
 
-import adorym.global_settings as global_settings
+from adorym import global_settings
+from functools import wraps
 
 engine_dict = {}
 try:
@@ -52,31 +53,41 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'sign':        {'autograd': 'sign',       'tensorflow': 'sign',       'pytorch': 'sign',       'numpy': 'sign'},
                      'argmax':      {'autograd': 'argmax',     'tensorflow': 'argmax',     'pytorch': 'argmax',     'numpy': 'argmax'},
                      'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
+                     'conj':        {'autograd': 'conj',       'tensorflow': 'math.conj',  'pytorch': 'conj',       'numpy': 'conj'},
+                     'angle':       {'autograd': 'angle',      'tensorflow': 'math.angle', 'pytorch': 'angle',      'numpy': 'angle'},
                      }
 
-dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
-                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double', 'numpy': 'float64'},
-                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',   'numpy': 'float16'},
-                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',   'numpy': 'int8'},
-                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',  'numpy': 'int16'},
-                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',    'numpy': 'int32'},
-                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',   'numpy': 'int64'},
-                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',   'numpy': 'bool'},
-                      }
+dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',     'numpy': 'float32'},
+                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double',    'numpy': 'float64'},
+                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',      'numpy': 'float16'},
+                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',      'numpy': 'int8'},
+                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',     'numpy': 'int16'},
+                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',       'numpy': 'int32'},
+                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',      'numpy': 'int64'},
+                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',      'numpy': 'bool'},
+                      'complex64':  {'autograd': 'complex64',  'tensorflow': 'complex64',  'pytorch': 'complex64', 'numpy':'complex64'},
+                      'complex128': {'autograd': 'complex128', 'tensorflow': 'complex128', 'pytorch': 'complex128','numpy':'complex128'}}
 
 if flag_pytorch_avail:
     try:
-        pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
-                                            tc.float64: 'float64',
+        pytorch_dtype_query_mapping_dict = {'single': 'float32',
+                                            tc.float32: 'float32',
                                             'float32': 'float32',
                                             'float64': 'float64',
-                                            'single': 'float32',
-                                            'double': 'float64'}
+                                            'double': 'float64',
+                                            tc.float64: 'float64',
+                                            np.dtype('float64'): 'float64',
+                                            'complex64': 'complex64',
+                                            'complex128': 'complex128',
+                                            tc.complex128: 'complex128',
+                                            tc.complex64: 'complex64',
+                                            }
     except:
         pass
 
 
 def set_bn(f):
+    @wraps(f)
     def func(*args, override_backend=None, **kwargs):
         if 'backend' in kwargs.keys():
             # If "backend" in the wrapper function is specified by user, it overrides the
@@ -96,16 +107,16 @@ def set_bn(f):
 
 class EmptyWith(object):
     def __init__(self):
-            pass
-    
+        pass
+
     def __enter__(self):
-            pass
-    
+        pass
+
     def __exit__(self, exc_type, exc_value, tb):
-            pass
+        pass
 
 @set_bn
-def create_variable(arr, dtype='float32', device=None, requires_grad=True, backend='autograd'):
+def create_variable(arr, dtype='complex64', device=None, requires_grad=True, backend='autograd'):
     """
     Create a variable wrapper.
     :param arr: Numpy array of the intial value.
@@ -212,7 +223,7 @@ def get_device(index=None, backend='autograd'):
     elif backend == 'pytorch':
         if index is None: return None
         else:
-            return tc.device('cuda:{}'.format(index))
+            return tc.device(f'cuda:{index}')
 
 
 @set_bn
@@ -499,12 +510,6 @@ def ones_like(var, dtype=None, device=None, requires_grad=True, backend='autogra
     return arr
 
 
-@set_bn
-def exp(var, backend='autograd'):
-    func = getattr(engine_dict[backend], func_mapping_dict['exp'][backend])
-    arr = func(var)
-    return arr
-
 
 @set_bn
 def log(var, backend='autograd'):
@@ -535,12 +540,18 @@ def cos(var, backend='autograd'):
 
 
 @set_bn
+def exp(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['exp'][backend])
+    arr = func(var)
+    return arr
+@set_bn
 def exp_complex(var_real, var_imag, backend='autograd'):
+    # TODO - remove this eventually
     if backend == 'pytorch':
         if not isinstance(var_real, tc.Tensor):
             var_real = tc.tensor(var_real)
         if not isinstance(var_imag, tc.Tensor):
-            var_real = tc.tensor(var_imag)
+            var_imag = tc.tensor(var_imag)
     e = exp(var_real)
     return e * cos(var_imag), e * sin(var_imag)
 
@@ -558,6 +569,12 @@ def arange(*args, **kwargs):
 @set_bn
 def abs(var, backend='autograd'):
     func = getattr(engine_dict[backend], func_mapping_dict['abs'][backend])
+    arr = func(var)
+    return arr
+
+@set_bn
+def angle(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['angle'][backend])
     arr = func(var)
     return arr
 
@@ -604,124 +621,157 @@ def fix(a, backend='autograd'):
 
 @set_bn
 def round_and_cast(var, dtype='int32', backend='autograd'):
-    return cast(round(var), dtype=dtype, override_backend=backend)
+    return cast(round(var), dtype=dtype, backend=backend)
 
 
 @set_bn
 def fft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=1, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.fft(var, dim=axis, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
+@set_bn
+def fft_complex(var, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.fft(var, axis=axis, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.fft(var, dim=axis, norm=norm)
+    return var
 
 
 @set_bn
 def ifft(var_real, var_imag, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft(var, axis=axis, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=1, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.ifft(var, dim=axis, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
+@set_bn
+def ifft_complex(var, axis=-1, backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.ifft(var, axis=axis, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.ifft(var, dim=axis, norm=norm)
+    return var
 
 
 @set_bn
 def fft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.fft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
+@set_bn
+def fft2_complex(var, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.fft2(var, axes=axes, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.fft2(var, dim=axes, norm=norm)
+    return var
 
 
 @set_bn
 def ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(var, axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        return var_real[tuple(slicer)], var_imag[tuple(slicer)]
+        var = tc.fft.ifft2(var, dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        return var_real, var_imag
+
+@set_bn
+def ifft2_complex(var, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.ifft2(var, axes=axes, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.ifft2(var, dim=axes, norm=norm)
+    return var
 
 
 @set_bn
 def fft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.fft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
-        var_real = fftshift(var_real, axes=axes)
-        var_imag = fftshift(var_imag, axes=axes)
+        var = tc.fft.fftshift(tc.fft.fft2(var, dim=axes, norm=norm), dim=axes)
+        var_real, var_imag = tc.real(var), tc.imag(var)
         return var_real, var_imag
+@set_bn
+def fft2_and_shift_complex(var, axes=(-2,-1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.fftshift(anp.fft.fft2(var, axes=axes, norm=norm), axes=axes)
+    elif backend == 'pytorch':
+        var = tc.fft.fftshift(tc.fft.fft2(var, dim=axes, norm=norm), dim=axes)
+    return var
 
 
 @set_bn
 def ifft2_and_shift(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.fftshift(anp.fft.ifft2(var, axes=axes, norm=norm), axes=axes)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
-        var_real = fftshift(var_real, axes=axes)
-        var_imag = fftshift(var_imag, axes=axes)
+        var = tc.fft.fftshift(tc.fft.ifft2(var, dim=axes, norm=norm), dim=axes)
+        var_real, var_imag = tc.real(var), tc.imag(var)
         return var_real, var_imag
+@set_bn
+def ifft2_and_shift_complex(var, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.fftshift(anp.fft.ifft2(var, axes=axes, norm=norm), axes=axes)
+    elif backend == 'pytorch':
+        var = tc.fft.fftshift(tc.fft.ifft2(var, dim=axes, norm=norm), dim=axes)
+    return var
 
 
 @set_bn
 def ishift_and_ifft2(var_real, var_imag, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    var = var_real + 1j * var_imag
     if backend == 'autograd':
-        var = var_real + 1j * var_imag
-        norm = None if not normalize else 'ortho'
         var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
         return anp.real(var), anp.imag(var)
     elif backend == 'pytorch':
-        var_real = ifftshift(var_real, axes=axes)
-        var_imag = ifftshift(var_imag, axes=axes)
-        var = tc.stack([var_real, var_imag], dim=-1)
-        var = tc.ifft(var, signal_ndim=2, normalized=normalize)
-        var_real, var_imag = tc.split(var, 1, dim=-1)
-        slicer = [slice(None)] * (len(var_real.shape) - 1) + [0]
-        var_real = var_real[tuple(slicer)]
-        var_imag = var_imag[tuple(slicer)]
+        var = tc.fft.ifft2(tc.fft.ifftshift(var, dim=axes), dim=axes, norm=norm)
+        var_real, var_imag = tc.real(var), tc.imag(var)
+        var_real = var_real
+        var_imag = var_imag
         return var_real, var_imag
+@set_bn
+def ishift_and_ifft2_complex(var, axes=(-2, -1), backend='autograd', normalize=False):
+    norm = None if not normalize else 'ortho'
+    if backend == 'autograd':
+        var = anp.fft.ifft2(anp.fft.ifftshift(var, axes=axes), axes=axes, norm=norm)
+    elif backend == 'pytorch':
+        var = tc.fft.ifft2(tc.fft.ifftshift(var, dim=axes), dim=axes, norm=norm)
+    return var
 
 
 @set_bn
@@ -730,6 +780,10 @@ def convolve_with_transfer_function(arr_real, arr_imag, h_real, h_imag, axes=(-2
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
     return ifft2(fh_real, fh_imag, override_backend=backend)
+@set_bn
+def convolve_with_transfer_function_complex(arr, h, axes=(-2, -1), backend='autograd'):
+    f = fft2_complex(arr, axes=axes, override_backend=backend)
+    return ifft2_complex(f*h, override_backend=backend)
 
 
 @set_bn
@@ -739,6 +793,11 @@ def convolve_with_impulse_response(arr_real, arr_imag, h_real, h_imag, axes=(-2,
     fh_real = f_real * h_real - f_imag * h_imag
     fh_imag = f_real * h_imag + f_imag * h_real
     return ifft2(fh_real, fh_imag, override_backend=backend, normalize=normalize)
+@set_bn
+def convolve_with_impulse_response_complex(arr, h, axes=(-2, -1), backend='autograd', normalize=True):
+    f = fft2_complex(arr, axes=axes, override_backend=backend, normalize=normalize)
+    h = fft2_complex(h, override_backend=backend, normalize=normalize)
+    return ifft2_complex(f*h, override_backend=backend, normalize=normalize)
 
 
 @set_bn
@@ -754,16 +813,7 @@ def fftshift(var, axes=(1, 2), backend='autograd'):
     if backend == 'autograd':
         return anp.fft.fftshift(var, axes=axes)
     elif backend == 'pytorch':
-        s = var.shape
-        for i in axes:
-            p2 = (s[i] + 1) // 2
-            v = tc.split(var, p2, dim=i)
-            if len(v) == 3:
-                v1, v2 = (v[0], tc.cat([v[1], v[2]], dim=i))
-            else:
-                v1, v2 = v
-            var = tc.cat([v2, v1], dim=i)
-        return var
+        return tc.fft.fftshift(var, dim=axes)
 
 
 @set_bn
@@ -774,16 +824,7 @@ def ifftshift(var, axes=(1, 2), backend='autograd'):
     if backend == 'autograd':
         return anp.fft.ifftshift(var, axes=axes)
     elif backend == 'pytorch':
-        s = var.shape
-        for i in axes:
-            p2 = s[i] - (s[i] + 1) // 2
-            v = tc.split(var, p2, dim=i)
-            if len(v) == 3:
-                v1, v2 = (v[0], tc.cat([v[1], v[2]], dim=i))
-            else:
-                v1, v2 = v
-            var = tc.cat([v2, v1], dim=i)
-        return var
+        return tc.fft.ifftshift(var, dim=axes)
 
 
 @set_bn
@@ -791,12 +832,12 @@ def split_channel(var, backend='autograd'):
     if backend == 'autograd':
         var0, var1 = anp.split(var, var.shape[-1], axis=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
-        return var0[tuple(slicer)], var1[tuple(slicer)]
+        return var0, var1
     elif backend == 'pytorch':
         var0, var1 = tc.split(var, 1, dim=-1)
         slicer = [slice(None)] * (var.ndim - 1) + [0]
-        return var0[tuple(slicer)], var1[tuple(slicer)]
-   
+        return var0, var1
+
 @set_bn
 def clip(var, a1, a2, backend='autograd'):
     func = getattr(engine_dict[backend], func_mapping_dict['clip'][backend])
@@ -907,6 +948,12 @@ def imag(var, backend='autograd'):
     arr = func(var)
     return arr
 
+@set_bn
+def conj(var, backend='autograd'):
+    func = getattr(engine_dict[backend], func_mapping_dict['conj'][backend])
+    arr = func(var)
+    return arr
+
 
 @set_bn
 def tile(var, cp, backend='autograd'):
@@ -937,7 +984,7 @@ def flip(var, axis=[0], backend='autograd'):
 
 
 @set_bn
-def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd'):
+def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd', **args):
     """
     Pad array.
     [ATTENTION: The behavior of this function is different between Autograd and Pytorch backend.]
@@ -945,13 +992,14 @@ def pad(var, pad_len, mode='constant', constant_values=0, backend='autograd'):
     :param pad_len: A tuple of tuples. Consistent with the format of numpy.pad.
     :param mode: Choose from 'constant', 'reflect'.
     """
-    args = {}
     mode_dict = {'constant': {'autograd': 'constant', 'pytorch': 'constant'},
                  'edge':    {'autograd': 'edge',    'pytorch': 'replicate'},
                  'reflect': {'autograd': 'reflect', 'pytorch': 'reflect'},
                  'wrap':    {'autograd': 'wrap',    'pytorch': 'circular'}}
-    if mode == 'constant':
+    if mode == 'constant' and constant_values is None:
         args['constant_values'] = 0
+    else:
+        args['constant_values'] = constant_values
     if backend == 'autograd':
         return anp.pad(var, pad_len, mode=mode_dict[mode][backend], **args)
     elif backend == 'pytorch':
@@ -1018,14 +1066,19 @@ def norm(var_real, var_imag, backend='autograd'):
         return abs(var_real + 1j * var_imag)
     elif backend == 'pytorch':
         return tc.norm(tc.stack([var_real, var_imag], dim=0), dim=0)
-
+def norm_complex(var, backend='autograd'):
+    if isinstance(var, tc.Tensor):
+        backend='pytorch'
+    func = getattr(engine_dict[backend], func_mapping_dict['abs'][backend])
+    arr = func(var)
+    return arr
 
 @set_bn
 def vec_norm(arr, backend='autograd'):
     if backend == 'autograd':
-        return anp.sqrt(anp.sum(abs(arr ** 2)))
+        return anp.linalg.norm(arr)
     elif backend == 'pytorch':
-        return tc.sqrt(tc.sum(arr ** 2))
+        return tc.linalg.vector_norm(arr)
 
 
 @set_bn
@@ -1174,7 +1227,7 @@ def rotate(arr, theta, axis=0, backend='autograd', device=None):
 def pcc(obj, backend='autograd'):
     """
     Calculate the Pearson correlation coefficient of images in an array along the last dimension.
-    :param obj: Tensor. 
+    :param obj: Tensor.
     :return: Pearson correlation coefficient.
     """
     slicer_z = [slice(None)] * (len(obj.shape) - 1)

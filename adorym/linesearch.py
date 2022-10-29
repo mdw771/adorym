@@ -54,7 +54,7 @@ class BackTrackingLineSearch:
 
         # Calculating the directional derivative along the descent direction
         descent_norm = w.vec_norm(descent_dir)
-        df0 = w.sum(descent_dir * gradient)
+        df0 = w.tensordot(gradient.conj().squeeze(), descent_dir.squeeze(), axes=2).real
 
         if self._oldf0 >= f0:
             # Pick initial step size based on where we were last time
@@ -146,7 +146,7 @@ class AdaptiveLineSearch:
 
         # Calculating the directional derivative along the descent direction
         descent_norm = w.vec_norm(descent_dir)
-        df0 = w.sum(descent_dir * gradient)
+        df0 = w.tensordot(gradient.conj().squeeze(), descent_dir.squeeze(), axes=2).real
 
         if self._alpha_suggested > 0:
             alpha = self._alpha_suggested

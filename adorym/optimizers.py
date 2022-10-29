@@ -78,7 +78,7 @@ class Optimizer(object):
 
     def create_container(self, whole_object_size, use_checkpoint, device_obj, use_numpy=False, dtype='float32'):
         """
-        :param whole_object_size: List of int; 4-D vector for object function (including 2 channels),
+        :param whole_object_size: List of int; 3-D complex vector for object function,
                                   or a 3-D vector for probe, or a 1-D scalar for other variables.
                                   Channel must be the last domension. Parameter arrays will be created
                                   following exactly whole_object_size.
@@ -91,7 +91,7 @@ class Optimizer(object):
         elif self.distribution_mode == 'distributed_object':
             self.create_distributed_param_arrays(whole_object_size, use_numpy=use_numpy, dtype=dtype)
         elif self.distribution_mode is None:
-            self.create_param_arrays(whole_object_size, device=device_obj)
+            self.create_param_arrays(whole_object_size, dtype='complex64', device=device_obj)
 
     def create_file_objects(self, whole_object_size, use_checkpoint=False):
         self.whole_object_size = whole_object_size
@@ -112,16 +112,16 @@ class Optimizer(object):
                 self.params_dset_dict[param_name] = dset_p
         return
 
-    def create_param_arrays(self, whole_object_size, device=None, use_numpy=False):
+    def create_param_arrays(self, whole_object_size, dtype='float32', device=None, use_numpy=False):
         self.whole_object_size = whole_object_size
         malias = np if use_numpy else w
         kwargs = {} if use_numpy else {'device': device}
         if len(self.params_list) > 0:
             for param_name in self.params_list:
                 if malias == np:
-                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device)
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, dtype=dtype, device=device)
                 else:
-                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, device=device,
+                    self.params_whole_array_dict[param_name] = malias.zeros(self.whole_object_size, dtype=dtype, device=device,
                                                                             requires_grad=False)
         return
 
@@ -152,10 +152,10 @@ class Optimizer(object):
 
     def restore_distributed_param_arrays_from_checkpoint(self, device=None, use_numpy=False, dtype='float32'):
         if len(self.params_list) > 0:
-            path = os.path.join(self.output_folder, 'checkpoint', 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank))
+            path = os.path.join(self.output_folder, 'checkpoint', f'opt_{self.name}_params_checkpoint_rank_{rank}.npy')
             if os.path.exists(path):
                 arr = np.load(path)
-                if use_numpy == False:
+                if not use_numpy:
                     arr = w.create_variable(arr, device=device, requires_grad=False)
                 if len(self.params_list) > 0:
                     for i, param_name in enumerate(self.params_list):
@@ -171,7 +171,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_{}_params_checkpoint.npy'.format(self.name)), w.to_numpy(arr))
+            np.save(os.path.join(path, f'opt_{self.name}_params_checkpoint.npy'), w.to_numpy(arr))
         return
 
     def save_distributed_param_arrays_to_checkpoint(self, use_numpy=True):
@@ -184,7 +184,7 @@ class Optimizer(object):
             for i, param_name in enumerate(self.params_list):
                 arr.append(self.params_whole_array_dict[param_name])
             arr = malias.stack(arr)
-            np.save(os.path.join(path, 'opt_{}_params_checkpoint_rank_{}.npy'.format(self.name, rank)), w.to_numpy(arr))
+            np.save(os.path.join(path, f'opt_{self.name}_params_checkpoint_rank_{rank}.npy'), w.to_numpy(arr))
         return
 
     def get_params_from_file(self, this_pos_batch=None, probe_size=None):
@@ -252,7 +252,7 @@ class Optimizer(object):
         return g
 
     def get_array_slicer(self, slicer):
-        if slicer == None:
+        if slicer is None:
             if len(self.params_list) > 0:
                 if len(self.params_whole_array_dict) > 0:
                     shape = self.params_whole_array_dict[list(self.params_whole_array_dict.keys())[0]].shape
@@ -293,8 +293,8 @@ class AdamOptimizer(Optimizer):
                 m = self.params_chunk_array_dict['m']
                 v = self.params_chunk_array_dict['v']
             else:
-                m = self.params_whole_array_dict['m'][ss]
-                v = self.params_whole_array_dict['v'][ss]
+                m = self.params_whole_array_dict['m'][tuple(ss)]
+                v = self.params_whole_array_dict['v'][tuple(ss)]
                 device_0 = w.get_var_device(m)
                 device_type_0 = w.get_var_device_type(m)
                 if w.get_var_device_type(x) == 'cuda':
@@ -323,8 +323,8 @@ class AdamOptimizer(Optimizer):
             else:
                 m = w.to_gpu(m, device_0)
                 v = w.to_gpu(v, device_0)
-            self.params_whole_array_dict['m'][ss] = m
-            self.params_whole_array_dict['v'][ss] = v
+            self.params_whole_array_dict['m'][tuple(ss)] = m
+            self.params_whole_array_dict['v'][tuple(ss)] = v
         if update_batch_count:
             self.i_batch += 1
         del mhat, vhat
@@ -427,7 +427,7 @@ class MomentumOptimizer(Optimizer):
 class GDOptimizer(Optimizer):
 
     def __init__(self, name, output_folder='.', distribution_mode=None, options_dict=None, forward_model=None):
-        super(GDOptimizer, self).__init__(name, output_folder=output_folder, params_list=[],
+        super().__init__(name, output_folder=output_folder, params_list=[],
                                           distribution_mode=distribution_mode, options_dict=options_dict,
                                           forward_model=forward_model)
         return
@@ -598,7 +598,7 @@ class CGOptimizer(Optimizer):
 
     def _calculate_PR_beta(self, ss, i_batch):
 
-        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
+        _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][tuple(ss)]
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
             _descent_dir_old_t = w.to_gpu(_descent_dir_old_t, w.get_var_device(self._descent_dir_t))
         else:
@@ -642,7 +642,7 @@ class CGOptimizer(Optimizer):
         loss_kwargs = forward_model.loss_args
         loss_fn = forward_model.get_loss_function()
 
-        _s_t = self.params_whole_array_dict['s'][ss]
+        _s_t = self.params_whole_array_dict['s'][tuple(ss)]
         device_0 = w.get_var_device(_s_t)
         device_type_0 = w.get_var_device_type(_s_t)
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
@@ -658,15 +658,14 @@ class CGOptimizer(Optimizer):
         s_new = self._descent_dir_t + beta * _s_t
 
         # Ensure that the calculated descent direction actually reduces the objective
-        descent_check = w.sum(s_new * g)
+        descent_check = w.tensordot(s_new.conj().squeeze(), g.squeeze(), axes=2).real
         if descent_check >= 0:
             s_new = self._descent_dir_t
 
         def _loss_and_update_fn(x, y):
             update = x + y
             if self.name == 'probe':
-                loss_kwargs['probe_real'] = update[:, :, :, 0]
-                loss_kwargs['probe_imag'] = update[:, :, :, 1]
+                loss_kwargs['probe'] = update
             else:
                 loss_kwargs[self.name] = update
             loss = loss_fn(**loss_kwargs)
@@ -686,8 +685,8 @@ class CGOptimizer(Optimizer):
         else:
             s_new = w.to_gpu(s_new, device_0)
             self._descent_dir_t = w.to_gpu(self._descent_dir_t, device_0)
-        self.params_whole_array_dict['s'][ss] = s_new
-        self.params_whole_array_dict['descent_dir_old'][ss] = self._descent_dir_t
+        self.params_whole_array_dict['s'][tuple(ss)] = s_new
+        self.params_whole_array_dict['descent_dir_old'][tuple(ss)] = self._descent_dir_t
         self.i_batch += 1
         self.i_line_search_step += linesearch_out.step_count
         return x
@@ -778,6 +777,21 @@ def save_params_checkpoint(path, params):
     f_pcp.close()
     return
 
+def get_optimizer(optimizer):
+    if optimizer == 'adam':
+        opt = AdamOptimizer
+    elif optimizer == 'gd':
+        opt = GDOptimizer
+    elif optimizer == 'cg':
+        opt = CGOptimizer
+    elif optimizer == 'curveball':
+        opt = CurveballOptimizer
+    elif optimizer == 'momentum':
+        opt = MomentumOptimizer
+    elif optimizer == 'scipy':
+        opt = ScipyOptimizer
+    return opt
+
 
 def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
 
@@ -788,6 +802,9 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
     n_probe_modes = kwargs['n_probe_modes']
     probe_size = kwargs['probe_size']
     distribution_mode = kwargs['distribution_mode']
+    opt = kwargs['optimizer']
+
+    opt = get_optimizer(opt)
 
     opt_args_ls = [0]
     # ====================================================================================
@@ -807,13 +824,12 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             opt_probe = AdamOptimizer('probe', output_folder=output_folder,
                                       options_dict=optimizer_options_probe, forward_model=forward_model)
         # Shape passed to "opt.create_param_arrays" must match the parameter variable.
-        opt_probe.create_param_arrays([n_probe_modes, *probe_size, 2], device=device_obj)
+        opt_probe.create_param_arrays([n_probe_modes, *probe_size], dtype='complex64', device=device_obj)
         # Just copy this.
         opt_probe.set_index_in_grad_return(len(opt_args_ls))
         # Name passed to "get_argument_index" must match the argument name in the "calculate_loss" method and
         # "predict" method of your ForwardModel class.
-        opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe_real'),
-                                     forward_model.get_argument_index('probe_imag')]
+        opt_args_ls = opt_args_ls + [forward_model.get_argument_index('probe')]
         # Just copy this.
         opt_ls.append(opt_probe)
 
@@ -872,7 +888,7 @@ def create_and_initialize_parameter_optimizers(optimizable_params, kwargs):
             optimizer_options_probe_pos = {'step_size': kwargs['all_probe_pos_learning_rate']}
             opt_probe_pos = AdamOptimizer('probe_pos_correction', output_folder=output_folder,
                                           options_dict=optimizer_options_probe_pos, forward_model=forward_model)
-        opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj)
+        opt_probe_pos.create_param_arrays(optimizable_params['probe_pos_correction'].shape, device=device_obj, dtype='float32')
         opt_probe_pos.set_index_in_grad_return(len(opt_args_ls))
         opt_args_ls.append(forward_model.get_argument_index('probe_pos_correction'))
         opt_ls.append(opt_probe_pos)
@@ -952,9 +968,14 @@ def initialize_parameter_gradients(opt_ls, device=None, use_numpy=False):
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
+        elif opt.name == 'probe':
+            if not use_numpy:
+                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device, dtype='complex64')
+            else:
+                opt.grads = np.zeros(opt.whole_object_size, dtype='complex64')
         else:
             if not use_numpy:
-                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, device=device)
+                opt.grads = w.zeros(opt.whole_object_size, requires_grad=False, dtype='float32', device=device)
             else:
                 opt.grads = np.zeros(opt.whole_object_size)
     return opt_ls
@@ -965,12 +986,6 @@ def update_parameter_gradients(opt_ls, grads, use_numpy=False):
     for opt in opt_ls:
         if opt.name == 'obj':
             continue
-        elif opt.name == 'probe':
-            if not use_numpy:
-                opt.grads += w.stack(grads[1:3], axis=-1)
-            else:
-                g = w.to_numpy(w.stack(grads[1:3], axis=-1))
-                opt.grads = opt.grads + g
         else:
             if not use_numpy:
                 opt.grads += grads[opt.index_in_grad_returns]
@@ -1013,22 +1028,20 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
                     opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
-                    probe_temp = opt.apply_gradient(w.stack([optimizable_params['probe_real'], optimizable_params['probe_imag']], axis=-1), opt.grads,
+                    probe_temp = opt.apply_gradient(optimizable_params['probe'], opt.grads,
                                                           i_full_angle, **opt.options_dict)
-                    optimizable_params['probe_real'], optimizable_params['probe_imag'] = w.split_channel(probe_temp)
+                    optimizable_params['probe'] = probe_temp
                     del opt.grads, probe_temp
-                w.reattach(optimizable_params['probe_real'])
-                w.reattach(optimizable_params['probe_imag'])
+                w.reattach(optimizable_params['probe'])
             else:
-                print_flush('  Probe is not updated because current batch is out of the specified range ({}, {}).'.format(
-                    probe_update_delay, probe_update_limit), 0, rank, **stdout_options)
+                print_flush(f'  Probe is not updated because current batch is out of the specified range ({probe_update_delay}, {probe_update_limit}).', 0, rank, **stdout_options)
 
         elif i_batch + i_epoch * n_batch >= other_params_update_delay:
 
             if opt.name == 'probe_pos_correction':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     probe_pos_correction = optimizable_params['probe_pos_correction']
                     probe_pos_correction = opt.apply_gradient(probe_pos_correction, opt.grads, i_full_angle,
                                                                         **opt.options_dict)
@@ -1040,7 +1053,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             elif opt.name == 'slice_pos_cm_ls':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     slice_pos_cm_ls = optimizable_params['slice_pos_cm_ls']
                     slice_pos_cm_ls = opt.apply_gradient(slice_pos_cm_ls, opt.grads, i_full_angle,
                                                                    **opt.options_dict)
@@ -1051,7 +1064,7 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             elif opt.name == 'prj_affine_ls':
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     optimizable_params['prj_affine_ls'] = opt.apply_gradient(optimizable_params['prj_affine_ls'], opt.grads, i_full_angle,
                                                                   **opt.options_dict)
                     # Regularize transformation of image 0.
@@ -1066,15 +1079,14 @@ def update_parameters(opt_ls, optimizable_params, kwargs):
             else:
                 with w.no_grad():
                     opt.grads = comm.allreduce(w.to_numpy(opt.grads))
-                    opt.grads = w.create_variable(opt.grads, requires_grad=False, device=device)
+                    opt.grads = w.create_variable(opt.grads, requires_grad=False, dtype='float32', device=device)
                     var = optimizable_params[opt.name]
                     optimizable_params[opt.name] = opt.apply_gradient(var, opt.grads, i_full_angle, **opt.options_dict)
                 w.reattach(optimizable_params[opt.name])
 
         else:
             print_flush(
-                'Params are not updated because current epoch is smaller than specified delay ({}).'.format(
-                    other_params_update_delay), 0, rank, **stdout_options)
+                f'Params are not updated because current epoch is smaller than specified delay ({other_params_update_delay}).', 0, rank, **stdout_options)
     return optimizable_params
 
 
@@ -1111,7 +1123,7 @@ def output_intermediate_parameters(opt_ls, optimizable_params, kwargs):
             continue
 
         elif opt.name == 'probe':
-            output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], os.path.join(output_folder, 'intermediate', 'probe'),
+            output_probe_complex(optimizable_params['probe'], os.path.join(output_folder, 'intermediate', 'probe'),
                          full_output=False, i_epoch=i_epoch, i_batch=i_batch,
                          save_history=save_history)
 
