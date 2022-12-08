@@ -581,7 +581,7 @@ def reconstruct_ptychography(
         # Instantize beamstop if provided.
         # ================================================================================
         if beamstop is not None:
-            beamstop = w.create_variable(beamstop, device=device_obj, requires_grad=False)
+            beamstop = w.create_variable(beamstop, dtype='float64', device=device_obj, requires_grad=False)
 
         # ================================================================================
         # Initialize probe functions.
