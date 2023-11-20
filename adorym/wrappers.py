@@ -1,3 +1,16 @@
+import torch
+try:
+    try:
+        import intel_extension_for_pytorch as ipex
+    except:
+        import ipex
+except:
+    pass
+# backward compatibility
+try:
+    import torch_ipex
+except:
+    pass
 import warnings
 import os
 import gc
@@ -24,7 +37,6 @@ try:
 except:
     warnings.warn('PyTorch backend is not available.')
     flag_pytorch_avail = False
-
 
 func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'zeros',      'pytorch': 'zeros',      'numpy': 'zeros'},
                      'ones':        {'autograd': 'ones',       'tensorflow': 'ones',       'pytorch': 'ones',       'numpy': 'ones'},
@@ -54,20 +66,22 @@ func_mapping_dict = {'zeros':       {'autograd': 'zeros',      'tensorflow': 'ze
                      'tensordot':   {'autograd': 'tensordot',  'tensorflow': 'tensordot',  'pytorch': 'tensordot',  'numpy': 'tensordot'},
                      }
 
-dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',  'numpy': 'float32'},
-                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double', 'numpy': 'float64'},
-                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',   'numpy': 'float16'},
-                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',   'numpy': 'int8'},
-                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',  'numpy': 'int16'},
-                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',    'numpy': 'int32'},
-                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',   'numpy': 'int64'},
-                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',   'numpy': 'bool'},
+dtype_mapping_dict = {'float32':    {'autograd': 'float32',    'tensorflow': 'float32',    'pytorch': 'float',   'numpy': 'float32'},
+                      'float64':    {'autograd': 'float64',    'tensorflow': 'float64',    'pytorch': 'double',  'numpy': 'float64'},
+                      'float16':    {'autograd': 'float16',    'tensorflow': 'float16',    'pytorch': 'half',    'numpy': 'float16'},
+                      'bfloat16':   {'autograd': 'float32',    'tensorflow': 'bfloat16',   'pytorch': 'bfloat16','numpy': 'float32'},
+                      'int8':       {'autograd': 'int8',       'tensorflow': 'int8',       'pytorch': 'int8',    'numpy': 'int8'},
+                      'int16':      {'autograd': 'int16',      'tensorflow': 'int16',      'pytorch': 'short',   'numpy': 'int16'},
+                      'int32':      {'autograd': 'int32',      'tensorflow': 'int32',      'pytorch': 'int',     'numpy': 'int32'},
+                      'int64':      {'autograd': 'int64',      'tensorflow': 'int64',      'pytorch': 'long',    'numpy': 'int64'},
+                      'bool':       {'autograd': 'bool',       'tensorflow': 'bool',       'pytorch': 'bool',    'numpy': 'bool'},
                       }
 
 if flag_pytorch_avail:
     try:
         pytorch_dtype_query_mapping_dict = {tc.float32: 'float32',
                                             tc.float64: 'float64',
+                                            tc.bfloat16: 'bfloat16',
                                             'float32': 'float32',
                                             'float64': 'float64',
                                             'single': 'float32',
@@ -112,6 +126,11 @@ def create_variable(arr, dtype='float32', device=None, requires_grad=True, backe
     :param dtype: str; Data type.
     :param device: A device object from PyTorch, etc. Use None for CPU.
     """
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     args = {}
     if backend == 'autograd':
         if dtype is not None:
@@ -135,6 +154,11 @@ def create_constant(arr, dtype='float32', device=None, backend='autograd'):
     :param dtype: str; Data type.
     :param device: A device object from PyTorch, etc. Use None for CPU.
     """
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     args = {}
     if backend == 'autograd':
         if dtype is not None:
@@ -165,9 +189,16 @@ def to_numpy(var, backend='autograd'):
             return var._value
         elif backend == 'pytorch':
             if var.device.type == 'cpu':
-                return var.data.numpy()
+                if var.dtype == torch.bfloat16:
+                    return var.double().data.numpy()
+                else:
+                    return var.data.numpy()
+
             else:
-                return var.cpu().data.numpy()
+                if var.dtype == torch.bfloat16:
+                    return var.cpu().double().data.numpy()
+                else:
+                    return var.cpu().data.numpy()
 
 
 @set_bn
@@ -196,11 +227,16 @@ def to_gpu(var, device='cuda:0', backend='autograd'):
         if backend == 'autograd':
             return var
         elif backend == 'pytorch':
-            if var.device.type == 'cuda':
-                return var
+            if global_settings.xpu:
+                if var.device.type == 'xpu':
+                    return var
+                else:
+                    return var.to('xpu')
             else:
-                return var.cuda(device=device)
-
+                if var.device.type == 'cuda':
+                    return var
+                else:
+                    return var.cuda(device=device)
 
 @set_bn
 def get_device(index=None, backend='autograd'):
@@ -211,6 +247,8 @@ def get_device(index=None, backend='autograd'):
     if backend == 'autograd': return None
     elif backend == 'pytorch':
         if index is None: return None
+        elif global_settings.xpu:
+            return tc.device('xpu:{}'.format(index))
         else:
             return tc.device('cuda:{}'.format(index))
 
@@ -245,6 +283,11 @@ def set_device(device, backend='autograd'):
         except:
             pass
 
+
+@set_bn
+def barrier(comm, backend='autograd'):
+    if comm.Get_size() > 1:
+        comm.Barrier()
 
 @set_bn
 def prepare_loss_node(loss, opt_args_ls=None, backend='autograd'):
@@ -443,6 +486,11 @@ def get_dtype(arr, backend='autograd'):
 
 @set_bn
 def zeros(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[backend], func_mapping_dict['zeros'][backend])
@@ -456,6 +504,11 @@ def zeros(shape, dtype=None, device=None, requires_grad=True, backend='autograd'
 
 @set_bn
 def ones(shape, dtype=None, device=None, requires_grad=True, backend='autograd'):
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[backend], func_mapping_dict['ones'][backend])
@@ -472,6 +525,11 @@ def zeros_like(var, dtype=None, device=None, requires_grad=True, backend='autogr
     """
     :param var: ADVariable or tensor.
     """
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[backend], func_mapping_dict['zeros_like'][backend])
@@ -488,6 +546,11 @@ def ones_like(var, dtype=None, device=None, requires_grad=True, backend='autogra
     """
     :param var: ADVariable or tensor.
     """
+    if global_settings.run_bf16:
+        dtype = 'bfloat16'
+    if global_settings.run_fp64:
+        dtype = 'float64'
+
     kwargs = {}
     if dtype is not None: kwargs['dtype'] = dtype
     func = getattr(engine_dict[backend], func_mapping_dict['ones_like'][backend])

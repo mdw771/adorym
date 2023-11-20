@@ -1,3 +1,16 @@
+import torch
+try:
+    try:
+        import intel_extension_for_pytorch as ipex
+    except:
+        import ipex
+except:
+    pass
+# backward compatibility
+try:
+    import torch_ipex
+except:
+    pass
 from adorym.ptychography import reconstruct_ptychography
 import numpy as np
 import dxchange
@@ -17,8 +30,12 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--epoch', default='None')
 parser.add_argument('--save_path', default='cone_256_foam_ptycho')
 parser.add_argument('--output_folder', default='test') # Will create epoch folders under this
+parser.add_argument('--xpu', default=False)
+
 args = parser.parse_args()
 epoch = args.epoch
+xpu = args.xpu
+
 if epoch == 'None':
     epoch = 0
     init = None
@@ -53,7 +70,7 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
                         'cpu_only': False,
                         'use_checkpoint': True,
-                        'save_path': 'cone_256_foam_ptycho',
+                        'save_path': args.save_path,
                         'multiscale_level': 1,
                         'n_epoch_final_pass': None,
                         'save_intermediate': False,
@@ -72,6 +89,9 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'optimizer': 'adam',
                         'backend': 'pytorch',
                         'free_prop_cm': 'inf',
+                        'xpu':xpu,
+                        'run_bfloat16': False,
+                        'run_float64': False,
                         }
 
 params = params_cone_marc_theta

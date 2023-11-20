@@ -1,3 +1,18 @@
+import torch
+
+try:
+    try:
+        import intel_extension_for_pytorch as ipex
+    except:
+        import ipex
+except:
+    pass
+# backward compatibility
+try:
+    import torch_ipex
+except:
+    pass
+
 import numpy as np
 import dxchange
 import time
@@ -7,6 +22,7 @@ import h5py
 import gc
 import warnings
 import pickle
+import torch
 
 from adorym.util import *
 from adorym.misc import *
@@ -146,6 +162,12 @@ def reconstruct_ptychography(
         backend='autograd', # Choose from 'autograd' or 'pytorch
         debug=False,
         t_max_min=None,
+        # Enable XPU device
+        xpu =  False,
+        # Run with BFloat16 data type.
+        run_bfloat16 = False,
+        # Run with Float64 datatype
+        run_float64 = False,
         # At the end of a batch, terminate the program with s tatus 0 if total time exceeds the set value.
         # Useful for working with supercomputers' job dependency system, where the dependent may start only
         # if the parent job exits with status 0.
@@ -175,6 +197,9 @@ def reconstruct_ptychography(
     rank = comm.Get_rank()
     t_zero = time.time()
     global_settings.backend = backend
+    global_settings.xpu = xpu
+    global_settings.run_bf16 = run_bfloat16
+    global_settings.run_fp64 = run_float64
     device_obj = None if cpu_only else gpu_index
     device_obj = w.get_device(device_obj)
     w.set_device(device_obj)
@@ -196,6 +221,7 @@ def reconstruct_ptychography(
     # ================================================================================
     if output_folder is None:
         output_folder = 'recon_{}'.format(timestr)
+    h5py_path = f'{save_path}/demo/cone_256_foam_ptycho'
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
 
@@ -209,7 +235,7 @@ def reconstruct_ptychography(
     # ================================================================================
     t0 = time.time()
     print_flush('Reading data...', sto_rank, rank, **stdout_options)
-    f = h5py.File(os.path.join(save_path, fname), 'r')
+    f = h5py.File(os.path.join(h5py_path, fname), 'r')
     prj = f['exchange/data']
 
     # ================================================================================
@@ -299,7 +325,7 @@ def reconstruct_ptychography(
 
     print_flush('Data reading: {} s'.format(time.time() - t0), sto_rank, rank, **stdout_options)
     print_flush('Data shape: {}'.format(original_shape), sto_rank, rank, **stdout_options)
-    comm.Barrier()
+    w.barrier(comm)
 
     not_first_level = False
 
@@ -333,7 +359,7 @@ def reconstruct_ptychography(
         # ================================================================================
         ds_level = 2 ** ds_level
         print_flush('Multiscale downsampling level: {}'.format(ds_level), sto_rank, rank, **stdout_options)
-        comm.Barrier()
+        w.barrier(comm)
 
         prj_shape = original_shape
 
@@ -345,7 +371,7 @@ def reconstruct_ptychography(
         dim_y, dim_x = prj_shape[-2:]
         if minibatch_size is None:
             minibatch_size = len(probe_pos)
-        comm.Barrier()
+        w.barrier(comm)
 
         # ================================================================================
         # Create output directory.
@@ -355,7 +381,7 @@ def reconstruct_ptychography(
                 os.makedirs(os.path.join(output_folder))
             except:
                 print_flush('Target folder {} exists.'.format(output_folder), sto_rank, rank, **stdout_options)
-        comm.Barrier()
+        w.barrier(comm)
 
         # ================================================================================
         # generate Fresnel kernel.
@@ -370,18 +396,18 @@ def reconstruct_ptychography(
         # ================================================================================
         if precalculate_rotation_coords:
             if not os.path.exists('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta)):
-                comm.Barrier()
+                w.barrier(comm)
                 if rank == 0:
                     os.makedirs('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta))
-                comm.Barrier()
+                w.barrier(comm)
                 print_flush('Saving rotation coordinates...', sto_rank, rank, **stdout_options)
                 save_rotation_lookup(this_obj_size, theta_ls)
-        comm.Barrier()
+        w.barrier(comm)
 
         # ================================================================================
         # Unify random seed for all threads.
         # ================================================================================
-        comm.Barrier()
+        w.barrier(comm)
         seed = int(time.time() / 60)
         seed = comm.bcast(seed, root=0)
         np.random.seed(seed)
@@ -502,7 +528,10 @@ def reconstruct_ptychography(
                              'distribution_mode': distribution_mode,
                              'device': device_obj,
                              'common_vars_dict': locals(),
-                             'raw_data_type': raw_data_type}
+                             'raw_data_type': raw_data_type,
+                             'run_bfloat16': run_bfloat16,
+                             'run_float64': run_float64,
+                             'save_path': save_path}
         if forward_model == 'auto':
             if is_multi_dist:
                 forward_model = MultiDistModel(**forwardmodel_args)
@@ -737,7 +766,7 @@ def reconstruct_ptychography(
                 os.makedirs(os.path.join(output_folder, 'convergence'))
             except:
                 pass
-        comm.Barrier()
+        w.barrier(comm)
         f_conv = open(os.path.join(output_folder, 'convergence', 'loss_rank_{}.txt'.format(rank)), 'w')
         f_conv.write('i_epoch,i_batch,loss,time\n')
 
@@ -762,7 +791,7 @@ def reconstruct_ptychography(
             print_flush('Allocating jobs over threads...', sto_rank, rank, **stdout_options)
             # Make a list of all thetas and spot positions'
             np.random.seed(i_epoch)
-            comm.Barrier()
+            w.barrier(comm)
             if not two_d_mode:
                 theta_ind_ls = np.arange(n_theta)
                 np.random.shuffle(theta_ind_ls)
@@ -1083,7 +1112,7 @@ def reconstruct_ptychography(
                 # ================================================================================
                 # All reduce object gradient buffer.
                 # ================================================================================
-                if distribution_mode is None:
+                if distribution_mode is None and n_ranks > 1:
                     gradient.arr = comm.allreduce(gradient.arr)
 
                 # ================================================================================
@@ -1222,7 +1251,10 @@ def reconstruct_ptychography(
                 # Finishing a batch.
                 # ================================================================================
                 current_loss = forward_model.current_loss
+                if global_settings.xpu:
+                    torch.xpu.synchronize()
                 print_flush('Minibatch/angle done in {} s; loss (rank 0) is {}.'.format(time.time() - t00, current_loss), sto_rank, rank, **stdout_options)
+                print_flush('Throughput: {} angles/sec'.format(minibatch_size/(time.time() - t00)), sto_rank, rank, **stdout_options)
 
                 gc.collect()
                 if not cpu_only:
@@ -1263,4 +1295,4 @@ def reconstruct_ptychography(
                 output_probe(optimizable_params['probe_real'], optimizable_params['probe_imag'], output_folder,
                              full_output=True, ds_level=ds_level)
             print_flush('Current iteration finished.', sto_rank, rank, **stdout_options)
-        comm.Barrier()
+        w.barrier(comm)
