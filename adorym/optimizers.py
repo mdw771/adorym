@@ -300,6 +300,9 @@ class AdamOptimizer(Optimizer):
                 if w.get_var_device_type(x) == 'cuda':
                     m = w.to_gpu(m, w.get_var_device(x))
                     v = w.to_gpu(v, w.get_var_device(x))
+                elif w.get_var_device_type(x) == 'xpu':
+                    m = w.to_gpu(m, w.get_var_device(x))
+                    v = w.to_gpu(v, w.get_var_device(x))
                 else:
                     m = w.to_cpu(m)
                     v = w.to_cpu(v)
@@ -388,6 +391,8 @@ class MomentumOptimizer(Optimizer):
             device_0 = w.get_var_device(v)
             device_type_0 = w.get_var_device_type(v)
             if w.get_var_device_type(x) == 'cuda':
+                v = w.to_gpu(v, w.get_var_device(x))
+            elif w.get_var_device_type(x) == 'xpu':
                 v = w.to_gpu(v, w.get_var_device(x))
             else:
                 v = w.to_cpu(v)
@@ -544,6 +549,8 @@ class CurveballOptimizer(Optimizer):
         device_type_0 = w.get_var_device_type(z)
         if w.get_var_device_type(dz) == 'cuda':
             z = w.to_gpu(z, w.get_var_device(dz))
+        elif w.get_var_device_type(dz) == 'xpu':
+            z = w.to_gpu(z, w.get_var_device(dz))
         else:
             z = w.to_cpu(z)
         z = self.rho * z - self.beta * dz
@@ -601,6 +608,8 @@ class CGOptimizer(Optimizer):
         _descent_dir_old_t = self.params_whole_array_dict['descent_dir_old'][ss]
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
             _descent_dir_old_t = w.to_gpu(_descent_dir_old_t, w.get_var_device(self._descent_dir_t))
+        elif w.get_var_device_type(self._descent_dir_t) == 'xpu':
+            _descent_dir_old_t = w.to_gpu(_descent_dir_old_t, w.get_var_device(self._descent_dir_t))
         else:
             _descent_dir_old_t = w.to_cpu(_descent_dir_old_t)
 
@@ -646,6 +655,8 @@ class CGOptimizer(Optimizer):
         device_0 = w.get_var_device(_s_t)
         device_type_0 = w.get_var_device_type(_s_t)
         if w.get_var_device_type(self._descent_dir_t) == 'cuda':
+            _s_t = w.to_gpu(_s_t, w.get_var_device(self._descent_dir_t))
+        elif w.get_var_device_type(self._descent_dir_t) == 'xpu':
             _s_t = w.to_gpu(_s_t, w.get_var_device(self._descent_dir_t))
         else:
             _s_t = w.to_cpu(_s_t)

@@ -1,3 +1,18 @@
+import torch
+
+try:
+    try:
+        import intel_extension_for_pytorch as ipex
+    except:
+        import ipex
+except:
+    pass
+# backward compatibility
+try:
+    import torch_ipex
+except:
+    pass
+
 import numpy as np
 import os
 import h5py
