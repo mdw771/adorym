@@ -28,7 +28,6 @@ for i in [':', '-', ' ']:
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--epoch', default='None')
-parser.add_argument('--save_path', default='cone_256_foam_ptycho')
 parser.add_argument('--output_folder', default='test') # Will create epoch folders under this
 parser.add_argument('--xpu', default=False)
 
@@ -70,7 +69,6 @@ params_cone_marc_theta = {'fname': 'data_cone_256_foam_1nm.h5',
                         'output_folder': os.path.join(args.output_folder, 'epoch_{}'.format(epoch)),
                         'cpu_only': False,
                         'use_checkpoint': True,
-                        'save_path': args.save_path,
                         'multiscale_level': 1,
                         'n_epoch_final_pass': None,
                         'save_intermediate': False,

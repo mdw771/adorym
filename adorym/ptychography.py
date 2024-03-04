@@ -221,7 +221,6 @@ def reconstruct_ptychography(
     # ================================================================================
     if output_folder is None:
         output_folder = 'recon_{}'.format(timestr)
-    h5py_path = f'{save_path}/demo/cone_256_foam_ptycho'
     if save_path != '.':
         output_folder = os.path.join(save_path, output_folder)
 
@@ -235,7 +234,7 @@ def reconstruct_ptychography(
     # ================================================================================
     t0 = time.time()
     print_flush('Reading data...', sto_rank, rank, **stdout_options)
-    f = h5py.File(os.path.join(h5py_path, fname), 'r')
+    f = h5py.File(os.path.join(save_path, fname), 'r')
     prj = f['exchange/data']
 
     # ================================================================================
@@ -530,8 +529,7 @@ def reconstruct_ptychography(
                              'common_vars_dict': locals(),
                              'raw_data_type': raw_data_type,
                              'run_bfloat16': run_bfloat16,
-                             'run_float64': run_float64,
-                             'save_path': save_path}
+                             'run_float64': run_float64}
         if forward_model == 'auto':
             if is_multi_dist:
                 forward_model = MultiDistModel(**forwardmodel_args)
