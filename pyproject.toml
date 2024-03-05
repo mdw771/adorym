@@ -19,7 +19,7 @@ dependencies = [
     "tifffile",
     "jupyter",
     "ipywidgets",
-    "torch==1.10",
+    "torch==1.13.1",
     "torchvision",
     "torchinfo",
     "mpi4py",
