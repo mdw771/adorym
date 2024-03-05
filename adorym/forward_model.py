@@ -405,9 +405,9 @@ class SingleBatchFullfieldModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False):
+                 raw_data_type='magnitude', simulation_mode=False, *args, **kwargs):
         super(SingleBatchFullfieldModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type, simulation_mode=simulation_mode)
+                                                raw_data_type, simulation_mode=simulation_mode, *args, **kwargs)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -494,9 +494,9 @@ class SingleBatchPtychographyModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False):
+                 raw_data_type='magnitude', simulation_mode=False, *args, **kwargs):
         super(SingleBatchPtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type, simulation_mode=simulation_mode)
+                                                raw_data_type, simulation_mode=simulation_mode, *args, **kwargs)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -589,9 +589,9 @@ class SingleBatchPtychographyModel(PtychographyModel):
 class SparseMultisliceModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False):
+                 raw_data_type='magnitude', simulation_mode=False, *args, **kwargs):
         super(SparseMultisliceModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                    raw_data_type, simulation_mode=simulation_mode)
+                                                    raw_data_type, simulation_mode=simulation_mode, *args, **kwargs)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -809,9 +809,9 @@ class SparseMultisliceModel(ForwardModel):
 class MultiDistModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False):
+                 raw_data_type='magnitude', simulation_mode=False, *args, **kwargs):
         super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                             raw_data_type, simulation_mode=simulation_mode)
+                                             raw_data_type, simulation_mode=simulation_mode, *args, **kwargs)
         args = inspect.getfullargspec(self.predict).args
         args.pop(0)
         self.argument_ls = args

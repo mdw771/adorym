@@ -1,9 +1,0 @@
-numpy
-scipy
-h5py
-six
-tifffile    
-pandas
-matplotlib
-git+https://github.com/data-exchange/dxchange.git
-opencv-python
