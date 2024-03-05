@@ -19,7 +19,6 @@ dependencies = [
     "tifffile",
     "torch==1.13.1",
     "torchvision",
-    "mpi4py",
     "pandas",
     "h5py",
     "dxchange@git+https://github.com/data-exchange/dxchange.git"
