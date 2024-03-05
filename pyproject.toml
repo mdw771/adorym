@@ -21,6 +21,7 @@ dependencies = [
     "torchvision",
     "pandas",
     "h5py",
+    "opencv-python-headless",
     "dxchange@git+https://github.com/data-exchange/dxchange.git"
 ]
 version = "0.0.1"
