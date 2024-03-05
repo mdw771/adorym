@@ -39,7 +39,7 @@ class ForwardModel(object):
         tomography reconstruction where raw data have already been minus-logged, always use ``'magnitude'``.
     """
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False):
         self.loss_function_type = loss_function_type
         self.argument_ls = []
         self.regularizer_dict = {}
@@ -50,7 +50,6 @@ class ForwardModel(object):
         self.raw_data_type = raw_data_type
         self.i_call = 0
         self.common_vars = common_vars_dict
-        self.save_path = save_path
         if common_vars_dict is not None:
             self.unknown_type = common_vars_dict['unknown_type']
             self.normalize_fft = common_vars_dict['normalize_fft']
@@ -165,9 +164,9 @@ class ForwardModel(object):
 class PtychographyModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, run_bfloat16=False, run_float64=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False, run_bfloat16=False, run_float64=False):
         super(PtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type, simulation_mode=simulation_mode, save_path=save_path)
+                                                raw_data_type, simulation_mode=simulation_mode)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -232,7 +231,7 @@ class PtychographyModel(ForwardModel):
         theta_ls = self.common_vars['theta_ls']
 
         if precalculate_rotation_coords:
-            coord_ls = read_origin_coords('{}/demo/arrsize_{}_{}_{}_ntheta_{}'.format(self.save_path, *this_obj_size, n_theta),
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
         flag_pp_sqrt = True
@@ -406,9 +405,9 @@ class SingleBatchFullfieldModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(SingleBatchFullfieldModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type, simulation_mode=simulation_mode, save_path=save_path)
+                                                raw_data_type, simulation_mode=simulation_mode)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -448,7 +447,7 @@ class SingleBatchFullfieldModel(PtychographyModel):
         theta_ls = self.common_vars['theta_ls']
 
         if precalculate_rotation_coords:
-            coord_ls = read_origin_coords('{}/demo/arrsize_{}_{}_{}_ntheta_{}'.format(self.save_path, *this_obj_size, n_theta),
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
         flag_pp_sqrt = True
@@ -495,9 +494,9 @@ class SingleBatchPtychographyModel(PtychographyModel):
     # Created to avoid unnecessary stacking and concatenation.
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(SingleBatchPtychographyModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                raw_data_type, simulation_mode=simulation_mode, save_path=save_path)
+                                                raw_data_type, simulation_mode=simulation_mode)
 
     def predict(self, obj, probe_real, probe_imag, probe_defocus_mm,
                 probe_pos_offset, this_i_theta, this_pos_batch, prj,
@@ -538,7 +537,7 @@ class SingleBatchPtychographyModel(PtychographyModel):
         optimize_prj_pos_offset = self.common_vars['optimize_prj_pos_offset']
 
         if precalculate_rotation_coords:
-            coord_ls = read_origin_coords('{}/demo/arrsize_{}_{}_{}_ntheta_{}'.format(self.save_path, *this_obj_size, n_theta),
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
         flag_pp_sqrt = True
@@ -590,9 +589,9 @@ class SingleBatchPtychographyModel(PtychographyModel):
 class SparseMultisliceModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(SparseMultisliceModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                                    raw_data_type, simulation_mode=simulation_mode, save_path=save_path)
+                                                    raw_data_type, simulation_mode=simulation_mode)
         # ==========================================================================================
         # argument_ls must be in the same order as arguments in get_loss_function's function call!
         # ==========================================================================================
@@ -654,7 +653,7 @@ class SparseMultisliceModel(ForwardModel):
         v = self.common_vars['v']
 
         if precalculate_rotation_coords:
-            coord_ls = read_origin_coords('{}/demo/arrsize_{}_{}_{}_ntheta_{}'.format(self.save_path, *this_obj_size, n_theta),
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
         # Allocate subbatches.
@@ -810,9 +809,9 @@ class SparseMultisliceModel(ForwardModel):
 class MultiDistModel(ForwardModel):
 
     def __init__(self, loss_function_type='lsq', distribution_mode=None, device=None, common_vars_dict=None,
-                 raw_data_type='magnitude', simulation_mode=False, save_path='.'):
+                 raw_data_type='magnitude', simulation_mode=False):
         super(MultiDistModel, self).__init__(loss_function_type, distribution_mode, device, common_vars_dict,
-                                             raw_data_type, simulation_mode=simulation_mode, save_path=save_path)
+                                             raw_data_type, simulation_mode=simulation_mode)
         args = inspect.getfullargspec(self.predict).args
         args.pop(0)
         self.argument_ls = args
@@ -878,7 +877,7 @@ class MultiDistModel(ForwardModel):
 
         kappa = 10 ** ctf_lg_kappa[0] if optimize_ctf_lg_kappa else None
         if precalculate_rotation_coords:
-            coord_ls = read_origin_coords('{}/demo/arrsize_{}_{}_{}_ntheta_{}'.format(self.save_path, *this_obj_size, n_theta),
+            coord_ls = read_origin_coords('arrsize_{}_{}_{}_ntheta_{}'.format(*this_obj_size, n_theta),
                                           theta_ls[this_i_theta], reverse=False)
 
         n_dists = len(free_prop_cm)
