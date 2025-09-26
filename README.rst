@@ -1,3 +1,8 @@
+⚠️ Adorym is no longer maintained ⚠️
+=====================================
+Looking for a ptychographic package in Python with both AD and analytical reconstructors? Try `Pty-Chi <https://github.com/AdvancedPhotonSource/pty-chi>`_
+-------------------------------------
+
 Adorym: Automatic Differentiation-based Object Reconstruction with DynaMical Scattering
 =======================================================================================
 
